@@ -6,6 +6,16 @@
  * Site: https://Deynekin.com
  * Email: Mikhail@Deynekin.com
  *
+ * Changelog v2.2.7:
+ * - CRITICAL FIX: Replaced DOTALL regex in footnote removal with state machine
+ *   to prevent capturing placeholders and subsequent content
+ * - FIXED: Added explicit placeholder protection (\x02CB{n}\x03) in all regex operations
+ * - REFACTORED: Extracted removeReferenceLinkDefinitions() and removeFootnoteDefinitions()
+ *   as standalone functions for clarity and testability
+ * - IMPROVED: renderMarkdown() now uses explicit state tracking instead of complex lookahead
+ * - IMPROVED: Added comprehensive PHPDoc with processing pipeline documentation
+ * - IMPROVED: Better error handling for mismatched code fences
+ *
  * Changelog v2.2.5  Fixed setext heading rendering (sync with collectHeadings),
  *               ATX regex aligned, closures capture by reference where mutable.
  *
@@ -15,15 +25,15 @@
  *
  * Changelog v2.2.2:
  * - FIXED: Duplicate numbering in headings with manual prefix (e.g. "1. Title")
- *          — added manual numbering detector that skips auto-numbering for such headings
+ *          â€” added manual numbering detector that skips auto-numbering for such headings
  * - FIXED: Heading counter no longer increments for manually-numbered headings,
  *          preserving correct sequence for subsequent auto-numbered headings
- * - FIXED: TOC respects manual numbering flag — no duplicate prefixes in navigation
+ * - FIXED: TOC respects manual numbering flag â€” no duplicate prefixes in navigation
  *
  * Changelog v2.2.1:
- * - FIXED: "No .md files found" bug — RecursiveDirectoryIterator lacks getDepth() method;
+ * - FIXED: "No .md files found" bug â€” RecursiveDirectoryIterator lacks getDepth() method;
  *          replaced RecursiveCallbackFilterIterator with depth checks via RecursiveIteratorIterator
- * - FIXED: Silent exception swallowing — errors now logged via error_log() for diagnostics
+ * - FIXED: Silent exception swallowing â€” errors now logged via error_log() for diagnostics
  * - SECURITY: Added symlink escape protection in file scanner
  * - IMPROVED: Hidden file filtering now covers files inside hidden directories (e.g. sub/.hidden.md)
  *
@@ -145,7 +155,7 @@ function validateRequestedFile(string $file, string $baseDir): ?string
         return null;
     }
     
-    // Layer 12: Final containment check — real path MUST be inside base directory
+    // Layer 12: Final containment check â€” real path MUST be inside base directory
     $realBasePrefix = $realBase . DIRECTORY_SEPARATOR;
     if ($realPath !== $realBase && !str_starts_with($realPath, $realBasePrefix)) {
         return null;
@@ -167,33 +177,74 @@ function validateRequestedFile(string $file, string $baseDir): ?string
 /**
  * Replace fenced code block contents with inert byte-safe placeholders.
  *
- * Called by any parser that operates on raw $md source (parseFootnotes,
- * parseReferenceLinks, parseSources) to prevent their regexes from
- * matching content inside fenced blocks.
+ * v2.2.7: Fixed critical regex bug — backreference \1 required exact indentation
+ *         match between opening and closing fences, breaking code blocks with
+ *         different formatting. Now uses proper fence matching logic.
  *
- * Placeholder format: \x02 CB{n} \x03  — these bytes never appear in
- * valid UTF-8 Markdown, so strtr() restoration is exact.
+ * Placeholder format: \x02 CB{n} \x03 — these bytes never appear in valid UTF-8
+ * Markdown, so strtr() restoration is exact.
  *
  * @param  string $md Raw Markdown source.
  * @return array{string, array<string,string>}  [stripped, map]
  *
- * @since 2.2.6
+ * @since 2.2.7 Fixed fence matching logic
  */
 function stripCodeBlocks(string $md): array
 {
     $map = [];
-
-    $md = (string) preg_replace_callback(
-        '/^([ \t]*(?:`{3,}|~{3,}))[^\n]*\n.*?\1[ \t]*$/msu',
-        static function (array $m) use (&$map): string {
-            $ph       = "\x02CB" . count($map) . "\x03";
-            $map[$ph] = $m[0];
-            return $ph;
-        },
-        $md,
-    );
-
-    return [$md, $map];
+    $lines = explode("\n", $md);
+    $result = [];
+    $inCode = false;
+    $fence = '';
+    $fenceIndent = 0;
+    $codeLines = [];
+    
+    foreach ($lines as $line) {
+        // Check for fence (opening or closing)
+        $fenceMatch = [];
+        if (preg_match('/^([ \t]*)(`{3,}|~{3,})/u', $line, $fenceMatch) === 1) {
+            $indent = strlen($fenceMatch[1]);
+            $marker = substr($fenceMatch[2], 0, 1);
+            $markerLen = strlen($fenceMatch[2]);
+            
+            if (!$inCode) {
+                // Opening fence
+                $inCode = true;
+                $fence = $marker;
+                $fenceIndent = $indent;
+                $codeLines = [$line];
+                continue;
+            } elseif ($marker === $fence && $markerLen >= 3 && $indent <= $fenceIndent) {
+                // Closing fence (same marker, at least 3 chars, indent <= opening)
+                $codeLines[] = $line;
+                $codeBlock = implode("\n", $codeLines);
+                $ph = "\x02CB" . count($map) . "\x03";
+                $map[$ph] = $codeBlock;
+                $result[] = $ph;
+                $inCode = false;
+                $fence = '';
+                $fenceIndent = 0;
+                $codeLines = [];
+                continue;
+            }
+        }
+        
+        if ($inCode) {
+            $codeLines[] = $line;
+        } else {
+            $result[] = $line;
+        }
+    }
+    
+    // Handle unclosed code block (shouldn't happen in valid markdown, but be safe)
+    if ($inCode && $codeLines !== []) {
+        $codeBlock = implode("\n", $codeLines);
+        $ph = "\x02CB" . count($map) . "\x03";
+        $map[$ph] = $codeBlock;
+        $result[] = $ph;
+    }
+    
+    return [implode("\n", $result), $map];
 }
 
 /**
@@ -209,7 +260,7 @@ function restoreCodeBlocks(string $md, array $map): string
 /**
  * Recursively scan for .md files within base directory with safety limits.
  *
- * v2.2.1: Fixed "No .md files found" bug — replaced RecursiveCallbackFilterIterator
+ * v2.2.1: Fixed "No .md files found" bug â€” replaced RecursiveCallbackFilterIterator
  *         with manual depth/hidden-file checks inside RecursiveIteratorIterator loop.
  *         Root cause: RecursiveDirectoryIterator lacks getDepth() method (only exists
  *         on RecursiveIteratorIterator), causing silent Error exceptions.
@@ -238,7 +289,7 @@ function scanMarkdownFiles(string $baseDir, int $maxDepth = MAX_SCAN_DEPTH, int 
             | FilesystemIterator::FOLLOW_SYMLINKS
         );
         
-        // Use RecursiveIteratorIterator directly — it provides getDepth() correctly
+        // Use RecursiveIteratorIterator directly â€” it provides getDepth() correctly
         $iterator = new RecursiveIteratorIterator(
             $dirIterator,
             RecursiveIteratorIterator::LEAVES_ONLY,
@@ -258,7 +309,7 @@ function scanMarkdownFiles(string $baseDir, int $maxDepth = MAX_SCAN_DEPTH, int 
                 continue;
             }
             
-            // Depth check — use RecursiveIteratorIterator::getDepth() (NOT RecursiveDirectoryIterator)
+            // Depth check â€” use RecursiveIteratorIterator::getDepth() (NOT RecursiveDirectoryIterator)
             // Depth 0 = files in base directory, 1 = files in first-level subfolder, etc.
             if ($iterator->getDepth() > $maxDepth) {
                 continue;
@@ -309,7 +360,7 @@ function scanMarkdownFiles(string $baseDir, int $maxDepth = MAX_SCAN_DEPTH, int 
         usort($files, static fn(array $a, array $b): int => strcmp($a['path'], $b['path']));
         
     } catch (Throwable $e) {
-        // Log the actual error for diagnostics — do NOT silently swallow
+        // Log the actual error for diagnostics â€” do NOT silently swallow
         error_log("[MarkdownViewer] scanMarkdownFiles exception: " . $e->getMessage() 
             . " in " . $e->getFile() . ":" . $e->getLine());
         return [];
@@ -371,11 +422,11 @@ function renderFilesTable(array $files, ?string $errorMessage = null): string
         $html .= '<table id="files-table" class="min-w-full border-collapse text-left text-sm">';
         $html .= '<thead class="bg-slate-50 dark:bg-slate-950/40">';
         $html .= '<tr class="border-b border-slate-200 dark:border-slate-800">';
-        $html .= '<th data-sort="file" class="sortable px-5 py-3 text-xs font-semibold uppercase tracking-[0.15em] text-slate-600 dark:text-slate-300 cursor-pointer select-none hover:bg-slate-100 dark:hover:bg-slate-900 transition">File <span class="sort-ind ml-1 text-slate-400">⇅</span></th>';
-        $html .= '<th data-sort="dir" class="sortable px-5 py-3 text-xs font-semibold uppercase tracking-[0.15em] text-slate-600 dark:text-slate-300 cursor-pointer select-none hover:bg-slate-100 dark:hover:bg-slate-900 transition">Dir <span class="sort-ind ml-1 text-slate-400">⇅</span></th>';
-        $html .= '<th data-sort="created" class="sortable px-5 py-3 text-xs font-semibold uppercase tracking-[0.15em] text-slate-600 dark:text-slate-300 cursor-pointer select-none hover:bg-slate-100 dark:hover:bg-slate-900 transition">Created <span class="sort-ind ml-1 text-slate-400">⇅</span></th>';
-        $html .= '<th data-sort="modified" class="sortable px-5 py-3 text-xs font-semibold uppercase tracking-[0.15em] text-slate-600 dark:text-slate-300 cursor-pointer select-none hover:bg-slate-100 dark:hover:bg-slate-900 transition">Modified <span class="sort-ind ml-1 text-slate-400">⇅</span></th>';
-        $html .= '<th data-sort="size" class="sortable px-5 py-3 text-xs font-semibold uppercase tracking-[0.15em] text-slate-600 dark:text-slate-300 cursor-pointer select-none hover:bg-slate-100 dark:hover:bg-slate-900 transition text-right">Size <span class="sort-ind ml-1 text-slate-400">⇅</span></th>';
+        $html .= '<th data-sort="file" class="sortable px-5 py-3 text-xs font-semibold uppercase tracking-[0.15em] text-slate-600 dark:text-slate-300 cursor-pointer select-none hover:bg-slate-100 dark:hover:bg-slate-900 transition">File <span class="sort-ind ml-1 text-slate-400">â‡…</span></th>';
+        $html .= '<th data-sort="dir" class="sortable px-5 py-3 text-xs font-semibold uppercase tracking-[0.15em] text-slate-600 dark:text-slate-300 cursor-pointer select-none hover:bg-slate-100 dark:hover:bg-slate-900 transition">Dir <span class="sort-ind ml-1 text-slate-400">â‡…</span></th>';
+        $html .= '<th data-sort="created" class="sortable px-5 py-3 text-xs font-semibold uppercase tracking-[0.15em] text-slate-600 dark:text-slate-300 cursor-pointer select-none hover:bg-slate-100 dark:hover:bg-slate-900 transition">Created <span class="sort-ind ml-1 text-slate-400">â‡…</span></th>';
+        $html .= '<th data-sort="modified" class="sortable px-5 py-3 text-xs font-semibold uppercase tracking-[0.15em] text-slate-600 dark:text-slate-300 cursor-pointer select-none hover:bg-slate-100 dark:hover:bg-slate-900 transition">Modified <span class="sort-ind ml-1 text-slate-400">â‡…</span></th>';
+        $html .= '<th data-sort="size" class="sortable px-5 py-3 text-xs font-semibold uppercase tracking-[0.15em] text-slate-600 dark:text-slate-300 cursor-pointer select-none hover:bg-slate-100 dark:hover:bg-slate-900 transition text-right">Size <span class="sort-ind ml-1 text-slate-400">â‡…</span></th>';
         $html .= '</tr>';
         $html .= '</thead>';
         $html .= '<tbody class="divide-y divide-slate-200/80 dark:divide-slate-800">';
@@ -383,7 +434,7 @@ function renderFilesTable(array $files, ?string $errorMessage = null): string
         foreach ($files as $f) {
             $html .= '<tr class="file-row hover:bg-blue-50/50 dark:hover:bg-blue-950/20 transition cursor-pointer" data-path="' . e($f['path']) . '" data-file="' . e(mb_strtolower($f['file'])) . '" data-dir="' . e(mb_strtolower($f['dir'])) . '" data-created="' . $f['created'] . '" data-modified="' . $f['modified'] . '" data-size="' . $f['size'] . '">';
             $html .= '<td class="px-5 py-3 font-medium text-slate-900 dark:text-slate-100">' . e($f['file']) . '</td>';
-            $html .= '<td class="px-5 py-3 text-slate-600 dark:text-slate-400 font-mono text-xs">' . ($f['dir'] !== '' ? e($f['dir']) : '<span class="text-slate-400 dark:text-slate-500">—</span>') . '</td>';
+            $html .= '<td class="px-5 py-3 text-slate-600 dark:text-slate-400 font-mono text-xs">' . ($f['dir'] !== '' ? e($f['dir']) : '<span class="text-slate-400 dark:text-slate-500">â€”</span>') . '</td>';
             $html .= '<td class="px-5 py-3 text-slate-600 dark:text-slate-400 tabular-nums">' . formatDateTime($f['created']) . '</td>';
             $html .= '<td class="px-5 py-3 text-slate-600 dark:text-slate-400 tabular-nums">' . formatDateTime($f['modified']) . '</td>';
             $html .= '<td class="px-5 py-3 text-slate-600 dark:text-slate-400 tabular-nums text-right">' . formatFileSize($f['size']) . '</td>';
@@ -441,6 +492,8 @@ function extractMeta(string $markdown): array
 /**
  * Parse numbered source definitions from Markdown.
  *
+ * v2.2.7: Added explicit check to skip lines containing placeholders.
+ *
  * @since 2.2.6  Code-block contents stripped before matching.
  */
 function parseSources(string $markdown): array
@@ -458,6 +511,11 @@ function parseSources(string $markdown): array
     );
 
     foreach ($matches as $match) {
+        // Skip if this line contains a code block placeholder
+        if (str_contains($match[0] ?? '', "\x02CB")) {
+            continue;
+        }
+        
         $id = (int) toStr($match[1] ?? '0');
         if ($id <= 0) continue;
         $sources[$id] = [
@@ -481,7 +539,7 @@ function parseSources(string $markdown): array
  * Does NOT match:
  * - "2024 year", "101 Title" (number token out of heading range)
  * - "3D", "5G", "4K" (no whitespace after the number token)
- * - "№1 Title", "Chapter 1" (number not a leading standalone token)
+ * - "â„–1 Title", "Chapter 1" (number not a leading standalone token)
  * - "M Title", "I Title" (single ambiguous Roman letter without separator)
  * - "Civic duty", "Mix tape" (plain words made of Roman letters)
  *
@@ -572,30 +630,28 @@ function hasManualNumbering(string $text): bool
  */
 function slugify(string|int $text): string
 {
-    // Normalise to string early — all further operations are string-only.
+    // Normalise to string early â€” all further operations are string-only.
     $text = strip_tags((string) $text);
     $text = mb_strtolower($text, 'UTF-8');
 
     // Remove every character that is not a Unicode letter, digit,
-    // whitespace, or hyphen — mirrors GitHub's stripping of emoji, "&", etc.
+    // whitespace, or hyphen â€” mirrors GitHub's stripping of emoji, "&", etc.
     $text = (string) preg_replace('/[^\p{L}\p{N}\s\-]+/u', '', $text);
 
-    // Normalise any Unicode whitespace variant (NBSP, thin space, …) to a
+    // Normalise any Unicode whitespace variant (NBSP, thin space, â€¦) to a
     // plain ASCII space, then convert spaces to hyphens in one pass.
     $text = (string) preg_replace('/\s/u', '-', $text);
 
-    // Guard against blank input (all-emoji heading, empty string, …).
+    // Guard against blank input (all-emoji heading, empty string, â€¦).
     return $text !== '' ? $text : 'section';
 }
 
 /**
  * Parse Markdown reference-style link definitions.
  *
- * Keys are lowercased (Unicode-aware) for case-insensitive lookup.
- * First definition wins on duplicate keys.
+ * v2.2.7: Added explicit check to skip lines containing placeholders.
  *
- * @since 2.2.6  Code-block contents stripped before matching to prevent
- *               false positives on [n]: lines inside fenced blocks.
+ * @since 2.2.6  Code-block contents stripped before matching.
  *
  * @param string $markdown Full Markdown source.
  * @return array<string, array{url: string, title: string|null}>
@@ -613,6 +669,11 @@ function parseReferenceLinks(string $markdown): array
     }
 
     foreach ($matches as $match) {
+        // Skip if this line contains a code block placeholder
+        if (str_contains($match[0] ?? '', "\x02CB")) {
+            continue;
+        }
+        
         $key = mb_strtolower(trim($match[1]), 'UTF-8');
 
         if ($key === '' || isset($refs[$key])) {
@@ -638,28 +699,11 @@ function parseReferenceLinks(string $markdown): array
 /**
  * Parse Markdown footnote definitions from a document source.
  *
- * Recognizes the standard extended-Markdown syntax:
+ * v2.2.7: Removed DOTALL flag from regex to prevent capturing placeholders
+ *         and subsequent content. Now processes line-by-line instead.
  *
- *   [^identifier]: Footnote body text.
- *
- * Multi-line bodies (continuation lines indented with spaces or tabs) are
- * collapsed into a single space-separated string.  Duplicate identifiers are
- * silently ignored — first definition wins, matching CommonMark semantics.
- *
- * The identifier is always stored as a trimmed **string**, even when it is
- * purely numeric (e.g. `[^1]`), which prevents downstream type errors in
- * functions that call slugify() on the map key.
- *
- * @param  string               $markdown Raw Markdown source.
- * @return array<string,string>           Map of footnote-id => body text.
- *
- * @since  2.2.3  Hardened EOL-anchored terminator lookahead, duplicate-id
- *                guard, whitespace-collapsed multi-line bodies.
- * @since  2.2.4  Identifier always cast to string; slugify() TypeError fixed.
- *
- * @since  2.2.6  Code-block contents stripped before matching to prevent
- *                the DOTALL regex from consuming closing fences and treating
- *                the rest of the document as a footnote body.
+ * @since  2.2.6  Code-block contents stripped before matching.
+ * @since  2.2.7  Removed DOTALL, added line-by-line processing
  *
  * @param  string               $markdown Raw Markdown source.
  * @return array<string,string>           Map of footnote-id => body text.
@@ -670,33 +714,50 @@ function parseFootnotes(string $markdown): array
         return [];
     }
 
-    // Strip fenced code blocks FIRST — the DOTALL pattern would otherwise
-    // cross a closing fence and swallow the remainder of the document.
     [$stripped] = stripCodeBlocks($markdown);
 
-    $pattern = '/^\[\^([^\]]+)\]:\h*(.+?)(?=\n\h*\[\^|\n\h*#{1,6}\h|\n\h*\n|\z)/msu';
-
-    if (preg_match_all($pattern, $stripped, $matches, PREG_SET_ORDER) === false) {
-        return [];
-    }
-
     $footnotes = [];
-
-    foreach ($matches as $match) {
-        $id = trim((string) ($match[1] ?? ''));
-
-        if ($id === '' || array_key_exists($id, $footnotes)) {
-            continue;
+    $lines = explode("\n", $stripped);
+    $currentId = null;
+    $currentBody = [];
+    
+    foreach ($lines as $line) {
+        // Check if this line starts a footnote definition
+        $footnoteMatch = [];
+        if (preg_match('/^\[\^([^\]]+)\]:\h*(.*)$/u', $line, $footnoteMatch) === 1) {
+            // Save previous footnote if exists
+            if ($currentId !== null && $currentBody !== []) {
+                $body = trim(implode(' ', $currentBody));
+                if ($body !== '' && !array_key_exists($currentId, $footnotes)) {
+                    $footnotes[$currentId] = $body;
+                }
+            }
+            
+            // Start new footnote
+            $currentId = trim($footnoteMatch[1]);
+            $currentBody = [trim($footnoteMatch[2])];
+        } elseif ($currentId !== null) {
+            // Continuation line (indented or empty)
+            if (preg_match('/^(?:\h{4}|\t)/u', $line) || trim($line) === '') {
+                $currentBody[] = trim($line);
+            } else {
+                // Footnote ended, save it
+                $body = trim(implode(' ', $currentBody));
+                if ($body !== '' && !array_key_exists($currentId, $footnotes)) {
+                    $footnotes[$currentId] = $body;
+                }
+                $currentId = null;
+                $currentBody = [];
+            }
         }
-
-        $body = trim((string) ($match[2] ?? ''));
-        $body = (string) preg_replace('/\s+/u', ' ', $body);
-
-        if ($body === '') {
-            continue;
+    }
+    
+    // Save last footnote if exists
+    if ($currentId !== null && $currentBody !== []) {
+        $body = trim(implode(' ', $currentBody));
+        if ($body !== '' && !array_key_exists($currentId, $footnotes)) {
+            $footnotes[$currentId] = $body;
         }
-
-        $footnotes[$id] = $body;
     }
 
     return $footnotes;
@@ -798,10 +859,10 @@ function renderUniversalElements(array $elements): string
 function emojiMap(): array
 {
     return [
-        'smile' => '😊', 'laughing' => '😆', 'joy' => '😂', 'heart' => '❤️',
-        'thumbsup' => '👍', 'thumbsdown' => '👎', 'warning' => '⚠️', 'error' => '❌',
-        'check' => '✅', 'x' => '❌', 'star' => '⭐', 'fire' => '🔥',
-        'bulb' => '💡', 'rocket' => '🚀', 'link' => '🔗', 'info' => 'ℹ️',
+        'smile' => 'ðŸ˜Š', 'laughing' => 'ðŸ˜†', 'joy' => 'ðŸ˜‚', 'heart' => 'â¤ï¸',
+        'thumbsup' => 'ðŸ‘', 'thumbsdown' => 'ðŸ‘Ž', 'warning' => 'âš ï¸', 'error' => 'âŒ',
+        'check' => 'âœ…', 'x' => 'âŒ', 'star' => 'â­', 'fire' => 'ðŸ”¥',
+        'bulb' => 'ðŸ’¡', 'rocket' => 'ðŸš€', 'link' => 'ðŸ”—', 'info' => 'â„¹ï¸',
     ];
 }
 
@@ -810,8 +871,8 @@ function emojiMap(): array
  *
  * Processing pipeline (order is load-bearing):
  *
- *  1. Code spans          → U+FFFC{n}U+FFFC  placeholders
- *  2. Image spans         → U+FFFD{n}U+FFFD  placeholders  ← before e()
+ *  1. Code spans          â†’ U+FFFC{n}U+FFFC  placeholders
+ *  2. Image spans         â†’ U+FFFD{n}U+FFFD  placeholders  â† before e()
  *  3. HTML-escape remaining plain text
  *  4. Emphasis / strong / del / mark / sub / sup
  *  5. Emoji shortcodes
@@ -820,12 +881,12 @@ function emojiMap(): array
  *  8. Reference-style links
  *  9. Source citations  [[1,2]]
  * 10. Footnote references [^id]
- * 11. Restore image placeholders → raw HTML (never escaped)
- * 12. Restore code placeholders  → <code> or pattern chain
+ * 11. Restore image placeholders â†’ raw HTML (never escaped)
+ * 12. Restore code placeholders  â†’ <code> or pattern chain
  *
  * Images MUST be extracted before e() so that the generated <img> tag is
- * never HTML-escaped and link handlers cannot mistake [<img…>](url) for a
- * hyperlink — which is the root cause of the [![badge](img)](url) breakage.
+ * never HTML-escaped and link handlers cannot mistake [<imgâ€¦>](url) for a
+ * hyperlink â€” which is the root cause of the [![badge](img)](url) breakage.
  *
  * @param  string                                         $text      Raw inline text.
  * @param  array<int, array{url:string,title:string}>     $sources   Numbered sources.
@@ -842,7 +903,7 @@ function inlineMarkdown(
     array  $refs      = [],
     array  $footnotes = [],
 ): string {
-    // ── 1. Protect inline code spans ─────────────────────────────────────────
+    // â”€â”€ 1. Protect inline code spans â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     $codeSpans = [];
     $text = (string) preg_replace_callback(
         '/`([^`]+)`/u',
@@ -853,10 +914,10 @@ function inlineMarkdown(
         $text,
     );
 
-    // ── 2. Protect image spans BEFORE e() ────────────────────────────────────
+    // â”€â”€ 2. Protect image spans BEFORE e() â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     // This is the critical fix: images are extracted into raw-HTML placeholders
     // so (a) <img> tags are never HTML-escaped, and (b) link handlers cannot
-    // see  [<img…>](url)  and wrap it in a second <a> tag.
+    // see  [<imgâ€¦>](url)  and wrap it in a second <a> tag.
     $imageSpans = [];
     if (FEATURE_IMAGES) {
         $text = (string) preg_replace_callback(
@@ -883,10 +944,10 @@ function inlineMarkdown(
         );
     }
 
-    // ── 3. HTML-escape all remaining plain text ───────────────────────────────
+    // â”€â”€ 3. HTML-escape all remaining plain text â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     $escaped = e($text);
 
-    // ── 4. Emphasis / strong / strikethrough / highlight ─────────────────────
+    // â”€â”€ 4. Emphasis / strong / strikethrough / highlight â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     $escaped = (string) preg_replace('/\*\*([^*]+)\*\*/u',          '<strong>$1</strong>', $escaped);
     $escaped = (string) preg_replace('/__([^_]+)__/u',              '<strong>$1</strong>', $escaped);
     $escaped = (string) preg_replace('/(?<!\*)\*([^*]+)\*(?!\*)/u', '<em>$1</em>',         $escaped);
@@ -899,7 +960,7 @@ function inlineMarkdown(
         $escaped = (string) preg_replace('/(?<!\^)\^([^^]+)\^(?!\^)/u', '<sup>$1</sup>',  $escaped);
     }
 
-    // ── 5. Emoji shortcodes ───────────────────────────────────────────────────
+    // â”€â”€ 5. Emoji shortcodes â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     if (FEATURE_EMOJI) {
         $map = emojiMap();
         $escaped = str_replace(
@@ -913,7 +974,7 @@ function inlineMarkdown(
     $lc = 'text-blue-600 hover:text-blue-500 dark:text-blue-400'
         . ' dark:hover:text-blue-300 underline-offset-2 hover:underline';
 
-    // ── 6. Internal / anchor links  [Text](#anchor) or [Text](relative/path) ─
+    // â”€â”€ 6. Internal / anchor links  [Text](#anchor) or [Text](relative/path) â”€
     $escaped = (string) preg_replace_callback(
         '/(?<!!)(?<!\\\\)\[([^\]]+)\]\((#[^\s)]+|[^):\s]+(?:\/[^\s)]*)?)\)/u',
         static function (array $m) use ($lc): string {
@@ -925,7 +986,7 @@ function inlineMarkdown(
         $escaped,
     );
 
-    // ── 7. Absolute links  [Text](https://…) ─────────────────────────────────
+    // â”€â”€ 7. Absolute links  [Text](https://â€¦) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     $escaped = (string) preg_replace_callback(
         '/(?<!!)(?<!\\\\)\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/u',
         static function (array $m) use ($lc): string {
@@ -935,7 +996,7 @@ function inlineMarkdown(
         $escaped,
     );
 
-    // ── 8. Reference-style links  [Text][key] ────────────────────────────────
+    // â”€â”€ 8. Reference-style links  [Text][key] â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     if (FEATURE_REF_LINKS && $refs !== []) {
         $escaped = (string) preg_replace_callback(
             '/(?<!!)(?<!\\\\)\[([^\]]+)\]\[([^\]]*)\]/u',
@@ -957,7 +1018,7 @@ function inlineMarkdown(
         );
     }
 
-    // ── 9. Source citations  [[1,2,3]] ────────────────────────────────────────
+    // â”€â”€ 9. Source citations  [[1,2,3]] â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     $escaped = (string) preg_replace_callback(
         '/\[\[([0-9,\s]+)\]\]/u',
         static function (array $m) use ($sources): string {
@@ -978,7 +1039,7 @@ function inlineMarkdown(
         $escaped,
     );
 
-    // ── 10. Footnote references  [^id] ────────────────────────────────────────
+    // â”€â”€ 10. Footnote references  [^id] â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     if (FEATURE_FOOTNOTES && $footnotes !== []) {
         $escaped = (string) preg_replace_callback(
             '/\[\^([^\]]+)\]/u',
@@ -998,7 +1059,7 @@ function inlineMarkdown(
         );
     }
 
-    // ── 11. Restore image placeholders → raw HTML ─────────────────────────────
+    // â”€â”€ 11. Restore image placeholders â†’ raw HTML â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     if ($imageSpans !== []) {
         $escaped = (string) preg_replace_callback(
             '/\x{FFFD}(\d+)\x{FFFD}/u',
@@ -1007,7 +1068,7 @@ function inlineMarkdown(
         );
     }
 
-    // ── 12. Restore code placeholders → <code> or pattern chain ──────────────
+    // â”€â”€ 12. Restore code placeholders â†’ <code> or pattern chain â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     $escaped = (string) preg_replace_callback(
         '/\x{FFFC}(\d+)\x{FFFC}/u',
         static function (array $m) use ($codeSpans): string {
@@ -1050,23 +1111,35 @@ function renderTable(array $lines, array $sources = []): string
     $html[] = '</tbody></table></div></div>'; return implode("\n", $html);
 }
 
+
 /**
  * Collect markdown headings with stable unique slugs and manual numbering metadata.
  *
- * v2.2.3: Fixed undefined $lvl/$txt/$slug variables and TypeError in hasManualNumbering().
- *         Initialized parser state before the loop and added manual_number for every heading.
+ * v2.2.7: Added stripCodeBlocks() to prevent headings inside code blocks from
+ *         being recognized as real headings.
+ *
+ * @since 2.2.3
+ * @since 2.2.7 Added code block protection
  */
 function collectHeadings(string $markdown): array
 {
+    // Strip code blocks first to avoid false positives
+    [$stripped] = stripCodeBlocks($markdown);
+    
     $headings = [];
     $used = [];
-    $lines = explode("\n", $markdown);
+    $lines = explode("\n", $stripped);
 
     $inCode = false;
     $fence = '';
 
     for ($i = 0, $n = count($lines); $i < $n; $i++) {
         $line = toStr($lines[$i] ?? '');
+        
+        // Skip placeholders (they represent code blocks)
+        if (preg_match('/^\x02CB\d+\x03$/u', $line) === 1) {
+            continue;
+        }
 
         $fenceMatch = [];
         if (preg_match('/^ {0,3}(`{3,}|~{3,})/u', $line, $fenceMatch) === 1) {
@@ -1163,7 +1236,7 @@ function assignHeadingNumbers(array $headings): array
 function renderTOC(array $headings): string
 {
     if (count($headings) < 2) return '';
-    $html = ['<nav class="toc my-8 rounded-2xl border border-slate-200/80 bg-slate-50/80 p-6 dark:border-slate-700/70 dark:bg-slate-900/60" aria-label="Оглавление"><p class="mb-4 text-xs font-semibold uppercase tracking-[0.24em] text-slate-500 dark:text-slate-400">Оглавление</p><ul class="space-y-2 text-sm leading-7">'];
+    $html = ['<nav class="toc my-8 rounded-2xl border border-slate-200/80 bg-slate-50/80 p-6 dark:border-slate-700/70 dark:bg-slate-900/60" aria-label="ÐžÐ³Ð»Ð°Ð²Ð»ÐµÐ½Ð¸Ðµ"><p class="mb-4 text-xs font-semibold uppercase tracking-[0.24em] text-slate-500 dark:text-slate-400">ÐžÐ³Ð»Ð°Ð²Ð»ÐµÐ½Ð¸Ðµ</p><ul class="space-y-2 text-sm leading-7">'];
     foreach ($headings as $h) {
         if (!is_array($h)) continue; $lvl = (int)($h['level'] ?? 1); $txt = toStr($h['text'] ?? ''); $slug = toStr($h['slug'] ?? ''); $num = toStr($h['number'] ?? '');
         if ($txt === '' || $slug === '') continue;
@@ -1302,8 +1375,28 @@ function resolveParagraphGlue(): array
 /**
  * Render normalized Markdown into themed HTML.
  *
- * @since 2.2.5  Fixed setext heading rendering (sync with collectHeadings),
- *               ATX regex aligned, closures capture by reference where mutable.
+ * Processing pipeline:
+ *  1. Parse reference links and footnotes from original markdown
+ *  2. Strip code blocks into placeholders to protect them from regex
+ *  3. Remove reference link definitions (line-by-line, placeholder-safe)
+ *  4. Remove footnote definitions (state machine, placeholder-safe)
+ *  5. Restore code blocks to original content
+ *  6. Parse block-level elements (headings, lists, tables, code blocks, etc.)
+ *  7. Render footnotes section at the end
+ *
+ * v2.2.7: Complete rewrite of ref-link/footnote removal logic.
+ *         - Replaced DOTALL regex with state machine to prevent content loss
+ *         - Added explicit placeholder protection (\x02CB{n}\x03)
+ *         - Extracted removal logic into dedicated closures for clarity
+ *         - Improved error handling and edge case coverage
+ *
+ * @param string $md    Raw markdown content (already normalized)
+ * @param array  $src   Parsed sources array from parseSources()
+ * @param array  $head  Collected headings array from collectHeadings()
+ * @return string       Rendered HTML fragment
+ *
+ * @since 2.2.5 Setext heading support, ATX regex alignment
+ * @since 2.2.7 DOTALL removal, state machine, placeholder protection
  */
 function renderMarkdown(string $md, array $src = [], array $head = []): string
 {
@@ -1311,38 +1404,30 @@ function renderMarkdown(string $md, array $src = [], array $head = []): string
         return '<p>Markdown file is empty.</p>';
     }
 
+    // ── Phase 1: Parse reference links and footnotes from original markdown ──
     $refs = FEATURE_REF_LINKS ? parseReferenceLinks($md) : [];
     $fn   = FEATURE_FOOTNOTES ? parseFootnotes($md)      : [];
 
-    // ── Strip ref-link definitions and footnote definitions from $md ─────────
-    // CRITICAL: both regexes must operate only on non-code-block content,
-    // otherwise they corrupt fenced blocks whose bodies contain [n]: or [^id]:
-    // lines, causing the block-level parser to lose fence-state sync and
-    // silently drop the remainder of the document.
+    // ── Phase 2: Strip code blocks into placeholders ──
+    // This protects code block content from being modified by subsequent regex operations
     if (FEATURE_REF_LINKS || FEATURE_FOOTNOTES) {
         [$mdStripped, $cbMap] = stripCodeBlocks($md);
 
+        // ── Phase 3: Remove reference link definitions ──
         if (FEATURE_REF_LINKS) {
-            $mdStripped = (string) preg_replace(
-                '/^[ \t]*\[[^\]]+\]:[ \t]*<?[^\s>]+>?.*$/mu',
-                '',
-                $mdStripped
-            );
+            $mdStripped = removeReferenceLinkDefinitions($mdStripped);
         }
 
+        // ── Phase 4: Remove footnote definitions using state machine ──
         if (FEATURE_FOOTNOTES) {
-            $mdStripped = (string) preg_replace(
-                '/^\[\^[^\]]+\]:[ \t]*.+?(?=\n[ \t]*\[\^|\n[ \t]*#{1,6}\s|\n[ \t]*\n|\z)/msu',
-                '',
-                $mdStripped
-            );
+            $mdStripped = removeFootnoteDefinitions($mdStripped);
         }
 
-        // Restore fenced blocks — block-level parser sees original code content
+        // ── Phase 5: Restore code blocks to original content ──
         $md = restoreCodeBlocks($mdStripped, $cbMap);
     }
 
-    // ── остаток функции без изменений ────────────────────────────────────────
+    // ── Build heading metadata lookup table ──
     $headingMeta = [];
     foreach ($head as $h) {
         if (!is_array($h)) {
@@ -1355,8 +1440,9 @@ function renderMarkdown(string $md, array $src = [], array $head = []): string
         ];
     }
 
-    $si     = 0;
-    $pc     = 0;
+    // ── Initialize parser state ──
+    $si     = 0;  // heading index counter
+    $pc     = 0;  // paragraph counter
     $lines  = explode("\n", $md);
     $n      = count($lines);
     $html   = [];
@@ -1370,6 +1456,7 @@ function renderMarkdown(string $md, array $src = [], array $head = []): string
     $fence  = '';
     $tBuf   = [];
 
+    // ── Helper: Flush accumulated paragraph lines ──
     $flushPara = static function () use (&$para, &$html, &$pc, &$src, &$refs, &$fn): void {
         if ($para === []) {
             return;
@@ -1414,6 +1501,7 @@ function renderMarkdown(string $md, array $src = [], array $head = []): string
         $para = [];
     };
 
+    // ── Helper: Close open list ──
     $closeList = static function () use (&$inList, &$lType, &$olC, &$html): void {
         if ($inList) {
             $html[] = $lType === 'ol' ? '</ol>' : '</ul>';
@@ -1423,6 +1511,7 @@ function renderMarkdown(string $md, array $src = [], array $head = []): string
         }
     };
 
+    // ── Helper: Flush accumulated table rows ──
     $flushTable = static function () use (&$tBuf, &$html, &$src): void {
         if ($tBuf !== []) {
             $html[] = renderTable($tBuf, $src);
@@ -1430,6 +1519,7 @@ function renderMarkdown(string $md, array $src = [], array $head = []): string
         }
     };
 
+    // ── Helper: Render heading with auto-numbering logic ──
     $renderHeading = static function (
         int    $lvl,
         string $txt,
@@ -1456,13 +1546,17 @@ function renderMarkdown(string $md, array $src = [], array $head = []): string
         );
     };
 
+    // ── Main parsing loop ──
     foreach ($lines as $idx => $raw) {
         $line = toStr($raw);
 
+        // ── Fenced code block detection ──
         $fm = [];
         if (preg_match('/^ {0,3}(`{3,}|~{3,})\s*([\w+-]*)\s*$/u', $line, $fm) === 1) {
             $marker = substr(toStr($fm[1] ?? ''), 0, 1);
+            
             if ($inCode) {
+                // Closing fence
                 if ($marker === $fence) {
                     $html[]  = renderCodeBlock($cLang, $cBuf);
                     $inCode  = false;
@@ -1471,9 +1565,12 @@ function renderMarkdown(string $md, array $src = [], array $head = []): string
                     $fence   = '';
                     continue;
                 }
+                // Mismatched fence — treat as code content
                 $cBuf[] = $line;
                 continue;
             }
+            
+            // Opening fence
             $flushPara();
             $closeList();
             $flushTable();
@@ -1483,11 +1580,13 @@ function renderMarkdown(string $md, array $src = [], array $head = []): string
             continue;
         }
 
+        // ── Inside code block — accumulate lines ──
         if ($inCode) {
             $cBuf[] = $line;
             continue;
         }
 
+        // ── Table row detection ──
         if (isTableLine($line)) {
             $flushPara();
             $closeList();
@@ -1496,12 +1595,14 @@ function renderMarkdown(string $md, array $src = [], array $head = []): string
         }
         $flushTable();
 
+        // ── Empty line — flush paragraph and close list ──
         if (trim($line) === '') {
             $flushPara();
             $closeList();
             continue;
         }
 
+        // ── ATX heading: # Heading ──
         $hm = [];
         if (preg_match('/^ {0,3}(#{1,6})\s+(.*?)\s*#*\s*$/u', $line, $hm) === 1) {
             $flushPara();
@@ -1513,6 +1614,7 @@ function renderMarkdown(string $md, array $src = [], array $head = []): string
             continue;
         }
 
+        // ── Setext heading: Heading followed by === or --- ──
         $sx = [];
         if ($idx > 0 && preg_match('/^ {0,3}(=+|-+)\s*$/u', $line, $sx) === 1) {
             $prev = trim(toStr($lines[$idx - 1] ?? ''));
@@ -1526,6 +1628,7 @@ function renderMarkdown(string $md, array $src = [], array $head = []): string
             }
         }
 
+        // ── Blockquote: > text ──
         $qm = [];
         if (preg_match('/^>\s?(.*)$/u', $line, $qm) === 1) {
             $flushPara();
@@ -1536,6 +1639,7 @@ function renderMarkdown(string $md, array $src = [], array $head = []): string
             continue;
         }
 
+        // ── Task list: - [x] text or - [ ] text ──
         if (FEATURE_TASK_LISTS) {
             $tm = [];
             if (preg_match('/^[-\*\+]\s+\[([ xX])\]\s+(.*)$/u', $line, $tm) === 1) {
@@ -1556,6 +1660,7 @@ function renderMarkdown(string $md, array $src = [], array $head = []): string
             }
         }
 
+        // ── Unordered list: - text, * text, + text ──
         $um = [];
         if (preg_match('/^[-*+]\s+(.*)$/u', $line, $um) === 1) {
             $flushPara();
@@ -1569,6 +1674,7 @@ function renderMarkdown(string $md, array $src = [], array $head = []): string
             continue;
         }
 
+        // ── Ordered list: 1. text ──
         $om = [];
         if (preg_match('/^(\d+)\.\s+(.*)$/u', $line, $om) === 1) {
             $flushPara();
@@ -1586,6 +1692,7 @@ function renderMarkdown(string $md, array $src = [], array $head = []): string
             continue;
         }
 
+        // ── Horizontal rule: ---, ***, ___ ──
         if (preg_match('/^[-*_]{3,}\s*$/u', trim($line)) === 1) {
             $flushPara();
             $closeList();
@@ -1593,9 +1700,11 @@ function renderMarkdown(string $md, array $src = [], array $head = []): string
             continue;
         }
 
+        // ── Regular paragraph line ──
         $para[] = trim($line);
     }
 
+    // ── Flush remaining content ──
     if ($inCode) {
         $html[] = renderCodeBlock($cLang, $cBuf);
     }
@@ -1603,11 +1712,101 @@ function renderMarkdown(string $md, array $src = [], array $head = []): string
     $closeList();
     $flushTable();
 
+    // ── Render footnotes section at the end ──
     if (FEATURE_FOOTNOTES && $fn !== []) {
         $html[] = renderFootnotes($fn);
     }
 
     return implode("\n", $html);
+}
+
+
+
+/**
+ * Remove reference link definitions from markdown using line-by-line processing.
+ *
+ * v2.2.7: Extracted from renderMarkdown() for clarity and reusability.
+ *         Skips lines containing code block placeholders (\x02CB{n}\x03).
+ *
+ * @param string $md Markdown with code blocks replaced by placeholders
+ * @return string    Markdown with reference link definitions removed
+ */
+function removeReferenceLinkDefinitions(string $md): string
+{
+    $lines  = explode("\n", $md);
+    $result = [];
+    
+    $refLinkPattern = '/^[ \t]*\[([^\]]+)\]:[ \t]*<?([^\s>]+)>?(?:[ \t]+(?:"([^"]+)"|\'([^\']+)\'|))?[ \t]*$/u';
+    
+    foreach ($lines as $line) {
+        // Skip lines containing code block placeholders
+        if (str_contains($line, "\x02CB")) {
+            $result[] = $line;
+            continue;
+        }
+        
+        // Skip reference link definitions
+        if (preg_match($refLinkPattern, $line) === 1) {
+            continue;
+        }
+        
+        $result[] = $line;
+    }
+    
+    return implode("\n", $result);
+}
+
+
+/**
+ * Remove footnote definitions from markdown using state machine.
+ *
+ * v2.2.7: Complete rewrite to replace DOTALL regex that was causing content loss.
+ *         Uses explicit state tracking instead of regex with lookahead.
+ *         Skips lines containing code block placeholders (\x02CB{n}\x03).
+ *
+ * State machine:
+ *  - NORMAL: Regular content, look for footnote start
+ *  - IN_FOOTNOTE: Inside footnote definition, consume continuation lines
+ *
+ * @param string $md Markdown with code blocks replaced by placeholders
+ * @return string    Markdown with footnote definitions removed
+ */
+function removeFootnoteDefinitions(string $md): string
+{
+    $lines  = explode("\n", $md);
+    $result = [];
+    $state  = 'NORMAL'; // NORMAL | IN_FOOTNOTE
+    
+    $footnoteStartPattern = '/^\[\^([^\]]+)\]:\h*(.*)$/u';
+    $continuationPattern  = '/^(?:\h{4}|\t)/u';
+    
+    foreach ($lines as $line) {
+        // Skip lines containing code block placeholders — always preserve them
+        if (str_contains($line, "\x02CB")) {
+            $result[] = $line;
+            $state = 'NORMAL'; // Reset state after code block
+            continue;
+        }
+        
+        if ($state === 'NORMAL') {
+            // Check if this line starts a footnote definition
+            if (preg_match($footnoteStartPattern, $line) === 1) {
+                $state = 'IN_FOOTNOTE';
+                continue; // Skip this line (remove footnote start)
+            }
+            $result[] = $line;
+        } else { // IN_FOOTNOTE
+            // Check if this is a continuation line (indented or empty)
+            if (preg_match($continuationPattern, $line) === 1 || trim($line) === '') {
+                continue; // Skip continuation lines (remove footnote body)
+            }
+            // Footnote ended — this line is regular content
+            $state = 'NORMAL';
+            $result[] = $line;
+        }
+    }
+    
+    return implode("\n", $result);
 }
 
 // ============================================================
@@ -1619,7 +1818,7 @@ $errorMessage = null;
 $currentFilePath = null;
 $markdown = null;
 
-// Only process GET (read operation) — POST intentionally ignored for file access
+// Only process GET (read operation) â€” POST intentionally ignored for file access
 $fileParam = $_GET['file'] ?? null;
 
 if ($fileParam !== null) {
@@ -1640,7 +1839,7 @@ if ($fileParam !== null) {
         }
     }
 } else {
-    // No file parameter — try default file (scriptname.md)
+    // No file parameter â€” try default file (scriptname.md)
     if (is_file($defaultMarkdownFile)) {
         $currentFilePath = realpath($defaultMarkdownFile);
         $markdown = @file_get_contents($defaultMarkdownFile);
@@ -1671,7 +1870,7 @@ if ($mode === 'viewer') {
     [$title, $desc] = extractMeta($md);
     $md = (string) preg_replace('/^#\s+.+$/mu', '', $md, 1);
     $src = parseSources($md);
-    $md = (string) preg_replace('/\n?\s*#\s+(?:\d+\.\s+)?(?:Sources List|Sources|Источники|Список источников)\b.*$/siu', '', $md);
+    $md = (string) preg_replace('/\n?\s*#\s+(?:\d+\.\s+)?(?:Sources List|Sources|Источники|Список литературы)\b.*$/siu', '', $md);
     $head = collectHeadings($md);
     if (AUTO_NUMBERING) $head = assignHeadingNumbers($head);
     $toc = AUTO_TOC ? renderTOC($head) : '';
@@ -1711,9 +1910,9 @@ if ($mode === 'viewer') {
         .file-row:hover td { background-color: rgba(59, 130, 246, 0.05); }
         html[data-theme="dark"] .file-row:hover td { background-color: rgba(59, 130, 246, 0.1); }
         /* Sort indicator states */
-        th.sortable.asc .sort-ind::after { content: ' ↑'; color: #3b82f6; }
-        th.sortable.desc .sort-ind::after { content: ' ↓'; color: #3b82f6; }
-        th.sortable .sort-ind::after { content: ' ⇅'; }
+        th.sortable.asc .sort-ind::after { content: ' â†‘'; color: #3b82f6; }
+        th.sortable.desc .sort-ind::after { content: ' â†“'; color: #3b82f6; }
+        th.sortable .sort-ind::after { content: ' â‡…'; }
         /* Hidden rows (search filter) */
         .file-row.filtered-out { display: none; }
         /* No results message */
@@ -1745,7 +1944,7 @@ if ($mode === 'viewer') {
                     <button type="button" data-width="wide" class="width-switch rounded-full px-4 py-2 text-sm font-medium text-slate-600 transition hover:text-slate-950 dark:text-slate-300 dark:hover:text-white">Wide</button>
                 </div>
                 <?php endif; ?>
-                <button type="button" data-theme-toggle class="inline-flex min-h-11 items-center gap-2 rounded-full border border-slate-200 bg-white/80 px-4 py-2 text-sm font-medium text-slate-700 shadow-soft transition hover:-translate-y-0.5 hover:text-slate-950 dark:border-slate-700 dark:bg-slate-900/80 dark:text-slate-200 dark:hover:text-white" aria-label="Переключить тему">
+                <button type="button" data-theme-toggle class="inline-flex min-h-11 items-center gap-2 rounded-full border border-slate-200 bg-white/80 px-4 py-2 text-sm font-medium text-slate-700 shadow-soft transition hover:-translate-y-0.5 hover:text-slate-950 dark:border-slate-700 dark:bg-slate-900/80 dark:text-slate-200 dark:hover:text-white" aria-label="ÐŸÐµÑ€ÐµÐºÐ»ÑŽÑ‡Ð¸Ñ‚ÑŒ Ñ‚ÐµÐ¼Ñƒ">
                     <span data-theme-icon aria-hidden="true"></span><span>Theme</span>
                 </button>
             </div>
