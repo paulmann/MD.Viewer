@@ -1,8 +1,7 @@
-/* Radio Markdown Viewer Styles v2.0.1
+/* Radio Markdown Viewer Styles v2.0.2
  * Author: Mikhail Deynekin
  * Site: https://Deynekin.com
  * Email: Mikhail@Deynekin.com
- * Repo: https://github.com/paulmann/MD.Viewer/
  *
  * Theme: CSS variables + [data-theme] attribute
  * Accessibility: WCAG 2.2 AA compliant
@@ -650,4 +649,24 @@ html[data-theme="dark"] .pattern-curly {
     color: var(--muted);
     margin-right: 0.5rem;
     opacity: 0.7;
+}
+
+code.inline-code.copy-on-click {
+    cursor: pointer;
+    transition: background-color 0.15s ease, color 0.15s ease;
+}
+code.inline-code.copy-on-click:hover {
+    background-color: rgb(59 130 246 / 0.12);
+    color: #2563eb;
+}
+html[data-theme="dark"] code.inline-code.copy-on-click:hover {
+    background-color: rgb(96 165 250 / 0.15);
+    color: #93c5fd;
+}
+code.inline-code.copied {
+    background-color: rgb(34 197 94 / 0.15);
+    color: #16a34a;
+}
+html[data-theme="dark"] code.inline-code.copied {
+    color: #4ade80;
 }
