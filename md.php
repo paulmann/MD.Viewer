@@ -6,6 +6,31 @@
  * Site: https://Deynekin.com
  * Email: Mikhail@Deynekin.com
  *
+ * Changelog v2.2.9:
+ * - FIXED: Duplicate paragraph content — regular paragraph lines were added to
+ *   $para[] twice due to a leftover assignment after the Raw HTML block handler.
+ *   The Raw HTML block uses `continue`, so plain text lines fell through to two
+ *   consecutive `$para[] = trim($line)` statements in the main parsing loop.
+ * - FIXED: Footer "Created with ♥" text and other inline HTML content appearing
+ *   doubled in rendered output as a result of the above duplication bug.
+ *
+ * Changelog v2.2.8:
+ * - FIXED: Nested fenced code blocks parsed incorrectly — stripCodeBlocks() and
+ *   renderMarkdown() stored only the fence CHARACTER (`\`` or ~), ignoring LENGTH.
+ *   An inner ``` fence would wrongly close an outer ```` fence (CommonMark §4.5
+ *   violation). Now $fenceLen is tracked; closing requires $markerLen >= $fenceLen.
+ * - FIXED: collectHeadings() fence detection aligned with the same length-aware
+ *   logic for consistency across all parsing passes.
+ * - FIXED: removeFootnoteDefinitions() — placeholder lines (\\x02CB…\\x03) no
+ *   longer reset IN_FOOTNOTE state; a code-block placeholder inside a multi-line
+ *   footnote body no longer prematurely terminates footnote consumption.
+ * - FIXED: Lone backtick artifact between adjacent inline-code placeholders when
+ *   rendering ` ```lang ` patterns; spurious `` ` `` is now removed post-extraction.
+ * - NEW:   removeSourcesSection() function — strips Sources/Bibliography H1/H2
+ *   sections before rendering, with full code-block protection via stripCodeBlocks().
+ * - IMPROVED: inlineMarkdown() now protects raw HTML tags via \\u{FFFE} placeholders
+ *   (step 2b) so inline HTML is never double-escaped or mangled by emphasis regex.
+ *
  * Changelog v2.2.7:
  * - CRITICAL FIX: Replaced DOTALL regex in footnote removal with state machine
  *   to prevent capturing placeholders and subsequent content
@@ -1803,9 +1828,6 @@ if (preg_match('/^\s*<\/?[a-zA-Z][^>]*>/u', $line)) {
     $html[] = $line;   // без e() — сырой HTML
     continue;
 }
-
-// ── Regular paragraph line ──
-$para[] = trim($line);
 
         // ── Regular paragraph line ──
         $para[] = trim($line);
