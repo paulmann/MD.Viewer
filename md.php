@@ -6,6 +6,9 @@
  * Site: https://Deynekin.com
  * Email: Mikhail@Deynekin.com
  *
+ * Changelog v2.2.5  Fixed setext heading rendering (sync with collectHeadings),
+ *               ATX regex aligned, closures capture by reference where mutable.
+ *
  * Changelog v2.2.3: Robust numeric/Roman prefix detection. Fixes short-title false
  *         negatives (e.g. "5 A"), rejects years/IDs/tech labels, and validates
  *         canonical Roman numerals to avoid matching plain words.
@@ -1296,32 +1299,50 @@ function renderMarkdown(string $md, array $src = [], array $head = []): string
     $fence  = '';
     $tBuf   = [];
 
-    $flushPara = static function () use (&$para, &$html, &$pc, &$src, &$refs, &$fn): void {
-        if ($para === []) {
-            return;
-        }
-        $rend = array_filter(array_map(
-            static fn($t): string => inlineMarkdown(trim(toStr($t)), $src, $refs, $fn),
-            $para
-        ));
-        if ($rend === []) {
-            $para = [];
-            return;
-        }
-        ['glue' => $glue, 'mode' => $mode] = resolveParagraphGlue();
-        if ($pc > 0) {
-            $html[] = '<div class="paragraph-gap" aria-hidden="true"></div>';
-        }
-        if ($mode === 'paragraph') {
-            foreach ($rend as $i => $l) {
-                $html[] = '<p' . ($i === 0 ? '' : ' class="mt-3"') . '>' . $l . '</p>';
-            }
-        } else {
-            $html[] = '<p>' . implode($glue, $rend) . '</p>';
-        }
-        $pc++;
+$flushPara = static function () use (&$para, &$html, &$pc, &$src, &$refs, &$fn): void {
+    if ($para === []) {
+        return;
+    }
+
+    $rend = array_values(array_filter(array_map(
+        static fn($t): string => inlineMarkdown(trim(toStr($t)), $src, $refs, $fn),
+        $para
+    )));
+
+    if ($rend === []) {
         $para = [];
-    };
+        return;
+    }
+
+    $hasImage = static fn(string $s): bool =>
+        str_contains($s, '<img');
+
+    ['glue' => $defaultGlue, 'mode' => $mode] = resolveParagraphGlue();
+
+    if ($pc > 0) {
+        $html[] = '<div class="paragraph-gap" aria-hidden="true"></div>';
+    }
+
+    if ($mode === 'paragraph') {
+        foreach ($rend as $i => $l) {
+            $html[] = '<p' . ($i === 0 ? '' : ' class="mt-3"') . '>' . $l . '</p>';
+        }
+    } else {
+        $parts = '';
+        $count = count($rend);
+        foreach ($rend as $i => $line) {
+            $parts .= $line;
+            if ($i < $count - 1) {
+                $next = $rend[$i + 1];
+                $parts .= ($hasImage($line) || $hasImage($next)) ? ' ' : $defaultGlue;
+            }
+        }
+        $html[] = '<p>' . $parts . '</p>';
+    }
+
+    $pc++;
+    $para = [];
+};
 
     $closeList = static function () use (&$inList, &$lType, &$olC, &$html): void {
         if ($inList) {
