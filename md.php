@@ -1236,7 +1236,7 @@ function assignHeadingNumbers(array $headings): array
 function renderTOC(array $headings): string
 {
     if (count($headings) < 2) return '';
-    $html = ['<nav class="toc my-8 rounded-2xl border border-slate-200/80 bg-slate-50/80 p-6 dark:border-slate-700/70 dark:bg-slate-900/60" aria-label="ÐžÐ³Ð»Ð°Ð²Ð»ÐµÐ½Ð¸Ðµ"><p class="mb-4 text-xs font-semibold uppercase tracking-[0.24em] text-slate-500 dark:text-slate-400">ÐžÐ³Ð»Ð°Ð²Ð»ÐµÐ½Ð¸Ðµ</p><ul class="space-y-2 text-sm leading-7">'];
+    $html = ['<nav class="toc my-8 rounded-2xl border border-slate-200/80 bg-slate-50/80 p-6 dark:border-slate-700/70 dark:bg-slate-900/60" aria-label="Table of content"><p class="mb-4 text-xs font-semibold uppercase tracking-[0.24em] text-slate-500 dark:text-slate-400">Table of content</p><ul class="space-y-2 text-sm leading-7">'];
     foreach ($headings as $h) {
         if (!is_array($h)) continue; $lvl = (int)($h['level'] ?? 1); $txt = toStr($h['text'] ?? ''); $slug = toStr($h['slug'] ?? ''); $num = toStr($h['number'] ?? '');
         if ($txt === '' || $slug === '') continue;
@@ -1870,7 +1870,7 @@ if ($mode === 'viewer') {
     [$title, $desc] = extractMeta($md);
     $md = (string) preg_replace('/^#\s+.+$/mu', '', $md, 1);
     $src = parseSources($md);
-    $md = (string) preg_replace('/\n?\s*#\s+(?:\d+\.\s+)?(?:Sources List|Sources|Источники|Список литературы)\b.*$/siu', '', $md);
+    $md = (string) preg_replace('/\n?\s*#\s+(?:\d+\.\s+)?(?:Sources List|Sources|Источники|Список источников)\b.*$/siu', '', $md);
     $head = collectHeadings($md);
     if (AUTO_NUMBERING) $head = assignHeadingNumbers($head);
     $toc = AUTO_TOC ? renderTOC($head) : '';
