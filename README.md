@@ -1,6 +1,6 @@
 # MD.Viewer
 
-> Безопасный самохостируемый PHP-просмотрщик Markdown-файлов с автоматическим содержанием, нумерацией заголовков, сносками, диаграммами Mermaid, кнопками копирования кода, тёмной темой и файловым браузером.
+> A secure, self-hosted PHP Markdown viewer that transforms plain `.md` files into polished, production-grade documentation pages — complete with auto-generated table of contents, heading numbering, footnotes, Mermaid diagrams, syntax-highlighted code blocks with one-click copy, dark mode, responsive layout controls, and a searchable file browser. No build step. No database. No dependencies beyond PHP itself.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://github.com/paulmann/MD.Viewer/blob/main/LICENSE)
 [![PHP](https://img.shields.io/badge/PHP-8.0%2B-777BB4?logo=php&logoColor=white)](https://php.net)
@@ -8,135 +8,152 @@
 
 ---
 
-## Содержание
+## Table of Contents
 
-- [1. Быстрый старт](#1-быстрый-старт)
-- [2. Описание и назначение](#2-описание-и-назначение)
-- [3. Требования](#3-требования)
-- [4. Установка](#4-установка)
-- [5. Структура файлов](#5-структура-файлов)
-- [6. Использование](#6-использование)
-  - [6.1 Режим просмотрщика](#61-режим-просмотрщика)
-  - [6.2 Режим файлового браузера](#62-режим-файлового-браузера)
-  - [6.3 URL-параметры](#63-url-параметры)
-- [7. Возможности](#7-возможности)
-  - [7.1 Автоматическое содержание](#71-автоматическое-содержание)
-  - [7.2 Нумерация заголовков](#72-нумерация-заголовков)
-  - [7.3 Диаграммы Mermaid](#73-диаграммы-mermaid)
-  - [7.4 Блоки кода с копированием](#74-блоки-кода-с-копированием)
-  - [7.5 Таблицы](#75-таблицы)
-  - [7.6 Сноски и ссылки-источники](#76-сноски-и-ссылки-источники)
-  - [7.7 Задачи (task lists)](#77-задачи-task-lists)
-  - [7.8 Эмодзи](#78-эмодзи)
-  - [7.9 Изображения](#79-изображения)
-  - [7.10 Тёмная тема](#710-тёмная-тема)
-  - [7.11 Адаптивная ширина контента](#711-адаптивная-ширина-контента)
-  - [7.12 Универсальные паттерны](#712-универсальные-паттерны)
-- [8. Настройка констант](#8-настройка-констант)
-  - [8.1 Функциональные переключатели](#81-функциональные-переключатели)
-  - [8.2 Лимиты безопасности](#82-лимиты-безопасности)
-  - [8.3 Стиль переносов строк](#83-стиль-переносов-строк)
-- [9. Безопасность](#9-безопасность)
-- [10. Синтаксис Markdown](#10-синтаксис-markdown)
-  - [10.1 Заголовки](#101-заголовки)
-  - [10.2 Форматирование текста](#102-форматирование-текста)
-  - [10.3 Ссылки и изображения](#103-ссылки-и-изображения)
-  - [10.4 Списки](#104-списки)
-  - [10.5 Цитаты](#105-цитаты)
-  - [10.6 Горизонтальные разделители](#106-горизонтальные-разделители)
-  - [10.7 Ссылки-сноски на источники](#107-ссылки-сноски-на-источники)
-  - [10.8 Сноски (footnotes)](#108-сноски-footnotes)
-  - [10.9 Reference links](#109-reference-links)
-- [11. Файловый браузер](#11-файловый-браузер)
-- [12. Именование файлов по имени скрипта](#12-именование-файлов-по-имени-скрипта)
-- [13. Тонкие случаи и решение проблем](#13-тонкие-случаи-и-решение-проблем)
+- [1. Quick Start](#1-quick-start)
+- [2. Overview](#2-overview)
+  - [2.1 The Problem](#21-the-problem)
+  - [2.2 Who Is It For](#22-who-is-it-for)
+  - [2.3 Use Cases](#23-use-cases)
+- [3. Requirements](#3-requirements)
+- [4. Installation](#4-installation)
+  - [4.1 Via Git](#41-via-git)
+  - [4.2 Manual Installation](#42-manual-installation)
+  - [4.3 PHP Built-in Server (Development)](#43-php-built-in-server-development)
+  - [4.4 Apache](#44-apache)
+  - [4.5 Nginx](#45-nginx)
+- [5. File Structure](#5-file-structure)
+- [6. Usage](#6-usage)
+  - [6.1 Viewer Mode](#61-viewer-mode)
+  - [6.2 File Browser Mode](#62-file-browser-mode)
+  - [6.3 URL Parameters](#63-url-parameters)
+- [7. Features](#7-features)
+  - [7.1 Auto-generated Table of Contents](#71-auto-generated-table-of-contents)
+  - [7.2 Heading Numbering](#72-heading-numbering)
+  - [7.3 Mermaid Diagrams](#73-mermaid-diagrams)
+  - [7.4 Code Blocks with Copy Button](#74-code-blocks-with-copy-button)
+  - [7.5 Tables](#75-tables)
+  - [7.6 Footnotes and Source References](#76-footnotes-and-source-references)
+  - [7.7 Task Lists](#77-task-lists)
+  - [7.8 Emoji Shortcodes](#78-emoji-shortcodes)
+  - [7.9 Images](#79-images)
+  - [7.10 Dark Mode](#710-dark-mode)
+  - [7.11 Adaptive Content Width](#711-adaptive-content-width)
+  - [7.12 Universal Inline Patterns](#712-universal-inline-patterns)
+- [8. Configuration](#8-configuration)
+  - [8.1 Feature Toggles](#81-feature-toggles)
+  - [8.2 Security Limits](#82-security-limits)
+  - [8.3 Paragraph Break Style](#83-paragraph-break-style)
+- [9. Security](#9-security)
+- [10. Markdown Syntax Reference](#10-markdown-syntax-reference)
+  - [10.1 Headings](#101-headings)
+  - [10.2 Inline Formatting](#102-inline-formatting)
+  - [10.3 Links and Images](#103-links-and-images)
+  - [10.4 Lists](#104-lists)
+  - [10.5 Blockquotes](#105-blockquotes)
+  - [10.6 Horizontal Rules](#106-horizontal-rules)
+  - [10.7 Source Reference Links](#107-source-reference-links)
+  - [10.8 Footnotes](#108-footnotes)
+  - [10.9 Reference-style Links](#109-reference-style-links)
+- [11. File Browser](#11-file-browser)
+- [12. Script-name-based File Mapping](#12-script-name-based-file-mapping)
+- [13. Edge Cases and Troubleshooting](#13-edge-cases-and-troubleshooting)
+  - [13.1 File Not Rendering](#131-file-not-rendering)
+  - [13.2 Mermaid Diagram Not Rendering](#132-mermaid-diagram-not-rendering)
+  - [13.3 Duplicate Heading Numbers](#133-duplicate-heading-numbers)
+  - [13.4 File Browser Shows No Files](#134-file-browser-shows-no-files)
+  - [13.5 TOC Not Shown on Short Documents](#135-toc-not-shown-on-short-documents)
+  - [13.6 Character Encoding Issues](#136-character-encoding-issues)
+  - [13.7 Offline Usage](#137-offline-usage)
 - [14. Changelog](#14-changelog)
-- [15. Лицензия](#15-лицензия)
+- [15. License](#15-license)
 
 ---
 
-## 1. Быстрый старт
+## 1. Quick Start
 
 ```bash
-# 1. Клонируйте репозиторий в директорию веб-сервера
+# Clone the repository into your web server's document root
 git clone https://github.com/paulmann/MD.Viewer.git /var/www/html/docs
 
-# 2. Создайте Markdown-файл рядом со скриптом
-cp /var/www/html/docs/index.md.example /var/www/html/docs/index.md
+# Place your Markdown file alongside the script
+echo "# Hello, World\n\nThis is my documentation." > /var/www/html/docs/index.md
 
-# 3. Откройте в браузере
+# Open in your browser
 # https://your-domain.com/docs/
 ```
 
-> **Минимальный вариант:** положите `index.php` и `index.md` в одну директорию, откройте `index.php` в браузере — MD.Viewer автоматически найдёт и отобразит `index.md`.
+> **Minimal setup:** drop `index.php` and `index.md` into the same directory and open `index.php` in a browser. MD.Viewer will automatically locate and render `index.md` — no configuration required.
 
 ---
 
-## 2. Описание и назначение
+## 2. Overview
 
-### 2.1 Проблематика
+### 2.1 The Problem
 
-Стандартный способ хранить техническую документацию — Markdown-файлы в репозитории. Однако их сырой вид неудобен для конечных пользователей: нет навигации, нет нумерации, нет красивого форматирования. Существующие решения либо требуют сложной инфраструктуры (Node.js, генераторы статических сайтов), либо зависят от внешних SaaS-платформ.
+Markdown is the de facto standard for technical documentation. Developers author it, teams store it in repositories, and CI pipelines publish it. Yet the raw `.md` format is entirely unsuitable for end-user consumption: there is no navigation, no numbered sections, no visual hierarchy, and no way to render diagrams or highlight code without a full build pipeline.
 
-**MD.Viewer решает эту задачу радикально просто:** один PHP-файл превращает любой Markdown-файл в профессиональную HTML-страницу без зависимостей, без базы данных и без сборочного процесса.
+Existing solutions force a choice between heavy infrastructure — Node.js-based static site generators with complex toolchains and npm dependency trees — or external SaaS platforms that introduce vendor lock-in and potential data privacy concerns.
 
-### 2.2 Для кого подходит
+**MD.Viewer collapses that complexity into a single PHP file.** Drop it next to any `.md` document and you instantly have a professional, self-hosted documentation page with zero external dependencies, no database, no build step, and no ongoing maintenance overhead.
 
-- Разработчики, публикующие техническую документацию на собственном сервере
-- Команды, использующие внутренние вики на базе Markdown
-- DevOps-инженеры, которым нужен быстрый просмотр README и runbook'ов
-- Авторы технических статей и инструкций
-- Все, кто хочет красиво отображать `.md`-файлы без тяжёлых фреймворков
+### 2.2 Who Is It For
 
-### 2.3 Варианты применения
+- Developers who need to publish internal or customer-facing technical documentation on their own infrastructure
+- Engineering teams running internal wikis backed by Markdown files in a repository
+- DevOps and SRE engineers who want a fast, distraction-free way to browse READMEs and runbooks
+- Technical writers who author Markdown content and need an immediate, accurate preview
+- Anyone who wants beautifully rendered `.md` files without the overhead of a full documentation framework
 
-| Сценарий | Описание |
+### 2.3 Use Cases
+
+| Scenario | Description |
 |---|---|
-| Документация проекта | Положите `index.md` рядом со скриптом — получите красивую страницу документации |
-| Файловый браузер | Откройте директорию без `.md`-файла — получите сортируемый список всех `.md`-файлов |
-| Мультифайловая документация | Передавайте `?file=path/to/doc.md` для навигации между файлами |
-| Внутренняя вики | Разместите набор `.md`-файлов и скрипт на внутреннем сервере |
-| Самохостируемый блог | Каждый пост — отдельный `.md`-файл, скрипт с именем поста автоматически его находит |
+| Project documentation | Place `index.md` alongside the script — get a polished documentation page instantly |
+| File browser | Open a directory with no `.md` file and get a sortable, searchable index of all Markdown files |
+| Multi-page documentation | Navigate between files using the `?file=path/to/doc.md` query parameter |
+| Internal wiki | Deploy the script and a set of `.md` files on a private server — no CMS required |
+| Self-hosted blog | Each post is a `.md` file; a matching PHP file finds and renders it automatically |
 
 ---
 
-## 3. Требования
+## 3. Requirements
 
-- **PHP** 8.0 или выше (рекомендуется 8.2+)
-- Веб-сервер: **Apache**, **Nginx** или **PHP built-in server**
-- Расширения PHP: `mbstring` (стандартно включено в большинстве дистрибутивов)
-- Доступ к интернету на стороне браузера (CDN для Tailwind CSS, Google Fonts, Mermaid)
+- **PHP** 8.0 or higher (8.2+ recommended)
+- A web server: **Apache**, **Nginx**, or the **PHP built-in development server**
+- PHP extension: `mbstring` (enabled by default in most distributions)
+- Browser-side internet access for CDN assets: Tailwind CSS, Google Fonts, and Mermaid
 
-> **Оффлайн-режим:** если доступ к CDN недоступен, замените ссылки на локальные копии библиотек в `<head>` скрипта.
+> **Air-gapped or offline environments:** replace the CDN `<script>` and `<link>` tags in `index.php` with locally served copies of the respective libraries.
 
 ---
 
-## 4. Установка
+## 4. Installation
 
-### 4.1 Через Git
+### 4.1 Via Git
 
 ```bash
 git clone https://github.com/paulmann/MD.Viewer.git
 cd MD.Viewer
 ```
 
-### 4.2 Ручная установка
+### 4.2 Manual Installation
 
-1. Скачайте архив с [GitHub Releases](https://github.com/paulmann/MD.Viewer/releases)
-2. Распакуйте в директорию веб-сервера
-3. Убедитесь, что `index.php` доступен через браузер
+1. Download the latest release archive from [GitHub Releases](https://github.com/paulmann/MD.Viewer/releases).
+2. Extract the archive into your web server's document root or a subdirectory thereof.
+3. Verify that `index.php` is reachable via a browser.
 
-### 4.3 PHP встроенный сервер (для разработки)
+### 4.3 PHP Built-in Server (Development)
 
 ```bash
 cd /path/to/MD.Viewer
 php -S localhost:8080
-# Откройте http://localhost:8080
+# Navigate to http://localhost:8080
 ```
 
 ### 4.4 Apache
 
-Стандартная конфигурация `.htaccess` не требуется. Убедитесь, что `mod_php` или `php-fpm` подключены и директория доступна для чтения.
+No `.htaccess` configuration is required. Ensure that `mod_php` or `php-fpm` is active and that the target directory is readable by the web server process.
 
 ### 4.5 Nginx
 
@@ -157,334 +174,334 @@ server {
 
 ---
 
-## 5. Структура файлов
+## 5. File Structure
 
 ```
 MD.Viewer/
-├── index.php              # Основной скрипт (весь рендеринг)
-├── index.md               # Ваш Markdown-файл (по умолчанию)
+├── index.php              # Core rendering engine — the entire application
+├── index.md               # Your default Markdown document
 ├── assets/
 │   ├── css/
-│   │   └── radio.css      # Дополнительные стили
+│   │   └── radio.css      # Supplementary stylesheet
 │   └── js/
-│       └── md.js          # JavaScript: темы, ширина, копирование, Mermaid lazy-load
+│       └── md.js          # Client-side logic: theme switching, layout width,
+│                          # copy-to-clipboard, Mermaid lazy initialization
 ├── LICENSE
 └── README.md
 ```
 
-> Скрипт автоматически ищет `.md`-файл с тем же именем, что и PHP-скрипт. Если скрипт называется `docs.php` — он ищет `docs.md`. Это позволяет размещать несколько независимых просмотрщиков в одной директории.
+> The script automatically resolves the companion Markdown file by matching its own filename: a script named `docs.php` looks for `docs.md`. This makes it straightforward to deploy multiple independent viewer instances within a single directory, each serving its own document.
 
 ---
 
-## 6. Использование
+## 6. Usage
 
-### 6.1 Режим просмотрщика
+### 6.1 Viewer Mode
 
-Когда рядом со скриптом или в директории найден `.md`-файл, скрипт переходит в режим **viewer**:
+When a matching `.md` file is found — either by name inference or via the `?file=` parameter — the script enters **viewer mode**:
 
-- Рендерится заголовок страницы (`<h1>` первого заголовка из Markdown)
-- Выводится мета-описание (первый абзац)
-- Формируется автоматическое содержание (TOC)
-- Рендерится весь Markdown в красивый HTML
+- The page title is derived from the first `#` heading in the document.
+- The meta description is extracted from the first paragraph.
+- An auto-generated table of contents is rendered before the article body.
+- The full Markdown source is parsed and emitted as structured, styled HTML.
 
-### 6.2 Режим файлового браузера
+### 6.2 File Browser Mode
 
-Если ни один `.md`-файл не найден, скрипт переходит в режим **browser**:
+When no `.md` file can be located, the script enters **file browser mode**:
 
-- Рекурсивно сканируется текущая директория
-- Отображается таблица с колонками: File, Dir, Created, Modified, Size
-- Все колонки кликабельны для сортировки
-- Встроенный поиск с debounce по имени файла и директории
-- Клик по строке открывает файл в новой вкладке
+- The current directory is scanned recursively up to `MAX_SCAN_DEPTH` levels.
+- Results are displayed in a sortable table with columns: File, Dir, Created, Modified, Size.
+- A debounced live search field filters rows in real time by filename or directory path.
+- Clicking any row opens the corresponding file in a new tab via `?file=`.
 
-### 6.3 URL-параметры
+### 6.3 URL Parameters
 
-| Параметр | Описание | Пример |
+| Parameter | Description | Example |
 |---|---|---|
-| `?file=path/to/doc.md` | Открыть конкретный файл | `?file=docs/api.md` |
+| `?file=path/to/doc.md` | Render a specific Markdown file | `?file=docs/api.md` |
 
-Путь должен быть **относительным** и указывать на файл внутри директории скрипта. Абсолютные пути, path traversal (`../`), нулевые байты и управляющие символы отклоняются.
+The path must be **relative** and must resolve to a file within the script's own directory tree. Absolute paths, path traversal sequences (`../`), null bytes, and control characters are all rejected outright by the validation layer.
 
 ---
 
-## 7. Возможности
+## 7. Features
 
-### 7.1 Автоматическое содержание
+### 7.1 Auto-generated Table of Contents
 
-MD.Viewer автоматически собирает все заголовки `##`–`######` и строит навигационное содержание перед телом статьи. TOC:
+MD.Viewer automatically collects all headings from level `##` through `######` and constructs a hierarchical table of contents that appears above the article body. The TOC:
 
-- Отображает иерархию заголовков с отступами
-- Генерирует якорные ссылки (`slug`) из текста заголовка
-- Поддерживает дублирующиеся заголовки (добавляет суффикс `-2`, `-3` и т.д.)
-- Включается/выключается константой `AUTO_TOC`
-
-```php
-const AUTO_TOC = true; // Включить автоматическое содержание
-```
-
-### 7.2 Нумерация заголовков
-
-Все заголовки автоматически нумеруются в формате `1.`, `1.1.`, `1.1.1.` и т.д. Скрипт умно определяет ручную нумерацию (например, `1. Раздел`) и не дублирует номера.
+- Renders the full heading hierarchy with proportional indentation
+- Generates stable anchor slugs derived from each heading's text content
+- Handles duplicate headings gracefully by appending `-2`, `-3`, etc.
+- Can be disabled via the `AUTO_TOC` constant
 
 ```php
-const AUTO_NUMBERING = true; // Включить нумерацию заголовков
+const AUTO_TOC = true; // Set to false to suppress the table of contents
 ```
 
-> **Тонкость:** ручная нумерация в стиле `1. Заголовок`, `1.1 Подраздел`, `I. Введение` детектируется автоматически — автонумерация для таких заголовков пропускается, но счётчик не сбивается для последующих ненумерованных заголовков.
+### 7.2 Heading Numbering
 
-### 7.3 Диаграммы Mermaid
+All headings are automatically numbered in hierarchical dotted notation — `1.`, `1.1.`, `1.1.1.`, and so on. The engine intelligently detects manually numbered headings and skips auto-numbering for them, while preserving the counter state for subsequent headings.
 
-Блоки кода с указанием языка ` ```mermaid ` или ` ```mmd ` рендерятся как интерактивные диаграммы Mermaid.
+```php
+const AUTO_NUMBERING = true; // Set to false to disable automatic numbering
+```
+
+> **Edge case:** headings that already carry a manual prefix such as `1. Introduction`, `1.1 Background`, or `I. Preface` are automatically recognized as manually numbered. Auto-numbering is skipped for those specific headings, but the internal counter continues uninterrupted for any following un-prefixed headings.
+
+### 7.3 Mermaid Diagrams
+
+Fenced code blocks declared with the language identifier ` ```mermaid ` or ` ```mmd ` are rendered as interactive Mermaid diagrams.
 
 ````markdown
 ```mermaid
 graph TD
-    A[Клиент] --> B[MD.Viewer]
-    B --> C[Markdown-файл]
-    B --> D[HTML-страница]
+    A[Browser] --> B[MD.Viewer]
+    B --> C[Markdown source]
+    B --> D[Rendered HTML]
 ```
 ````
 
-Библиотека Mermaid загружается **лениво** — только если на странице есть хотя бы одна диаграмма. Страницы без диаграмм не загружают Mermaid CDN вообще, что ускоряет их открытие.
+The Mermaid library is loaded **lazily** — it is fetched from CDN only when at least one diagram block is present in the document. Pages with no diagrams incur zero Mermaid-related overhead.
 
-### 7.4 Блоки кода с копированием
+### 7.4 Code Blocks with Copy Button
 
-Все блоки кода оформляются в editor-стиле:
+Every fenced code block is rendered in a full editor-inspired style:
 
-- Шапка с «traffic-light» кнопками (macOS-стиль) и меткой языка
-- Кнопка **Copy** — копирует содержимое в буфер обмена
-- После копирования кнопка меняется на **Copied!** с зелёной галкой
-- Поддерживается подсветка синтаксиса через CSS-классы `language-*`
+- A header bar with macOS-style traffic-light decorators and the detected language label
+- A **Copy** button that writes the block's content to the system clipboard
+- After a successful copy, the button transitions to a **Copied!** state with a green checkmark icon
+- Syntax class names in the form `language-*` are applied for downstream highlighter compatibility
 
-### 7.5 Таблицы
+### 7.5 Tables
 
-Стандартный синтаксис GFM-таблиц с поддержкой выравнивания:
-
-```markdown
-| Левый | Центр | Правый |
-|:------|:-----:|-------:|
-| Ячейка | Ячейка | Ячейка |
-```
-
-Таблицы оформляются с горизонтальной прокруткой на мобильных устройствах.
-
-### 7.6 Сноски и ссылки-источники
-
-**Источники** — особый синтаксис MD.Viewer для нумерованных ссылок на источники в конце документа:
+Standard GFM pipe tables are supported, including per-column alignment directives:
 
 ```markdown
-Текст с ссылкой на источник [1] и ещё один источник [2].
-
-[1]: Название источника - URL: https://example.com
-[2]: Другой источник - URL: https://example.org
+| Left-aligned | Centered | Right-aligned |
+|:-------------|:--------:|--------------:|
+| Value        |  Value   |         Value |
 ```
 
-Ссылки рендерятся как надстрочные цифры со ссылкой, в конце документа добавляется список источников.
+All tables are wrapped in a horizontally scrollable container so they remain usable on narrow viewports.
 
-**Сноски** — стандартный синтаксис footnotes:
+### 7.6 Footnotes and Source References
+
+**Source references** are a MD.Viewer-specific convention for numbered inline citations rendered as a formatted reference list at the end of the document:
 
 ```markdown
-Текст с примечанием.[^1]
+This claim is supported by prior research [1] and industry benchmarks [2].
 
-[^1]: Это текст сноски.
+[1]: Title of First Source - URL: https://example.com
+[2]: Title of Second Source - URL: https://example.org
 ```
 
-Включаются константой `FEATURE_FOOTNOTES = true`.
+Inline citations are rendered as superscript numerals with hyperlinks. The reference section heading must be `## Sources List` or `## Sources` — it is automatically excluded from the body and rendered as a styled list at the bottom of the page.
 
-### 7.7 Задачи (task lists)
+**Footnotes** follow the standard `[^identifier]` convention:
 
 ```markdown
-- [x] Выполненная задача
-- [ ] Невыполненная задача
+This statement requires a clarification.[^clarification]
+
+[^clarification]: Here is the full explanatory note, with **inline formatting** support.
 ```
 
-Рендерятся как отключённые чекбоксы (только для чтения). Включаются константой `FEATURE_TASK_LISTS = true`.
+Requires `FEATURE_FOOTNOTES = true`.
 
-### 7.8 Эмодзи
-
-Текстовые коды эмодзи заменяются на Unicode-символы:
+### 7.7 Task Lists
 
 ```markdown
-:check: задача выполнена
-:warning: внимание
-:rocket: запуск
-:bulb: идея
+- [x] Completed item
+- [ ] Pending item
 ```
 
-Поддерживаемые коды: `:smile:`, `:joy:`, `:heart:`, `:thumbsup:`, `:thumbsdown:`, `:warning:`, `:error:`, `:check:`, `:x:`, `:star:`, `:fire:`, `:bulb:`, `:rocket:`, `:link:`, `:info:`.
+Rendered as read-only checkboxes. Requires `FEATURE_TASK_LISTS = true`.
 
-Включаются константой `FEATURE_EMOJI = true`.
+### 7.8 Emoji Shortcodes
 
-### 7.9 Изображения
+Text shortcodes are substituted with their Unicode equivalents at render time:
 
 ```markdown
-![Альтернативный текст](https://example.com/image.png "Подпись")
+:check: All tests passing
+:warning: Deprecated in v3
+:rocket: Initial release
+:bulb: Pro tip
 ```
 
-- Атрибуты `loading="lazy"` и `decoding="async"` добавляются автоматически
-- При ошибке загрузки изображение скрывается, показывается текстовый fallback
-- Включаются константой `FEATURE_IMAGES = true`
+Supported shortcodes: `:smile:`, `:laughing:`, `:joy:`, `:heart:`, `:thumbsup:`, `:thumbsdown:`, `:warning:`, `:error:`, `:check:`, `:x:`, `:star:`, `:fire:`, `:bulb:`, `:rocket:`, `:link:`, `:info:`.
 
-### 7.10 Тёмная тема
+Requires `FEATURE_EMOJI = true`.
 
-Переключатель тёмной/светлой темы расположен в хедере страницы. Выбор сохраняется в `localStorage` и восстанавливается при следующем открытии. Цветовая схема применяется через CSS-атрибут `data-theme` на `<html>`.
-
-### 7.11 Адаптивная ширина контента
-
-В режиме просмотрщика доступны три ширины контентной колонки:
-
-| Режим | Ширина | Назначение |
-|---|---|---|
-| Reading | `72ch` | Оптимально для чтения длинных текстов |
-| Article | `90ch` | Документация с кодом |
-| Wide | `120ch` | Широкие таблицы и диаграммы |
-
-Выбор сохраняется в `localStorage`.
-
-### 7.12 Универсальные паттерны
-
-MD.Viewer поддерживает визуализацию узлов, связей и паттернов прямо в инлайн-тексте при помощи специального синтаксиса:
+### 7.9 Images
 
 ```markdown
-`(Узел A)--[связь]->(Узел B){заметка}`
+![Alternative text](https://example.com/image.png "Optional caption")
 ```
 
-Включаются константой `UNIVERSAL_PATTERNS = true` и `CYPHER_PATTERNS = true`.
+- `loading="lazy"` and `decoding="async"` attributes are injected automatically for optimal performance.
+- If an image fails to load, it is hidden and a text fallback is shown in its place.
+- Requires `FEATURE_IMAGES = true`.
+
+### 7.10 Dark Mode
+
+A theme toggle button is available in the page header. The user's preference is persisted in `localStorage` and restored on subsequent visits. The active color scheme is applied via a `data-theme` attribute on the `<html>` element, which Tailwind's dark-mode variant uses as its selector.
+
+### 7.11 Adaptive Content Width
+
+In viewer mode, three content column widths are available from the header toolbar:
+
+| Mode    | Width   | Best suited for |
+|---------|---------|------------------|
+| Reading | `72ch`  | Long prose and narrative documentation |
+| Article | `90ch`  | Technical docs with inline code snippets |
+| Wide    | `120ch` | Wide tables, diagrams, and side-by-side comparisons |
+
+The selected width is persisted in `localStorage`.
+
+### 7.12 Universal Inline Patterns
+
+MD.Viewer supports a lightweight inline syntax for visualizing graph nodes, relationships, and annotated patterns directly within paragraph text — no separate diagram block required:
+
+```markdown
+`(Node A)--[relationship]->(Node B){annotation}`
+```
+
+Requires both `UNIVERSAL_PATTERNS = true` and `CYPHER_PATTERNS = true`.
 
 ---
 
-## 8. Настройка констант
+## 8. Configuration
 
-Все настройки расположены в начале файла `index.php` в блоке **Feature toggles**.
+All configuration constants are declared near the top of `index.php` in the **Feature toggles** block. No separate configuration file is needed.
 
-### 8.1 Функциональные переключатели
-
-```php
-const AUTO_NUMBERING        = true;  // Автонумерация заголовков
-const AUTO_TOC              = true;  // Автоматическое содержание
-const AUTO_FOOTNOTES_LINKS  = true;  // Список источников в конце страницы
-const DOUBLE_LINE_BREAKS    = true;  // Двойной перенос строки как <br>
-const CYPHER_PATTERNS       = true;  // Визуализация Cypher/graph-паттернов
-const UNIVERSAL_PATTERNS    = true;  // Визуализация универсальных паттернов
-const FEATURE_IMAGES        = true;  // Рендеринг изображений
-const FEATURE_REF_LINKS     = true;  // Reference links [label][ref]
-const FEATURE_TASK_LISTS    = true;  // Списки задач с чекбоксами
-const FEATURE_FOOTNOTES     = true;  // Сноски [^1]
-const FEATURE_SUB_SUP       = true;  // Подстрочный~текст~ и надстрочный^текст^
-const FEATURE_EMOJI         = true;  // Замена текстовых кодов эмодзи
-```
-
-### 8.2 Лимиты безопасности
+### 8.1 Feature Toggles
 
 ```php
-const MAX_FILE_PARAM_LENGTH = 255;   // Максимальная длина параметра ?file=
-const MAX_SCAN_DEPTH        = 3;     // Максимальная глубина рекурсии при сканировании
-const MAX_FILES_SCAN        = 10000; // Максимальное количество файлов при сканировании
+const AUTO_NUMBERING        = true;  // Automatic hierarchical heading numbering
+const AUTO_TOC              = true;  // Auto-generated table of contents
+const AUTO_FOOTNOTES_LINKS  = true;  // Render source reference list at end of page
+const DOUBLE_LINE_BREAKS    = true;  // Treat double line break as <br>
+const CYPHER_PATTERNS       = true;  // Inline Cypher / graph pattern visualization
+const UNIVERSAL_PATTERNS    = true;  // Inline universal pattern visualization
+const FEATURE_IMAGES        = true;  // Render Markdown image syntax as <img>
+const FEATURE_REF_LINKS     = true;  // Reference-style links: [label][ref]
+const FEATURE_TASK_LISTS    = true;  // GFM task list checkboxes
+const FEATURE_FOOTNOTES     = true;  // Footnote syntax: [^id]
+const FEATURE_SUB_SUP       = true;  // Subscript ~text~ and superscript ^text^
+const FEATURE_EMOJI         = true;  // Emoji shortcode substitution
 ```
 
-> **Рекомендация:** уменьшите `MAX_SCAN_DEPTH` и `MAX_FILES_SCAN` на серверах с большим количеством файлов, чтобы избежать замедления файлового браузера.
-
-### 8.3 Стиль переносов строк
+### 8.2 Security Limits
 
 ```php
-const PARAGRAPH_BREAK_STYLE = 'double-br'; // Варианты: 'double-br', 'paragraph', 'space', 'nbsp'
+const MAX_FILE_PARAM_LENGTH = 255;   // Maximum allowed length of the ?file= parameter
+const MAX_SCAN_DEPTH        = 3;     // Maximum directory recursion depth during scanning
+const MAX_FILES_SCAN        = 10000; // Maximum number of files processed in a single scan
 ```
 
-| Значение | Поведение |
+> **Recommendation:** on servers with large directory trees, reduce `MAX_SCAN_DEPTH` and `MAX_FILES_SCAN` to keep the file browser responsive. A depth of `1` is sufficient for most flat documentation layouts.
+
+### 8.3 Paragraph Break Style
+
+```php
+const PARAGRAPH_BREAK_STYLE = 'double-br'; // Options: 'double-br', 'paragraph', 'space', 'nbsp'
+```
+
+| Value | Behavior |
 |---|---|
-| `double-br` | Двойной перенос строки → `<br><br>` |
-| `paragraph` | Двойной перенос → новый `<p>` с отступом |
-| `space` | Двойной перенос → пробел |
-| `nbsp` | Двойной перенос → неразрывный пробел |
+| `double-br` | A double line break is emitted as `<br><br>` |
+| `paragraph` | A double line break opens a new `<p>` element with margin |
+| `space` | A double line break is collapsed to a single space |
+| `nbsp` | A double line break is replaced with a non-breaking space |
 
 ---
 
-## 9. Безопасность
+## 9. Security
 
-MD.Viewer реализует **14-уровневую защиту** параметра `?file=`:
+MD.Viewer applies a **14-layer defense-in-depth validation chain** to every value supplied via the `?file=` query parameter. Each layer is a hard gate — a failure at any point immediately aborts the request and returns an access-denied response.
 
-1. Проверка длины параметра (лимит `MAX_FILE_PARAM_LENGTH`)
-2. Блокировка нулевых байтов (`\0`)
-3. Отклонение управляющих символов (ASCII 0–31, 127, backspace)
-4. URL-декодирование и повторная проверка (защита от `%2e%2e%2f`)
-5. Отклонение абсолютных путей (Unix `/`, Windows `C:\`, UNC `\\`)
-6. Нормализация разделителей и отклонение path traversal (`../`)
-7. Строгий whitelist символов (только `A-Za-z0-9._-/`)
-8. Ограничение глубины директорий (`MAX_SCAN_DEPTH`)
-9. Разрешение только `.md`-файлов (без учёта регистра)
-10. Разрешение `realpath` для базовой директории
-11. Разрешение `realpath` для целевого файла
-12. Проверка принадлежности целевого файла базовой директории
-13. Проверка, что файл является обычным файлом (не директорией, не устройством)
-14. Повторная проверка расширения после разрешения симлинков
+1. **Length check** — the parameter value must not exceed `MAX_FILE_PARAM_LENGTH` characters.
+2. **Null-byte rejection** — embedded `\0` characters are unconditionally blocked.
+3. **Control character rejection** — ASCII codepoints 0–31, 127, and backspace are rejected.
+4. **URL-decode and re-validate** — the value is decoded to catch encoded traversal sequences such as `%2e%2e%2f`, then all control-character checks are re-applied.
+5. **Absolute path rejection** — Unix-style (`/`), Windows drive (`C:\`), and UNC (`\\`) prefixes are all disallowed.
+6. **Path traversal normalization** — directory separators are normalized and any resulting `..` segments are rejected.
+7. **Character whitelist** — only the characters `A-Za-z0-9`, `.`, `-`, `_`, and `/` are permitted in the final path.
+8. **Directory depth cap** — the number of path segments must not exceed `MAX_SCAN_DEPTH`.
+9. **Extension enforcement** — the file must carry a `.md` extension (case-insensitive).
+10. **Base directory `realpath` resolution** — the canonical absolute path of the base directory is established.
+11. **Target file `realpath` resolution** — the canonical absolute path of the requested file is established; the file must exist.
+12. **Containment check** — the resolved file path must be strictly prefixed by the resolved base directory path.
+13. **File type assertion** — the target must be a regular file; directories, device nodes, and other special files are rejected.
+14. **Post-symlink extension re-check** — the extension is verified again on the real, symlink-resolved path to prevent extension-spoofing via symbolic links.
 
-Операции `POST` игнорируются — скрипт обрабатывает только `GET`.
+`POST` requests are silently ignored. The application processes `GET` exclusively.
 
 ---
 
-## 10. Синтаксис Markdown
+## 10. Markdown Syntax Reference
 
-### 10.1 Заголовки
-
-```markdown
-# Заголовок 1 уровня
-## Заголовок 2 уровня
-### Заголовок 3 уровня
-#### Заголовок 4 уровня
-##### Заголовок 5 уровня
-###### Заголовок 6 уровня
-
-Альтернативный синтаксис (Setext):
-Заголовок 1
-===========
-Заголовок 2
------------
-```
-
-### 10.2 Форматирование текста
+### 10.1 Headings
 
 ```markdown
-**Жирный текст**
-__Тоже жирный__
-*Курсив*
-_Тоже курсив_
-~~Зачёркнутый~~
-==Выделенный (highlight)==
-~Подстрочный~     (FEATURE_SUB_SUP)
-^Надстрочный^     (FEATURE_SUB_SUP)
-`inline код`
+# Heading Level 1
+## Heading Level 2
+### Heading Level 3
+#### Heading Level 4
+##### Heading Level 5
+###### Heading Level 6
+
+# Setext-style headings are also supported:
+Heading Level 1
+===============
+Heading Level 2
+---------------
 ```
 
-### 10.3 Ссылки и изображения
+### 10.2 Inline Formatting
 
 ```markdown
-[Текст ссылки](https://example.com)
-[Ссылка с подписью](https://example.com "Подпись")
-![Alt текст](https://example.com/img.png)
-![Alt текст](https://example.com/img.png "Подпись к картинке")
+**Bold text**
+__Also bold__
+*Italic text*
+_Also italic_
+~~Strikethrough~~
+==Highlighted==
+~Subscript~       (requires FEATURE_SUB_SUP)
+^Superscript^     (requires FEATURE_SUB_SUP)
+`inline code`
 ```
 
-### 10.4 Списки
+### 10.3 Links and Images
 
 ```markdown
-- Маркированный пункт
-- Ещё один пункт
-
-1. Нумерованный пункт
-2. Ещё один
-
-- [x] Выполненная задача    (FEATURE_TASK_LISTS)
-- [ ] Невыполненная задача  (FEATURE_TASK_LISTS)
+[Link text](https://example.com)
+[Link with title](https://example.com "Tooltip text")
+![Alt text](https://example.com/image.png)
+![Alt text](https://example.com/image.png "Image caption")
 ```
 
-### 10.5 Цитаты
+### 10.4 Lists
 
 ```markdown
-> Это цитата.
-> Продолжение цитаты.
+- Unordered list item
+- Another item
+
+1. Ordered list item
+2. Another item
+
+- [x] Completed task       (requires FEATURE_TASK_LISTS)
+- [ ] Pending task         (requires FEATURE_TASK_LISTS)
 ```
 
-### 10.6 Горизонтальные разделители
+### 10.5 Blockquotes
+
+```markdown
+> This is a blockquote.
+> It can span multiple lines.
+```
+
+### 10.6 Horizontal Rules
 
 ```markdown
 ---
@@ -492,171 +509,177 @@ _Тоже курсив_
 ___
 ```
 
-### 10.7 Ссылки-сноски на источники
+### 10.7 Source Reference Links
 
 ```markdown
-Текст документа со ссылкой [1,2] на источники.
+This conclusion is drawn from field observations [1] and published benchmarks [2].
 
-[1]: Название первого источника - URL: https://example.com
-[2]: Второй источник - URL: https://example.org
+[1]: Name of First Source - URL: https://example.com
+[2]: Name of Second Source - URL: https://example.org
 ```
 
-> Раздел с источниками должен иметь заголовок `## Sources List` или `## Sources` — он автоматически исключается из тела документа и рендерится в конце как стилизованный список.
+> The section containing source definitions must carry a heading of `## Sources List` or `## Sources`. This heading and its content are automatically stripped from the rendered document body and re-emitted as a styled reference list at the foot of the page.
 
-### 10.8 Сноски (footnotes)
+### 10.8 Footnotes
 
 ```markdown
-Текст с примечанием.[^note]
+This technique has important caveats.[^caveats]
 
-[^note]: Развёрнутый текст примечания с **форматированием**.
+[^caveats]: A full explanation of the caveats, with support for **inline formatting**.
 ```
 
-### 10.9 Reference links
+### 10.9 Reference-style Links
 
 ```markdown
-[Текст ссылки][ref-id]
+[Link text][ref-identifier]
 
-[ref-id]: https://example.com "Необязательная подпись"
+[ref-identifier]: https://example.com "Optional title attribute"
 ```
 
 ---
 
-## 11. Файловый браузер
+## 11. File Browser
 
-Когда MD.Viewer запускается в директории без `.md`-файла (или файл не найден по параметру `?file=`), активируется **файловый браузер**:
+When MD.Viewer is opened in a directory that contains no matching `.md` file — either because none exists or because a `?file=` lookup failed — it activates the **file browser mode**:
 
-- **Рекурсивное сканирование** до глубины `MAX_SCAN_DEPTH`
-- **Фильтрация скрытых файлов** — файлы и директории, начинающиеся с `.`, исключаются
-- **Сортировка** — кликабельные заголовки колонок: File, Dir, Created, Modified, Size
-- **Поиск с debounce** — мгновенная фильтрация по имени файла и пути
-- **Открытие в новой вкладке** — клик по строке открывает файл через `?file=`
-- **Защита от симлинков** — симлинки, выходящие за пределы базовой директории, пропускаются
+- **Recursive scanning** traverses subdirectories up to `MAX_SCAN_DEPTH` levels deep.
+- **Hidden file filtering** excludes any file or directory whose name begins with a `.`.
+- **Sortable columns** allow ordering by File, Dir, Created, Modified, or Size with a single click.
+- **Live search with debounce** filters the table in real time as the user types, matching against both the filename and the directory path.
+- **Open in new tab** — clicking any row navigates to that file via `?file=`, opening it in a new browser tab.
+- **Symlink escape protection** — symbolic links that resolve outside the base directory are silently skipped.
 
 ---
 
-## 12. Именование файлов по имени скрипта
+## 12. Script-name-based File Mapping
 
-MD.Viewer поддерживает динамическое сопоставление по имени PHP-скрипта:
+MD.Viewer supports a zero-configuration multi-page layout through automatic PHP-to-Markdown filename inference:
 
 ```
 /docs/
-├── index.php      → ищет index.md
-├── api.php        → ищет api.md
-├── changelog.php  → ищет changelog.md
-└── index.md
-    api.md
-    changelog.md
+├── index.php      → automatically serves index.md
+├── api.php        → automatically serves api.md
+├── changelog.php  → automatically serves changelog.md
+├── index.md
+├── api.md
+└── changelog.md
 ```
 
-Это позволяет организовать мультистраничную документацию без дополнительной маршрутизации: каждый PHP-файл — отдельная страница документации, находящая свой `.md` автоматически.
+Each PHP file is a fully independent documentation page that locates its companion `.md` document without any routing configuration. This pattern is particularly well-suited to small documentation sites where each top-level topic deserves a dedicated, bookmarkable URL.
 
 ---
 
-## 13. Тонкие случаи и решение проблем
+## 13. Edge Cases and Troubleshooting
 
-### 13.1 Файл не отображается
+### 13.1 File Not Rendering
 
-**Симптом:** вместо документа показывается файловый браузер или сообщение об ошибке.
+**Symptom:** the file browser or an error message is shown instead of the expected document.
 
-**Проверьте:**
-- Файл `.md` находится в той же директории, что и `index.php`
-- Имя файла совпадает с именем PHP-скрипта (`index.php` → `index.md`)
-- Файл имеет расширение `.md` (в нижнем регистре или верхнем — не важно)
-- Права на чтение файла установлены корректно (`chmod 644`)
+**Checklist:**
+- The `.md` file resides in the same directory as `index.php`.
+- The Markdown filename matches the PHP script name exactly (`index.php` → `index.md`).
+- The file carries a `.md` extension — the check is case-insensitive, but the extension must be present.
+- File system read permissions are correctly set (`chmod 644` or equivalent).
 
-### 13.2 Mermaid-диаграмма не рендерится
+### 13.2 Mermaid Diagram Not Rendering
 
-**Симптом:** вместо диаграммы отображается текст.
+**Symptom:** the diagram source is displayed as plain text inside a code block.
 
-**Проверьте:**
-- Блок кода обозначен как ` ```mermaid ` или ` ```mmd `
-- Синтаксис диаграммы корректен (проверьте на [mermaid.live](https://mermaid.live))
-- Браузер имеет доступ к CDN `cdn.jsdelivr.net`
+**Checklist:**
+- The fenced block is annotated with ` ```mermaid ` or ` ```mmd `.
+- The diagram syntax is valid — use [mermaid.live](https://mermaid.live) to verify.
+- The browser can reach `cdn.jsdelivr.net`.
 
-### 13.3 Дублирование номеров в заголовках
+### 13.3 Duplicate Heading Numbers
 
-**Симптом:** заголовок `1. Введение` отображается как `1. 1. Введение`.
+**Symptom:** a heading written as `1. Introduction` renders as `1. 1. Introduction`.
 
-**Причина:** включена `AUTO_NUMBERING`, но заголовок уже содержит ручную нумерацию.
+**Cause:** `AUTO_NUMBERING` is enabled, but the engine's manual-numbering detector has not matched this particular heading format.
 
-**Решение:** MD.Viewer автоматически детектирует ручную нумерацию. Если этого не происходит — проверьте формат: `1. Текст`, `1.1 Текст`, `I. Текст`. Числа без разделителя (например, `1 Введение`) не считаются ручной нумерацией.
+**Resolution:** MD.Viewer recognizes the following patterns as manually numbered and skips auto-numbering for them: `1. Text`, `1.1 Text`, `1.1.1 Text`, `I. Text`, `XIV. Text`. Bare integers without a following separator — e.g., `1 Introduction` — are not considered manual numbers and will receive an auto-generated prefix.
 
-### 13.4 Файловый браузер не находит файлы
+### 13.4 File Browser Shows No Files
 
-**Симптом:** в браузере пусто или выводится «No .md files found».
+**Symptom:** the file browser is empty or displays "No .md files found".
 
-**Проверьте:**
-- Значение `MAX_SCAN_DEPTH` не равно `0` (при `0` сканируется только корневая директория)
-- Файлы не находятся в скрытых директориях (начинающихся с `.`)
-- Количество файлов не превышает `MAX_FILES_SCAN`
+**Checklist:**
+- `MAX_SCAN_DEPTH` is not set to `0`. At depth `0`, only the immediate directory is scanned — no subdirectories.
+- The target files are not inside hidden directories (names beginning with `.`).
+- The total file count does not exceed `MAX_FILES_SCAN`.
+- Check the server's PHP error log for any `MD.Viewer scanMarkdownFiles` entries, which indicate scan failures.
 
-### 13.5 TOC не отображается для коротких документов
+### 13.5 TOC Not Shown on Short Documents
 
-**Причина:** TOC не отображается, если в документе меньше 2 заголовков. Это сделано намеренно — для коротких документов содержание бессмысленно.
+**Behavior:** the table of contents is intentionally suppressed when a document contains fewer than two headings. For single-section documents, a TOC would be redundant and visually noisy.
 
-### 13.6 Кодировка символов
+### 13.6 Character Encoding Issues
 
-MD.Viewer работает исключительно в **UTF-8**. Убедитесь, что:
-- Ваши `.md`-файлы сохранены в UTF-8 (без BOM)
-- Веб-сервер отдаёт `Content-Type: text/html; charset=UTF-8`
+MD.Viewer operates exclusively in **UTF-8**. If rendered output contains garbled characters, verify the following:
+- All `.md` source files are saved as UTF-8 **without BOM**.
+- The web server includes `charset=UTF-8` in the `Content-Type` response header.
 
-### 13.7 Оффлайн-использование
+### 13.7 Offline Usage
 
-По умолчанию MD.Viewer загружает из CDN:
-- Tailwind CSS (`cdn.tailwindcss.com`)
-- Google Fonts (Inter, Sora)
-- Mermaid (`cdn.jsdelivr.net`) — только при наличии диаграмм
+By default, MD.Viewer loads the following assets from external CDNs at page render time:
 
-Для работы без интернета замените CDN-ссылки на локальные копии или скачайте их заранее.
+- **Tailwind CSS** — `cdn.tailwindcss.com`
+- **Google Fonts** — Inter and Sora typefaces
+- **Mermaid** — `cdn.jsdelivr.net` (only when diagrams are present)
+
+For air-gapped environments, replace these CDN references with locally hosted copies. Download each library, serve it from the `assets/` directory, and update the corresponding `<link>` and `<script>` tags in `index.php`.
 
 ---
 
 ## 14. Changelog
 
 ### v2.2.2
-- **ИСПРАВЛЕНО:** Дублирование нумерации в заголовках с ручным префиксом (например, `1. Заголовок`) — добавлен детектор ручной нумерации, пропускающий автонумерацию для таких заголовков
-- **ИСПРАВЛЕНО:** Счётчик заголовков больше не инкрементируется для заголовков с ручной нумерацией — сохраняется корректная последовательность для последующих ненумерованных заголовков
-- **ИСПРАВЛЕНО:** TOC учитывает флаг ручной нумерации — дублирования префиксов в навигации нет
+
+- **FIXED:** Duplicate numbering in headings that already carry a manual prefix (e.g., `1. Title`). A manual-numbering detector was added that skips auto-numbering for such headings.
+- **FIXED:** The heading counter no longer increments for manually-numbered headings, preserving the correct sequence for subsequent auto-numbered headings.
+- **FIXED:** The TOC respects the manual-numbering flag — no duplicate prefixes appear in navigation links.
 
 ### v2.2.1
-- **ИСПРАВЛЕНО:** Ошибка «No .md files found» — `RecursiveDirectoryIterator` не имеет метода `getDepth`, заменён `RecursiveCallbackFilterIterator` на ручные проверки глубины через `RecursiveIteratorIterator`
-- **ИСПРАВЛЕНО:** Тихое поглощение исключений — ошибки теперь логируются через `error_log` для диагностики
-- **БЕЗОПАСНОСТЬ:** Добавлена защита от симлинков при сканировании файлов
-- **УЛУЧШЕНИЕ:** Фильтрация скрытых файлов теперь охватывает файлы внутри скрытых директорий
+
+- **FIXED:** "No .md files found" regression caused by `RecursiveDirectoryIterator` not exposing a `getDepth()` method. Replaced `RecursiveCallbackFilterIterator` with manual depth checks via `RecursiveIteratorIterator`.
+- **FIXED:** Silent exception swallowing — errors are now surfaced via `error_log` for diagnostics.
+- **SECURITY:** Added symlink escape protection in the file scanner.
+- **IMPROVED:** Hidden file filtering now covers files nested inside hidden directories (e.g., `.hidden/sub.md`).
 
 ### v2.2.0
-- **БЕЗОПАСНОСТЬ:** 8-уровневая защита от path traversal для параметра `?file=`
-- **БЕЗОПАСНОСТЬ:** Отклонение нулевых байтов, управляющих символов, URL-encoded атак
-- **БЕЗОПАСНОСТЬ:** Валидация через `realpath` с проверкой принадлежности базовой директории
-- **БЕЗОПАСНОСТЬ:** Защита от разрешения симлинков
-- **ФУНКЦИЯ:** Файловый браузер при отсутствии `.md`-файла
-- **ФУНКЦИЯ:** Сортируемые колонки: File, Dir, Created, Modified, Size
-- **ФУНКЦИЯ:** Мгновенный поиск с debounce
-- **ФУНКЦИЯ:** Открытие файла в новой вкладке через GET-параметр
-- **РЕФАКТОРИНГ:** Весь JavaScript перенесён в `assets/js/md.js`
+
+- **SECURITY:** 8-layer path traversal protection for the `?file=` parameter.
+- **SECURITY:** Null-byte, control-character, and URL-encoded attack vectors rejected.
+- **SECURITY:** `realpath`-based whitelist validation against the base directory.
+- **SECURITY:** Symlink resolution protection.
+- **FEATURE:** File browser table displayed when no matching `.md` file is found.
+- **FEATURE:** Sortable columns — File, Dir, Created, Modified, Size.
+- **FEATURE:** Instant search with debounce.
+- **FEATURE:** Click-to-open in new tab via GET parameter.
+- **REFACTOR:** All JavaScript extracted to `assets/js/md.js`.
 
 ### v2.1.0
-- **ФУНКЦИЯ:** Динамическая загрузка Markdown-файла по имени PHP-скрипта
-- **ФУНКЦИЯ:** Профессиональные кнопки copy-to-clipboard для блоков кода
-- **УЛУЧШЕНИЕ:** Editor-стиль для блоков кода с traffic-light заголовком
+
+- **FEATURE:** Dynamic Markdown file loading inferred from the PHP script filename.
+- **FEATURE:** Professional copy-to-clipboard buttons for fenced code blocks.
+- **IMPROVED:** Editor-style code block UI with traffic-light header decoration.
 
 ---
 
-## 15. Лицензия
+## 15. License
 
-Распространяется под лицензией [MIT](https://github.com/paulmann/MD.Viewer/blob/main/LICENSE).
+Distributed under the [MIT License](https://github.com/paulmann/MD.Viewer/blob/main/LICENSE).
 
 ```
 Copyright (c) 2026 Mikhail Deynekin
-Repository: https://github.com/paulmann/MD.Viewer
+https://github.com/paulmann/MD.Viewer
 ```
 
-При копировании, распространении или публикации существенных частей проекта необходимо сохранять уведомление об авторских правах и ссылку на репозиторий.
+You are free to use, copy, modify, merge, publish, distribute, sublicense, and sell copies of this software, subject to the condition that the above copyright notice and this permission notice are included in all copies or substantial portions of the software.
 
 ---
 
 <div align="center">
 
-Создано с ♥ [Mikhail Deynekin](https://Deynekin.com) · [Deynekin.com](https://Deynekin.com)
+Crafted with care by [Mikhail Deynekin](https://Deynekin.com) &nbsp;&middot;&nbsp; [Deynekin.com](https://Deynekin.com)
 
 </div>
