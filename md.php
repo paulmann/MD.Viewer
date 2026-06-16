@@ -859,10 +859,10 @@ function renderUniversalElements(array $elements): string
 function emojiMap(): array
 {
     return [
-        'smile' => 'ðŸ˜Š', 'laughing' => 'ðŸ˜†', 'joy' => 'ðŸ˜‚', 'heart' => 'â¤ï¸',
-        'thumbsup' => 'ðŸ‘', 'thumbsdown' => 'ðŸ‘Ž', 'warning' => 'âš ï¸', 'error' => 'âŒ',
-        'check' => 'âœ…', 'x' => 'âŒ', 'star' => 'â­', 'fire' => 'ðŸ”¥',
-        'bulb' => 'ðŸ’¡', 'rocket' => 'ðŸš€', 'link' => 'ðŸ”—', 'info' => 'â„¹ï¸',
+        'smile' => '😊', 'laughing' => '😆', 'joy' => '😂', 'heart' => '❤️',
+        'thumbsup' => '👍', 'thumbsdown' => '👎', 'warning' => '⚠️', 'error' => '❌',
+        'check' => '✅', 'x' => '❌', 'star' => '⭐', 'fire' => '🔥',
+        'bulb' => '💡', 'rocket' => '🚀', 'link' => '🔗', 'info' => 'ℹ️',
     ];
 }
 
@@ -903,21 +903,23 @@ function inlineMarkdown(
     array  $refs      = [],
     array  $footnotes = [],
 ): string {
-    // â”€â”€ 1. Protect inline code spans â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-    $codeSpans = [];
-    $text = (string) preg_replace_callback(
-        '/`([^`]+)`/u',
-        static function (array $m) use (&$codeSpans): string {
-            $codeSpans[] = $m[1];
-            return "\u{FFFC}" . (count($codeSpans) - 1) . "\u{FFFC}";
-        },
-        $text,
-    );
-
-    // â”€â”€ 2. Protect image spans BEFORE e() â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+	// ── 1. Protect inline code spans ──────────────────────────────────────────
+	// FIX (2.2.8): [^`\n] instead of [^`] — CommonMark §6.1 forbids newlines
+	// inside a code span. Without \n the greedy [^`]+ could swallow a newline
+	// and merge two separate lines into one span, breaking block detection.
+	$codeSpans = [];
+	$text = (string) preg_replace_callback(
+	    '/`([^`\n]+)`/u',
+	    static function (array $m) use (&$codeSpans): string {
+	        $codeSpans[] = $m[1];
+	        return "\u{FFFC}" . (count($codeSpans) - 1) . "\u{FFFC}";
+	    },
+	    $text,
+	);
+    // 2. Protect image spans BEFORE e() 
     // This is the critical fix: images are extracted into raw-HTML placeholders
     // so (a) <img> tags are never HTML-escaped, and (b) link handlers cannot
-    // see  [<imgâ€¦>](url)  and wrap it in a second <a> tag.
+    // see  [<img¦>](url)  and wrap it in a second <a> tag.
     $imageSpans = [];
     if (FEATURE_IMAGES) {
         $text = (string) preg_replace_callback(
@@ -944,10 +946,10 @@ function inlineMarkdown(
         );
     }
 
-    // â”€â”€ 3. HTML-escape all remaining plain text â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // 3. HTML-escape all remaining plain text 
     $escaped = e($text);
 
-    // â”€â”€ 4. Emphasis / strong / strikethrough / highlight â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // 4. Emphasis / strong / strikethrough / highlight
     $escaped = (string) preg_replace('/\*\*([^*]+)\*\*/u',          '<strong>$1</strong>', $escaped);
     $escaped = (string) preg_replace('/__([^_]+)__/u',              '<strong>$1</strong>', $escaped);
     $escaped = (string) preg_replace('/(?<!\*)\*([^*]+)\*(?!\*)/u', '<em>$1</em>',         $escaped);
@@ -960,7 +962,7 @@ function inlineMarkdown(
         $escaped = (string) preg_replace('/(?<!\^)\^([^^]+)\^(?!\^)/u', '<sup>$1</sup>',  $escaped);
     }
 
-    // â”€â”€ 5. Emoji shortcodes â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // 5. Emoji shortcodes
     if (FEATURE_EMOJI) {
         $map = emojiMap();
         $escaped = str_replace(
@@ -974,7 +976,7 @@ function inlineMarkdown(
     $lc = 'text-blue-600 hover:text-blue-500 dark:text-blue-400'
         . ' dark:hover:text-blue-300 underline-offset-2 hover:underline';
 
-    // â”€â”€ 6. Internal / anchor links  [Text](#anchor) or [Text](relative/path) â”€
+    // 6. Internal / anchor links  [Text](#anchor) or [Text](relative/path) 
     $escaped = (string) preg_replace_callback(
         '/(?<!!)(?<!\\\\)\[([^\]]+)\]\((#[^\s)]+|[^):\s]+(?:\/[^\s)]*)?)\)/u',
         static function (array $m) use ($lc): string {
@@ -986,7 +988,7 @@ function inlineMarkdown(
         $escaped,
     );
 
-    // â”€â”€ 7. Absolute links  [Text](https://â€¦) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // 7. Absolute links  [Text](https://
     $escaped = (string) preg_replace_callback(
         '/(?<!!)(?<!\\\\)\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/u',
         static function (array $m) use ($lc): string {
@@ -996,7 +998,7 @@ function inlineMarkdown(
         $escaped,
     );
 
-    // â”€â”€ 8. Reference-style links  [Text][key] â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // 8. Reference-style links  [Text][key]
     if (FEATURE_REF_LINKS && $refs !== []) {
         $escaped = (string) preg_replace_callback(
             '/(?<!!)(?<!\\\\)\[([^\]]+)\]\[([^\]]*)\]/u',
@@ -1018,7 +1020,7 @@ function inlineMarkdown(
         );
     }
 
-    // â”€â”€ 9. Source citations  [[1,2,3]] â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // 9. Source citations  [[1,2,3]]
     $escaped = (string) preg_replace_callback(
         '/\[\[([0-9,\s]+)\]\]/u',
         static function (array $m) use ($sources): string {
@@ -1039,7 +1041,7 @@ function inlineMarkdown(
         $escaped,
     );
 
-    // â”€â”€ 10. Footnote references  [^id] â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // 10. Footnote references  [^id]
     if (FEATURE_FOOTNOTES && $footnotes !== []) {
         $escaped = (string) preg_replace_callback(
             '/\[\^([^\]]+)\]/u',
@@ -1059,7 +1061,7 @@ function inlineMarkdown(
         );
     }
 
-    // â”€â”€ 11. Restore image placeholders â†’ raw HTML â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // 11. Restore image placeholders 
     if ($imageSpans !== []) {
         $escaped = (string) preg_replace_callback(
             '/\x{FFFD}(\d+)\x{FFFD}/u',
@@ -1068,7 +1070,7 @@ function inlineMarkdown(
         );
     }
 
-    // â”€â”€ 12. Restore code placeholders â†’ <code> or pattern chain â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // 12. Restore code placeholders â†’ <code> or pattern chain
     $escaped = (string) preg_replace_callback(
         '/\x{FFFC}(\d+)\x{FFFC}/u',
         static function (array $m) use ($codeSpans): string {
@@ -1758,56 +1760,136 @@ function removeReferenceLinkDefinitions(string $md): string
 
 
 /**
- * Remove footnote definitions from markdown using state machine.
+ * Remove footnote definitions from Markdown using an explicit state machine.
  *
- * v2.2.7: Complete rewrite to replace DOTALL regex that was causing content loss.
- *         Uses explicit state tracking instead of regex with lookahead.
- *         Skips lines containing code block placeholders (\x02CB{n}\x03).
+ * Processes the document line-by-line to avoid the catastrophic backtracking
+ * and content-loss issues that plague DOTALL-based regex approaches.
  *
  * State machine:
- *  - NORMAL: Regular content, look for footnote start
- *  - IN_FOOTNOTE: Inside footnote definition, consume continuation lines
+ *   NORMAL       — regular content; watch for [^id]: lines
+ *   IN_FOOTNOTE  — consuming footnote body; stop on non-continuation line
  *
- * @param string $md Markdown with code blocks replaced by placeholders
- * @return string    Markdown with footnote definitions removed
+ * FIXES vs v2.2.7:
+ *   - Placeholder lines (\x02CB…\x03) no longer reset state to NORMAL.
+ *     A code-block placeholder may appear inside a footnote's continuation
+ *     body; forcibly resetting the state caused subsequent lines of the same
+ *     footnote (and sometimes unrelated content) to be mis-classified.
+ *     Placeholders are now preserved as-is regardless of current state.
+ *
+ * @param  string $md  Markdown with fenced code blocks replaced by placeholders
+ *                     (output of stripCodeBlocks()).
+ * @return string      Markdown with all footnote definitions stripped.
+ *
+ * @since 2.2.7  Initial state-machine implementation.
+ * @since 2.2.8  Fixed: placeholder lines no longer reset IN_FOOTNOTE state.
  */
 function removeFootnoteDefinitions(string $md): string
 {
+    if ($md === '') {
+        return $md;
+    }
+
     $lines  = explode("\n", $md);
     $result = [];
-    $state  = 'NORMAL'; // NORMAL | IN_FOOTNOTE
-    
-    $footnoteStartPattern = '/^\[\^([^\]]+)\]:\h*(.*)$/u';
-    $continuationPattern  = '/^(?:\h{4}|\t)/u';
-    
+    // NORMAL | IN_FOOTNOTE
+    $state  = 'NORMAL';
+
+    // [^id]: optional-body-text
+    $fnStart      = '/^\[\^([^\]]+)\]:\h*(.*)$/u';
+    // Continuation: 4 spaces, a tab, or an empty line
+    $fnContinuation = '/^(?:\h{4}|\t)/u';
+
     foreach ($lines as $line) {
-        // Skip lines containing code block placeholders — always preserve them
+        // Code-block placeholders are ALWAYS preserved verbatim.
+        // IMPORTANT: we do NOT touch $state here — a placeholder may legally
+        // appear inside a footnote's multi-line body (stripped from a fenced
+        // code block that was part of the footnote text).
         if (str_contains($line, "\x02CB")) {
             $result[] = $line;
-            $state = 'NORMAL'; // Reset state after code block
             continue;
         }
-        
+
         if ($state === 'NORMAL') {
-            // Check if this line starts a footnote definition
-            if (preg_match($footnoteStartPattern, $line) === 1) {
+            if (preg_match($fnStart, $line) === 1) {
+                // Footnote definition starts — enter consuming state, drop line.
                 $state = 'IN_FOOTNOTE';
-                continue; // Skip this line (remove footnote start)
+                continue;
             }
             $result[] = $line;
-        } else { // IN_FOOTNOTE
-            // Check if this is a continuation line (indented or empty)
-            if (preg_match($continuationPattern, $line) === 1 || trim($line) === '') {
-                continue; // Skip continuation lines (remove footnote body)
+        } else {
+            // IN_FOOTNOTE: consume continuation lines (indented or blank).
+            if (preg_match($fnContinuation, $line) === 1 || trim($line) === '') {
+                // Drop continuation line.
+                continue;
             }
-            // Footnote ended — this line is regular content
-            $state = 'NORMAL';
+
+            // Non-continuation line ends the footnote — emit it as normal content.
+            $state    = 'NORMAL';
             $result[] = $line;
         }
     }
-    
+
     return implode("\n", $result);
 }
+
+/**
+ * Remove the Sources/Bibliography section from Markdown before rendering.
+ *
+ * The section is identified by a H1/H2 heading whose text matches one of the
+ * canonical names (Sources, Sources List, Источники, Список источников).
+ * Everything from that heading to the next same-or-higher-level heading (or
+ * the end of the document) is removed.
+ *
+ * CRITICAL FIXES vs the broken one-liner that existed in v2.2.7:
+ *
+ *  1. stripCodeBlocks() is called FIRST — the regex never sees the contents
+ *     of fenced code blocks, so `## Sources List` inside a ```markdown``` example
+ *     is never mistaken for a real section heading.
+ *
+ *  2. Anchor ^ is present — the heading pattern is line-anchored (flag `m`),
+ *     which prevents matching a bare `#` that appears inside an inline code
+ *     span such as `## Sources` inside a blockquote.
+ *
+ *  3. No DOTALL flag — `[^\n]*` instead of `.*` stops at the line boundary,
+ *     so the heading line itself is consumed but nothing beyond it unless
+ *     the body-lines subpattern explicitly matches them.
+ *
+ *  4. The body subpattern `(?:\n(?![ \t]*#{1,2}[ \t])[^\n]*)*` eats only lines
+ *     that are NOT a same-or-higher-level heading, leaving subsequent sections
+ *     intact.
+ *
+ * @param  string $md  Raw, normalized Markdown source.
+ * @return string      Markdown with the Sources section removed.
+ *
+ * @since 2.2.8
+ */
+function removeSourcesSection(string $md): string
+{
+    if ($md === '') {
+        return $md;
+    }
+
+    // Protect fenced code blocks: their contents must never be inspected
+    // by the Sources-heading regex (e.g. ```markdown\n## Sources\n``` examples).
+    [$stripped, $cbMap] = stripCodeBlocks($md);
+
+    // Pattern explained:
+    //   ^[ \t]*         — optional leading spaces/tabs (up to the indent limit)
+    //   #{1,2}[ \t]+    — H1 or H2 marker followed by mandatory whitespace
+    //   (?:\d+\.[ \t]+)? — optional manual numbering prefix "10. "
+    //   (?:Sources …)   — canonical section names (case-insensitive via flag i)
+    //   \b              — word boundary prevents partial matches ("SourcesList")
+    //   [^\n]*          — consume the rest of the heading line (NO dotall!)
+    //   (?:\n…)*        — consume body lines that are NOT a H1/H2 heading
+    $pattern = '/^[ \t]*#{1,2}[ \t]+(?:\d+\.[ \t]+)?'
+             . '(?:Sources List|Sources|Источники|Список источников)\b[^\n]*'
+             . '(?:\n(?![ \t]*#{1,2}[ \t])[^\n]*)*/mu';
+
+    $stripped = (string) preg_replace($pattern, '', $stripped);
+
+    return restoreCodeBlocks($stripped, $cbMap);
+}
+
 
 // ============================================================
 // MAIN: File resolution with security validation
@@ -1870,10 +1952,10 @@ if ($mode === 'viewer') {
     [$title, $desc] = extractMeta($md);
     $md = (string) preg_replace('/^#\s+.+$/mu', '', $md, 1);
     $src = parseSources($md);
-    $md = (string) preg_replace('/\n?\s*#\s+(?:\d+\.\s+)?(?:Sources List|Sources|Источники|Список источников)\b.*$/siu', '', $md);
+    $md = removeSourcesSection($md);
     $head = collectHeadings($md);
     if (AUTO_NUMBERING) $head = assignHeadingNumbers($head);
-    $toc = AUTO_TOC ? renderTOC($head) : '';
+    $toc  = AUTO_TOC ? renderTOC($head) : '';
     $rend = renderMarkdown($md, $src, $head);
     $srcList = AUTO_FOOTNOTES_LINKS ? renderSourcesList($src) : '';
 } else {
