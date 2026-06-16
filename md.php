@@ -1,7 +1,7 @@
 <?php
 /**
  * Markdown Viewer
- * Version: 2.2.5
+ * Version: 2.2.6
  * Author: Mikhail Deynekin
  * Site: https://Deynekin.com
  * Email: Mikhail@Deynekin.com
@@ -162,6 +162,43 @@ function validateRequestedFile(string $file, string $baseDir): ?string
     }
     
     return $realPath;
+}
+
+/**
+ * Strip fenced code block contents from markdown, replacing them with
+ * inert placeholders. Used to protect parsers that operate on the raw
+ * source (parseFootnotes, parseReferenceLinks, parseSources) from
+ * accidentally matching content inside code fences.
+ *
+ * Returns [$stripped, $blocks] where $blocks maps placeholder → original.
+ *
+ * @since 2.2.6
+ */
+function stripCodeBlocks(string $md): array
+{
+    $blocks = [];
+
+    $md = (string) preg_replace_callback(
+        '/^[ \t]*(`{3,}|~{3,})[^\n]*\n.*?^\1[ \t]*$/msu',
+        static function (array $m) use (&$blocks): string {
+            $placeholder = "\x02CB" . count($blocks) . "\x03";
+            $blocks[$placeholder] = $m;
+            return $placeholder;
+        },
+        $md
+    );
+
+    return [$md, $blocks];
+}
+
+/**
+ * Restore code-block placeholders produced by stripCodeBlocks().
+ *
+ * @since 2.2.6
+ */
+function restoreCodeBlocks(string $md, array $blocks): string
+{
+    return strtr($md, $blocks);
 }
 
 /**
@@ -396,14 +433,25 @@ function extractMeta(string $markdown): array
     return [$title, $description];
 }
 
+/**
+ * Parse numbered source definitions from Markdown.
+ *
+ * @since 2.2.6  Code-block contents stripped before matching.
+ */
 function parseSources(string $markdown): array
 {
+    [$stripped] = stripCodeBlocks($markdown);
+
     $sources = [];
     $matches = [];
+
     preg_match_all(
         '/^(\d+)\.\s+\*\*(.+?)\*\*\s*\R\s*-\s*URL:\s*(https?:\/\/[^\s\r\n]+)/mu',
-        $markdown, $matches, PREG_SET_ORDER
+        $stripped,
+        $matches,
+        PREG_SET_ORDER
     );
+
     foreach ($matches as $match) {
         $id = (int) toStr($match[1] ?? '0');
         if ($id <= 0) continue;
@@ -412,6 +460,7 @@ function parseSources(string $markdown): array
             'url'   => trim(toStr($match[3] ?? '')),
         ];
     }
+
     return $sources;
 }
 
@@ -537,23 +586,24 @@ function slugify(string|int $text): string
 /**
  * Parse Markdown reference-style link definitions.
  *
- * Recognizes lines like:  [key]: https://example.com "Optional title"
  * Keys are lowercased (Unicode-aware) for case-insensitive lookup.
+ * First definition wins on duplicate keys.
+ *
+ * @since 2.2.6  Code-block contents stripped before matching to prevent
+ *               false positives on [n]: lines inside fenced blocks.
  *
  * @param string $markdown Full Markdown source.
  * @return array<string, array{url: string, title: string|null}>
- *
- * v2.2.3: Unicode-aware key normalization, supports both " and ' titles,
- *         first definition wins on duplicate keys.
  */
 function parseReferenceLinks(string $markdown): array
 {
-    $refs = [];
+    [$stripped] = stripCodeBlocks($markdown);
+
+    $refs    = [];
     $matches = [];
+    $pattern = '/^[ \t]*\[([^\]]+)\]:[ \t]*<?([^\s>]+)>?(?:[ \t]+(?:"([^"]+)"|\'([^\']+)\'|))?[ \t]*$/mu';
 
-    $pattern = '/^[ \t]*\[([^\]]+)\]:[ \t]*<?([^\s>]+)>?(?:[ \t]+(?:"([^"]+)"|\'([^\']+)\'))?[ \t]*$/mu';
-
-    if (preg_match_all($pattern, $markdown, $matches, PREG_SET_ORDER) === false) {
+    if (preg_match_all($pattern, $stripped, $matches, PREG_SET_ORDER) === false) {
         return $refs;
     }
 
@@ -601,6 +651,13 @@ function parseReferenceLinks(string $markdown): array
  * @since  2.2.3  Hardened EOL-anchored terminator lookahead, duplicate-id
  *                guard, whitespace-collapsed multi-line bodies.
  * @since  2.2.4  Identifier always cast to string; slugify() TypeError fixed.
+ *
+ * @since  2.2.6  Code-block contents stripped before matching to prevent
+ *                the DOTALL regex from consuming closing fences and treating
+ *                the rest of the document as a footnote body.
+ *
+ * @param  string               $markdown Raw Markdown source.
+ * @return array<string,string>           Map of footnote-id => body text.
  */
 function parseFootnotes(string $markdown): array
 {
@@ -608,35 +665,25 @@ function parseFootnotes(string $markdown): array
         return [];
     }
 
-    /**
-     * Pattern breakdown:
-     *
-     *   ^\[\^([^\]]+)\]:   — Start of line: footnote marker + capture id
-     *   [ \t]*             — Optional horizontal whitespace after colon
-     *   (.+?)              — Non-greedy body (at least one character)
-     *   (?= ... |\z)       — Lookahead: stop at next footnote / heading /
-     *                        blank line / end of string
-     *
-     * The EOL anchor (^) with /m makes the lookahead correctly boundary-scoped
-     * so that inline `[^x]` citations are never mistaken for definitions.
-     */
+    // Strip fenced code blocks FIRST — the DOTALL pattern would otherwise
+    // cross a closing fence and swallow the remainder of the document.
+    [$stripped] = stripCodeBlocks($markdown);
+
     $pattern = '/^\[\^([^\]]+)\]:\h*(.+?)(?=\n\h*\[\^|\n\h*#{1,6}\h|\n\h*\n|\z)/msu';
 
-    if (preg_match_all($pattern, $markdown, $matches, PREG_SET_ORDER) === false) {
+    if (preg_match_all($pattern, $stripped, $matches, PREG_SET_ORDER) === false) {
         return [];
     }
 
     $footnotes = [];
 
     foreach ($matches as $match) {
-        // Always a string — avoids TypeError in slugify() for numeric ids.
         $id = trim((string) ($match[1] ?? ''));
 
         if ($id === '' || array_key_exists($id, $footnotes)) {
             continue;
         }
 
-        // Collapse multi-line / indented continuation into a single line.
         $body = trim((string) ($match[2] ?? ''));
         $body = (string) preg_replace('/\s+/u', ' ', $body);
 
@@ -649,6 +696,7 @@ function parseFootnotes(string $markdown): array
 
     return $footnotes;
 }
+
 function parseUniversalPattern(string $pattern): ?array
 {
     $pattern = trim($pattern);
