@@ -165,40 +165,45 @@ function validateRequestedFile(string $file, string $baseDir): ?string
 }
 
 /**
- * Strip fenced code block contents from markdown, replacing them with
- * inert placeholders. Used to protect parsers that operate on the raw
- * source (parseFootnotes, parseReferenceLinks, parseSources) from
- * accidentally matching content inside code fences.
+ * Replace fenced code block contents with inert byte-safe placeholders.
  *
- * Returns [$stripped, $blocks] where $blocks maps placeholder → original.
+ * Called by any parser that operates on raw $md source (parseFootnotes,
+ * parseReferenceLinks, parseSources) to prevent their regexes from
+ * matching content inside fenced blocks.
+ *
+ * Placeholder format: \x02 CB{n} \x03  — these bytes never appear in
+ * valid UTF-8 Markdown, so strtr() restoration is exact.
+ *
+ * @param  string $md Raw Markdown source.
+ * @return array{string, array<string,string>}  [stripped, map]
  *
  * @since 2.2.6
  */
 function stripCodeBlocks(string $md): array
 {
-    $blocks = [];
+    $map = [];
 
     $md = (string) preg_replace_callback(
-        '/^[ \t]*(`{3,}|~{3,})[^\n]*\n.*?^\1[ \t]*$/msu',
-        static function (array $m) use (&$blocks): string {
-            $placeholder = "\x02CB" . count($blocks) . "\x03";
-            $blocks[$placeholder] = $m;
-            return $placeholder;
+        '/^([ \t]*(?:`{3,}|~{3,}))[^\n]*\n.*?\1[ \t]*$/msu',
+        static function (array $m) use (&$map): string {
+            $ph       = "\x02CB" . count($map) . "\x03";
+            $map[$ph] = $m[0];
+            return $ph;
         },
-        $md
+        $md,
     );
 
-    return [$md, $blocks];
+    return [$md, $map];
 }
 
 /**
- * Restore code-block placeholders produced by stripCodeBlocks().
+ * Restore placeholders produced by stripCodeBlocks().
  *
  * @since 2.2.6
  */
-function restoreCodeBlocks(string $md, array $blocks): string
+function restoreCodeBlocks(string $md, array $map): string
 {
-    return strtr($md, $blocks);
+    return $map !== [] ? strtr($md, $map) : $md;
 }
 
 /**
@@ -1309,17 +1314,35 @@ function renderMarkdown(string $md, array $src = [], array $head = []): string
     $refs = FEATURE_REF_LINKS ? parseReferenceLinks($md) : [];
     $fn   = FEATURE_FOOTNOTES ? parseFootnotes($md)      : [];
 
-    if (FEATURE_REF_LINKS) {
-        $md = (string) preg_replace('/^[ \t]*\[[^\]]+\]:[ \t]*<?[^\s>]+>?.*$/mu', '', $md);
-    }
-    if (FEATURE_FOOTNOTES) {
-        $md = (string) preg_replace(
-            '/^\[\^[^\]]+\]:[ \t]*.+?(?=\n[ \t]*\[\^|\n[ \t]*#{1,6}\s|\n[ \t]*\n|\z)/msu',
-            '',
-            $md
-        );
+    // ── Strip ref-link definitions and footnote definitions from $md ─────────
+    // CRITICAL: both regexes must operate only on non-code-block content,
+    // otherwise they corrupt fenced blocks whose bodies contain [n]: or [^id]:
+    // lines, causing the block-level parser to lose fence-state sync and
+    // silently drop the remainder of the document.
+    if (FEATURE_REF_LINKS || FEATURE_FOOTNOTES) {
+        [$mdStripped, $cbMap] = stripCodeBlocks($md);
+
+        if (FEATURE_REF_LINKS) {
+            $mdStripped = (string) preg_replace(
+                '/^[ \t]*\[[^\]]+\]:[ \t]*<?[^\s>]+>?.*$/mu',
+                '',
+                $mdStripped
+            );
+        }
+
+        if (FEATURE_FOOTNOTES) {
+            $mdStripped = (string) preg_replace(
+                '/^\[\^[^\]]+\]:[ \t]*.+?(?=\n[ \t]*\[\^|\n[ \t]*#{1,6}\s|\n[ \t]*\n|\z)/msu',
+                '',
+                $mdStripped
+            );
+        }
+
+        // Restore fenced blocks — block-level parser sees original code content
+        $md = restoreCodeBlocks($mdStripped, $cbMap);
     }
 
+    // ── остаток функции без изменений ────────────────────────────────────────
     $headingMeta = [];
     foreach ($head as $h) {
         if (!is_array($h)) {
@@ -1347,50 +1370,49 @@ function renderMarkdown(string $md, array $src = [], array $head = []): string
     $fence  = '';
     $tBuf   = [];
 
-$flushPara = static function () use (&$para, &$html, &$pc, &$src, &$refs, &$fn): void {
-    if ($para === []) {
-        return;
-    }
-
-    $rend = array_values(array_filter(array_map(
-        static fn($t): string => inlineMarkdown(trim(toStr($t)), $src, $refs, $fn),
-        $para
-    )));
-
-    if ($rend === []) {
-        $para = [];
-        return;
-    }
-
-    $hasImage = static fn(string $s): bool =>
-        str_contains($s, '<img');
-
-    ['glue' => $defaultGlue, 'mode' => $mode] = resolveParagraphGlue();
-
-    if ($pc > 0) {
-        $html[] = '<div class="paragraph-gap" aria-hidden="true"></div>';
-    }
-
-    if ($mode === 'paragraph') {
-        foreach ($rend as $i => $l) {
-            $html[] = '<p' . ($i === 0 ? '' : ' class="mt-3"') . '>' . $l . '</p>';
+    $flushPara = static function () use (&$para, &$html, &$pc, &$src, &$refs, &$fn): void {
+        if ($para === []) {
+            return;
         }
-    } else {
-        $parts = '';
-        $count = count($rend);
-        foreach ($rend as $i => $line) {
-            $parts .= $line;
-            if ($i < $count - 1) {
-                $next = $rend[$i + 1];
-                $parts .= ($hasImage($line) || $hasImage($next)) ? ' ' : $defaultGlue;
+
+        $rend = array_values(array_filter(array_map(
+            static fn($t): string => inlineMarkdown(trim(toStr($t)), $src, $refs, $fn),
+            $para
+        )));
+
+        if ($rend === []) {
+            $para = [];
+            return;
+        }
+
+        $hasImage = static fn(string $s): bool => str_contains($s, '<img');
+
+        ['glue' => $defaultGlue, 'mode' => $mode] = resolveParagraphGlue();
+
+        if ($pc > 0) {
+            $html[] = '<div class="paragraph-gap" aria-hidden="true"></div>';
+        }
+
+        if ($mode === 'paragraph') {
+            foreach ($rend as $i => $l) {
+                $html[] = '<p' . ($i === 0 ? '' : ' class="mt-3"') . '>' . $l . '</p>';
             }
+        } else {
+            $parts = '';
+            $count = count($rend);
+            foreach ($rend as $i => $line) {
+                $parts .= $line;
+                if ($i < $count - 1) {
+                    $next   = $rend[$i + 1];
+                    $parts .= ($hasImage($line) || $hasImage($next)) ? ' ' : $defaultGlue;
+                }
+            }
+            $html[] = '<p>' . $parts . '</p>';
         }
-        $html[] = '<p>' . $parts . '</p>';
-    }
 
-    $pc++;
-    $para = [];
-};
+        $pc++;
+        $para = [];
+    };
 
     $closeList = static function () use (&$inList, &$lType, &$olC, &$html): void {
         if ($inList) {
@@ -1437,11 +1459,9 @@ $flushPara = static function () use (&$para, &$html, &$pc, &$src, &$refs, &$fn):
     foreach ($lines as $idx => $raw) {
         $line = toStr($raw);
 
-        // ── Fenced code blocks ──────────────────────────────────────────────
         $fm = [];
         if (preg_match('/^ {0,3}(`{3,}|~{3,})\s*([\w+-]*)\s*$/u', $line, $fm) === 1) {
             $marker = substr(toStr($fm[1] ?? ''), 0, 1);
-
             if ($inCode) {
                 if ($marker === $fence) {
                     $html[]  = renderCodeBlock($cLang, $cBuf);
@@ -1454,7 +1474,6 @@ $flushPara = static function () use (&$para, &$html, &$pc, &$src, &$refs, &$fn):
                 $cBuf[] = $line;
                 continue;
             }
-
             $flushPara();
             $closeList();
             $flushTable();
@@ -1469,7 +1488,6 @@ $flushPara = static function () use (&$para, &$html, &$pc, &$src, &$refs, &$fn):
             continue;
         }
 
-        // ── Tables ──────────────────────────────────────────────────────────
         if (isTableLine($line)) {
             $flushPara();
             $closeList();
@@ -1478,14 +1496,12 @@ $flushPara = static function () use (&$para, &$html, &$pc, &$src, &$refs, &$fn):
         }
         $flushTable();
 
-        // ── Blank line ──────────────────────────────────────────────────────
         if (trim($line) === '') {
             $flushPara();
             $closeList();
             continue;
         }
 
-        // ── ATX heading (aligned with collectHeadings regex) ────────────────
         $hm = [];
         if (preg_match('/^ {0,3}(#{1,6})\s+(.*?)\s*#*\s*$/u', $line, $hm) === 1) {
             $flushPara();
@@ -1497,26 +1513,19 @@ $flushPara = static function () use (&$para, &$html, &$pc, &$src, &$refs, &$fn):
             continue;
         }
 
-        // ── Setext heading (h1 = ===, h2 = ---)  ────────────────
         $sx = [];
-        if (
-            $idx > 0
-            && preg_match('/^ {0,3}(=+|-+)\s*$/u', $line, $sx) === 1
-        ) {
+        if ($idx > 0 && preg_match('/^ {0,3}(=+|-+)\s*$/u', $line, $sx) === 1) {
             $prev = trim(toStr($lines[$idx - 1] ?? ''));
-            // Предыдущая строка должна быть непустой и не быть ATX-заголовком
             if ($prev !== '' && preg_match('/^ {0,3}#{1,6}\s+/u', $prev) !== 1) {
                 $flushPara();
                 $closeList();
                 $lvl = substr(toStr($sx[1] ?? '='), 0, 1) === '=' ? 1 : 2;
-                // Убираем предыдущую строку из параграфа — она стала заголовком
                 array_pop($para);
                 $renderHeading($lvl, $prev);
                 continue;
             }
         }
 
-        // ── Blockquote ──────────────────────────────────────────────────────
         $qm = [];
         if (preg_match('/^>\s?(.*)$/u', $line, $qm) === 1) {
             $flushPara();
@@ -1527,7 +1536,6 @@ $flushPara = static function () use (&$para, &$html, &$pc, &$src, &$refs, &$fn):
             continue;
         }
 
-        // ── Task list ────────────────────────────────────────────────────────
         if (FEATURE_TASK_LISTS) {
             $tm = [];
             if (preg_match('/^[-\*\+]\s+\[([ xX])\]\s+(.*)$/u', $line, $tm) === 1) {
@@ -1548,7 +1556,6 @@ $flushPara = static function () use (&$para, &$html, &$pc, &$src, &$refs, &$fn):
             }
         }
 
-        // ── Unordered list ──────────────────────────────────────────────────
         $um = [];
         if (preg_match('/^[-*+]\s+(.*)$/u', $line, $um) === 1) {
             $flushPara();
@@ -1562,7 +1569,6 @@ $flushPara = static function () use (&$para, &$html, &$pc, &$src, &$refs, &$fn):
             continue;
         }
 
-        // ── Ordered list ────────────────────────────────────────────────────
         $om = [];
         if (preg_match('/^(\d+)\.\s+(.*)$/u', $line, $om) === 1) {
             $flushPara();
@@ -1580,7 +1586,6 @@ $flushPara = static function () use (&$para, &$html, &$pc, &$src, &$refs, &$fn):
             continue;
         }
 
-        // ── Horizontal rule ─────────────────────────────────────────────────
         if (preg_match('/^[-*_]{3,}\s*$/u', trim($line)) === 1) {
             $flushPara();
             $closeList();
@@ -1591,7 +1596,6 @@ $flushPara = static function () use (&$para, &$html, &$pc, &$src, &$refs, &$fn):
         $para[] = trim($line);
     }
 
-    // Flush остатков
     if ($inCode) {
         $html[] = renderCodeBlock($cLang, $cBuf);
     }
