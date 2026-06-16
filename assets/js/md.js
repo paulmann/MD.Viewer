@@ -1,9 +1,8 @@
 /**
  * Markdown Viewer — Client-side functionality
- * Version: 2.2.1
+ * Version: 2.2.2
  * Author: Mikhail Deynekin
  * Site: https://Deynekin.com
- * Repo: https://github.com/paulmann/MD.Viewer/
  * Email: Mikhail@Deynekin.com
  *
  * Features:
@@ -391,3 +390,31 @@ window.addEventListener('load', () => {
         });
     });
 })();
+
+// ── Inline code: click to copy ───────────────────────────────────────────────
+// Reuses the existing navigator.clipboard API, consistent with copy-btn logic.
+document.addEventListener('click', (e) => {
+    const el = e.target.closest('code.copy-on-click');
+    if (!el) return;
+
+    const text = el.textContent ?? '';
+    if (!text) return;
+
+    navigator.clipboard.writeText(text).then(() => {
+        // Brief visual feedback — reuse the same "copied" style as copy-btn
+        el.classList.add('copied');
+        const prev = el.title;
+        el.title = 'Copied!';
+        setTimeout(() => {
+            el.classList.remove('copied');
+            el.title = prev;
+        }, 1500);
+    }).catch(() => {
+        // Fallback for HTTP contexts without clipboard API
+        const sel = window.getSelection();
+        const range = document.createRange();
+        range.selectNodeContents(el);
+        sel?.removeAllRanges();
+        sel?.addRange(range);
+    });
+});
