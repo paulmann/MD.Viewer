@@ -1,7 +1,7 @@
 <?php
 /**
  * Markdown Viewer
- * Version: 2.2.9
+ * Version: 2.2.8
  * Author: Mikhail Deynekin
  * Site: https://Deynekin.com
  * Email: Mikhail@Deynekin.com
@@ -1138,6 +1138,9 @@ function inlineMarkdown(
         },
         $escaped,
     );
+
+    return $escaped;  
+}                     
 
 function isTableLine(string $line): bool { $t = trim($line); return $t !== '' && str_starts_with($t, '|') && str_contains($t, '|'); }
 function parseTableRow(string $line): array { $t = trim($line); if (str_starts_with($t, '|')) $t = substr($t, 1); if (str_ends_with($t, '|')) $t = substr($t, 0, -1); return array_map(fn(string $c): string => trim($c), explode('|', $t)); }
