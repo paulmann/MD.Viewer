@@ -1,7 +1,7 @@
 <?php
 /**
  * Markdown Viewer
- * Version: 2.2.8
+ * Version: 2.2.9
  * Author: Mikhail Deynekin
  * Site: https://Deynekin.com
  * Email: Mikhail@Deynekin.com
@@ -990,6 +990,17 @@ function inlineMarkdown(
         );
     }
 
+// ── 2b. Protect inline HTML tags ─────────────────────────────────────────
+$rawHtmlSpans = [];
+$text = (string) preg_replace_callback(
+    '/<\/?[a-zA-Z][^>]*>/u',
+    static function (array $m) use (&$rawHtmlSpans): string {
+        $rawHtmlSpans[] = $m[0];
+        return "\u{FFFE}" . (count($rawHtmlSpans) - 1) . "\u{FFFE}";
+    },
+    $text,
+);
+
     // 3. HTML-escape all remaining plain text 
     $escaped = e($text);
 
@@ -1113,6 +1124,15 @@ function inlineMarkdown(
             $escaped,
         );
     }
+
+// ── 11b. Restore inline HTML placeholders ────────────────────────────────
+if ($rawHtmlSpans !== []) {
+    $escaped = (string) preg_replace_callback(
+        '/\x{FFFE}(\d+)\x{FFFE}/u',
+        static fn(array $m): string => $rawHtmlSpans[(int) $m[1]] ?? '',
+        $escaped,
+    );
+}
 
     // ── 12. Restore code placeholders → <code> or pattern chain ──────────────
     $escaped = (string) preg_replace_callback(
@@ -1775,6 +1795,17 @@ if (preg_match('/^ {0,3}(`{3,}|~{3,})\s*([\w+.-]*)\s*$/u', $line, $fm) === 1) {
             $html[] = '<hr class="my-8 border-slate-200 dark:border-slate-700">';
             continue;
         }
+
+// ── Raw HTML block ──────────────────────────────────────────────────────────
+if (preg_match('/^\s*<\/?[a-zA-Z][^>]*>/u', $line)) {
+    $flushPara();
+    $closeList();
+    $html[] = $line;   // без e() — сырой HTML
+    continue;
+}
+
+// ── Regular paragraph line ──
+$para[] = trim($line);
 
         // ── Regular paragraph line ──
         $para[] = trim($line);
