@@ -182,7 +182,7 @@ MD.Viewer/
 ├── index.md               # Your default Markdown document
 ├── assets/
 │   ├── css/
-│   │   └── radio.css      # Supplementary stylesheet
+│   │   └── md.css      # Supplementary stylesheet
 │   └── js/
 │       └── md.js          # Client-side logic: theme switching, layout width,
 │                          # copy-to-clipboard, Mermaid lazy initialization
