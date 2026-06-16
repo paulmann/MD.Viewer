@@ -1,7 +1,7 @@
 <?php
 /**
  * Markdown Viewer
- * Version: 2.2.0
+ * Version: 2.2.5
  * Author: Mikhail Deynekin
  * Site: https://Deynekin.com
  * Email: Mikhail@Deynekin.com
@@ -752,161 +752,210 @@ function emojiMap(): array
 /**
  * Convert a single line of inline Markdown into safe HTML.
  *
- * Handles (in order): code spans, emphasis/strong/strike/mark, sub/sup, emoji,
- * images, internal/anchor links, absolute links, reference links, source
- * citations [[1,2]], footnotes, and pattern-chain code spans.
+ * Processing pipeline (order is load-bearing):
  *
- * @param string                                       $text      Raw inline text.
- * @param array<int, array{url:string,title:string}>   $sources   Numbered sources.
- * @param array<string, array{url:string,title:?string}> $refs    Reference links.
- * @param array<string, string>                         $footnotes Footnote bodies.
- * @return string Sanitized HTML.
+ *  1. Code spans          → U+FFFC{n}U+FFFC  placeholders
+ *  2. Image spans         → U+FFFD{n}U+FFFD  placeholders  ← before e()
+ *  3. HTML-escape remaining plain text
+ *  4. Emphasis / strong / del / mark / sub / sup
+ *  5. Emoji shortcodes
+ *  6. Internal / anchor links   (negative lookbehind (?<!!) guards images)
+ *  7. Absolute links            (negative lookbehind (?<!!) guards images)
+ *  8. Reference-style links
+ *  9. Source citations  [[1,2]]
+ * 10. Footnote references [^id]
+ * 11. Restore image placeholders → raw HTML (never escaped)
+ * 12. Restore code placeholders  → <code> or pattern chain
  *
- * v2.2.3: Added internal/anchor link handler (#anchor and relative paths),
- *         ordered before the absolute-link handler; minor robustness fixes.
+ * Images MUST be extracted before e() so that the generated <img> tag is
+ * never HTML-escaped and link handlers cannot mistake [<img…>](url) for a
+ * hyperlink — which is the root cause of the [![badge](img)](url) breakage.
+ *
+ * @param  string                                         $text      Raw inline text.
+ * @param  array<int, array{url:string,title:string}>     $sources   Numbered sources.
+ * @param  array<string, array{url:string,title:?string}> $refs      Reference-style links.
+ * @param  array<string, string>                          $footnotes Footnote map.
+ * @return string Sanitized HTML fragment.
+ *
+ * @since 2.2.4 Images extracted before e(); fixes [![badge](img)](url) corruption
+ *              and eliminates spurious <br> between consecutive badge images.
  */
-function inlineMarkdown(string $text, array $sources = [], array $refs = [], array $footnotes = []): string
-{
-    // Protect inline code spans from further processing.
+function inlineMarkdown(
+    string $text,
+    array  $sources   = [],
+    array  $refs      = [],
+    array  $footnotes = [],
+): string {
+    // ── 1. Protect inline code spans ─────────────────────────────────────────
     $codeSpans = [];
     $text = (string) preg_replace_callback(
         '/`([^`]+)`/u',
-        static function (array $match) use (&$codeSpans): string {
-            $idx = count($codeSpans);
-            $codeSpans[$idx] = $match[1];
-            return "\u{FFFC}" . $idx . "\u{FFFC}";
+        static function (array $m) use (&$codeSpans): string {
+            $codeSpans[] = $m[1];
+            return "\u{FFFC}" . (count($codeSpans) - 1) . "\u{FFFC}";
         },
-        $text
+        $text,
     );
 
+    // ── 2. Protect image spans BEFORE e() ────────────────────────────────────
+    // This is the critical fix: images are extracted into raw-HTML placeholders
+    // so (a) <img> tags are never HTML-escaped, and (b) link handlers cannot
+    // see  [<img…>](url)  and wrap it in a second <a> tag.
+    $imageSpans = [];
+    if (FEATURE_IMAGES) {
+        $text = (string) preg_replace_callback(
+            '/!\[([^\]]*)\]\(([^\s)]+)(?:\s+"([^"]*)")?\)/u',
+            static function (array $m) use (&$imageSpans): string {
+                $alt   = e($m[1] ?? '');
+                $src   = e($m[2] ?? '');
+                $title = ($m[3] ?? '') !== '' ? ' title="' . e($m[3]) . '"' : '';
+
+                // inline-block + no vertical margins: badges flow in a line,
+                // not as block-level elements that generate <br> between them.
+                $imageSpans[] =
+                    '<img src="' . $src . '" alt="' . $alt . '"' . $title
+                    . ' loading="lazy" decoding="async"'
+                    . ' class="inline-block align-middle max-w-full"'
+                    . ' onerror="this.style.display=\'none\';'
+                    .          'this.nextElementSibling?.classList.remove(\'hidden\')" />'
+                    . '<span class="hidden text-sm text-slate-500'
+                    .           ' dark:text-slate-400">Image: ' . $alt . '</span>';
+
+                return "\u{FFFD}" . (count($imageSpans) - 1) . "\u{FFFD}";
+            },
+            $text,
+        );
+    }
+
+    // ── 3. HTML-escape all remaining plain text ───────────────────────────────
     $escaped = e($text);
 
-    // Emphasis, strong, strikethrough, highlight.
-    $escaped = (string) preg_replace('/\*\*([^*]+)\*\*/u', '<strong>$1</strong>', $escaped);
-    $escaped = (string) preg_replace('/__([^_]+)__/u', '<strong>$1</strong>', $escaped);
-    $escaped = (string) preg_replace('/(?<!\*)\*([^*]+)\*(?!\*)/u', '<em>$1</em>', $escaped);
-    $escaped = (string) preg_replace('/(?<!_)_([^_]+)_(?!_)/u', '<em>$1</em>', $escaped);
-    $escaped = (string) preg_replace('/~~([^~]+)~~/u', '<del>$1</del>', $escaped);
-    $escaped = (string) preg_replace('/==([^=]+)==/u', '<mark>$1</mark>', $escaped);
+    // ── 4. Emphasis / strong / strikethrough / highlight ─────────────────────
+    $escaped = (string) preg_replace('/\*\*([^*]+)\*\*/u',          '<strong>$1</strong>', $escaped);
+    $escaped = (string) preg_replace('/__([^_]+)__/u',              '<strong>$1</strong>', $escaped);
+    $escaped = (string) preg_replace('/(?<!\*)\*([^*]+)\*(?!\*)/u', '<em>$1</em>',         $escaped);
+    $escaped = (string) preg_replace('/(?<!_)_([^_]+)_(?!_)/u',     '<em>$1</em>',         $escaped);
+    $escaped = (string) preg_replace('/~~([^~]+)~~/u',              '<del>$1</del>',        $escaped);
+    $escaped = (string) preg_replace('/==([^=]+)==/u',              '<mark>$1</mark>',      $escaped);
 
     if (FEATURE_SUBSUP) {
-        $escaped = (string) preg_replace('/(?<!~)~([^~]+)~(?!~)/u', '<sub>$1</sub>', $escaped);
-        $escaped = (string) preg_replace('/(?<!\^)\^([^^]+)\^(?!\^)/u', '<sup>$1</sup>', $escaped);
+        $escaped = (string) preg_replace('/(?<!~)~([^~]+)~(?!~)/u',     '<sub>$1</sub>',  $escaped);
+        $escaped = (string) preg_replace('/(?<!\^)\^([^^]+)\^(?!\^)/u', '<sup>$1</sup>',  $escaped);
     }
 
+    // ── 5. Emoji shortcodes ───────────────────────────────────────────────────
     if (FEATURE_EMOJI) {
+        $map = emojiMap();
         $escaped = str_replace(
-            array_map(static fn(string $c): string => ':' . $c . ':', array_keys(emojiMap())),
-            array_values(emojiMap()),
-            $escaped
+            array_map(static fn(string $k): string => ':' . $k . ':', array_keys($map)),
+            array_values($map),
+            $escaped,
         );
     }
 
-    // Images: ![alt](url "title")
-    if (FEATURE_IMAGES) {
-        $escaped = (string) preg_replace_callback(
-            '/!\[([^\]]*)\]\(([^)\s]+)(?:\s+"([^"]*)")?\)/u',
-            static function (array $match): string {
-                $alt   = e($match[1] ?? '');
-                $url   = e($match[2] ?? '');
-                $title = isset($match[3]) ? ' title="' . e($match[3]) . '"' : '';
-                return '<img src="' . $url . '" alt="' . $alt . '"' . $title
-                    . ' loading="lazy" decoding="async" class="rounded-xl shadow-soft my-4 max-w-full h-auto"'
-                    . ' onerror="this.style.display=\'none\';this.nextElementSibling?.classList.remove(\'hidden\')" />'
-                    . '<span class="hidden text-sm text-slate-500 dark:text-slate-400 mt-2">Image: ' . $alt . '</span>';
-            },
-            $escaped
-        );
-    }
+    // Reusable link classes.
+    $lc = 'text-blue-600 hover:text-blue-500 dark:text-blue-400'
+        . ' dark:hover:text-blue-300 underline-offset-2 hover:underline';
 
-    // Internal anchor links and relative links: [Text](#anchor) or [Text](path).
-    // Must run BEFORE the absolute-link handler; excludes scheme via [^):\s].
+    // ── 6. Internal / anchor links  [Text](#anchor) or [Text](relative/path) ─
     $escaped = (string) preg_replace_callback(
-        '/\[([^\]]+)\]\((#[^)\s]+|[^):\s]+(?:\/[^)\s]*)?)\)/u',
-        static function (array $match): string {
-            $label = $match[1] ?? '';
-            $href  = trim($match[2] ?? '');
-            if ($href === '') {
-                return $label;
-            }
-            return '<a href="' . e($href) . '" class="text-blue-600 hover:text-blue-500 '
-                . 'dark:text-blue-400 dark:hover:text-blue-300 underline-offset-2 hover:underline">'
-                . $label . '</a>';
+        '/(?<!!)(?<!\\\\)\[([^\]]+)\]\((#[^\s)]+|[^):\s]+(?:\/[^\s)]*)?)\)/u',
+        static function (array $m) use ($lc): string {
+            $href = trim($m[2] ?? '');
+            return $href !== ''
+                ? '<a href="' . e($href) . '" class="' . $lc . '">' . $m[1] . '</a>'
+                : $m[1];
         },
-        $escaped
+        $escaped,
     );
 
-    // Absolute links: [Text](https://...) open in a new tab.
+    // ── 7. Absolute links  [Text](https://…) ─────────────────────────────────
     $escaped = (string) preg_replace_callback(
-        '/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/u',
-        static function (array $match): string {
-            return '<a href="' . e($match[2]) . '" target="_blank" rel="noopener noreferrer" '
-                . 'class="text-blue-600 hover:text-blue-500 dark:text-blue-400 dark:hover:text-blue-300 '
-                . 'underline-offset-2 hover:underline">' . e($match[1]) . '</a>';
+        '/(?<!!)(?<!\\\\)\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/u',
+        static function (array $m) use ($lc): string {
+            return '<a href="' . e($m[2]) . '" target="_blank" rel="noopener noreferrer"'
+                 . ' class="' . $lc . '">' . e($m[1]) . '</a>';
         },
-        $escaped
+        $escaped,
     );
 
-    // Reference links: [Text][key] or [Text][].
+    // ── 8. Reference-style links  [Text][key] ────────────────────────────────
     if (FEATURE_REF_LINKS && $refs !== []) {
         $escaped = (string) preg_replace_callback(
-            '/\[([^\]]+)\]\[([^\]]*)\]/u',
-            static function (array $match) use ($refs): string {
-                $label  = $match[1] ?? '';
-                $refKey = mb_strtolower(trim($match[2] !== '' ? $match[2] : $match[1]), 'UTF-8');
-                if (isset($refs[$refKey])) {
-                    $url   = e($refs[$refKey]['url']);
-                    $title = $refs[$refKey]['title'] !== null ? ' title="' . e($refs[$refKey]['title']) . '"' : '';
-                    return '<a href="' . $url . '" target="_blank" rel="noopener noreferrer"' . $title
-                        . ' class="text-blue-600 hover:text-blue-500 dark:text-blue-400 dark:hover:text-blue-300 '
-                        . 'underline-offset-2 hover:underline">' . $label . '</a>';
+            '/(?<!!)(?<!\\\\)\[([^\]]+)\]\[([^\]]*)\]/u',
+            static function (array $m) use ($refs, $lc): string {
+                $label  = $m[1] ?? '';
+                $key    = mb_strtolower(trim($m[2] !== '' ? $m[2] : $m[1]), 'UTF-8');
+                if (!isset($refs[$key])) {
+                    return '<span class="text-slate-400 dark:text-slate-500"'
+                         . ' title="Reference not found">[' . $label . ']</span>';
                 }
-                return '<span class="text-slate-400 dark:text-slate-500" title="Reference not found">[' . $label . ']</span>';
+                $title = $refs[$key]['title'] !== null
+                    ? ' title="' . e($refs[$key]['title']) . '"'
+                    : '';
+                return '<a href="' . e($refs[$key]['url']) . '"'
+                     . ' target="_blank" rel="noopener noreferrer"'
+                     . $title . ' class="' . $lc . '">' . $label . '</a>';
             },
-            $escaped
+            $escaped,
         );
     }
 
-    // Source citations: [[1,2,3]]
+    // ── 9. Source citations  [[1,2,3]] ────────────────────────────────────────
     $escaped = (string) preg_replace_callback(
         '/\[\[([0-9,\s]+)\]\]/u',
-        static function (array $match) use ($sources): string {
-            $ids = array_filter(array_map('intval', array_map('trim', explode(',', toStr($match[1] ?? '')))));
+        static function (array $m) use ($sources): string {
+            $ids   = array_filter(
+                array_map('intval', array_map('trim', explode(',', toStr($m[1] ?? '')))),
+            );
             $links = [];
             foreach ($ids as $id) {
-                if (isset($sources[$id]) && is_array($sources[$id])) {
-                    $links[] = '<a href="' . e($sources[$id]['url']) . '" target="_blank" rel="noopener noreferrer" '
-                        . 'title="' . e($sources[$id]['title']) . '" class="source-ref">' . $id . '</a>';
-                } else {
-                    $links[] = '<span class="source-ref source-ref-missing">' . $id . '</span>';
-                }
+                $links[] = isset($sources[$id])
+                    ? '<a href="' . e($sources[$id]['url']) . '" target="_blank"'
+                      . ' rel="noopener noreferrer"'
+                      . ' title="' . e($sources[$id]['title']) . '"'
+                      . ' class="source-ref">' . $id . '</a>'
+                    : '<span class="source-ref source-ref-missing">' . $id . '</span>';
             }
             return '<sup class="source-group">[' . implode(',', $links) . ']</sup>';
         },
-        $escaped
+        $escaped,
     );
 
-    // Footnote references: [^id]
+    // ── 10. Footnote references  [^id] ────────────────────────────────────────
     if (FEATURE_FOOTNOTES && $footnotes !== []) {
         $escaped = (string) preg_replace_callback(
             '/\[\^([^\]]+)\]/u',
-            static function (array $match) use ($footnotes): string {
-                $id    = trim($match[1]);
+            static function (array $m) use ($footnotes): string {
+                $id    = trim($m[1]);
                 $slug  = 'fn-' . slugify($id);
-                $label = isset($footnotes[$id]) ? ' title="' . e(mb_substr(strip_tags($footnotes[$id]), 0, 100)) . '"' : '';
-                return '<a href="#fn-' . e($slug) . '" id="fnref-' . e($slug) . '" class="footnote-ref" '
-                    . 'aria-label="Footnote ' . e($id) . '"' . $label
-                    . '><sup class="text-blue-600 dark:text-blue-400 font-semibold">[' . e($id) . ']</sup></a>';
+                $label = isset($footnotes[$id])
+                    ? ' title="' . e(mb_substr(strip_tags($footnotes[$id]), 0, 100)) . '"'
+                    : '';
+                return '<a href="#fn-' . e($slug) . '" id="fnref-' . e($slug) . '"'
+                     . ' class="footnote-ref" aria-label="Footnote ' . e($id) . '"'
+                     . $label . '>'
+                     . '<sup class="text-blue-600 dark:text-blue-400 font-semibold">'
+                     . '[' . e($id) . ']</sup></a>';
             },
-            $escaped
+            $escaped,
         );
     }
 
-    // Restore protected code spans (and render pattern chains where applicable).
+    // ── 11. Restore image placeholders → raw HTML ─────────────────────────────
+    if ($imageSpans !== []) {
+        $escaped = (string) preg_replace_callback(
+            '/\x{FFFD}(\d+)\x{FFFD}/u',
+            static fn(array $m): string => $imageSpans[(int) $m[1]] ?? '',
+            $escaped,
+        );
+    }
+
+    // ── 12. Restore code placeholders → <code> or pattern chain ──────────────
     $escaped = (string) preg_replace_callback(
         '/\x{FFFC}(\d+)\x{FFFC}/u',
-        static function (array $match) use ($codeSpans): string {
-            $code = $codeSpans[(int) $match[1]] ?? '';
+        static function (array $m) use ($codeSpans): string {
+            $code = $codeSpans[(int) $m[1]] ?? '';
             if (UNIVERSAL_PATTERNS || CYPHER_PATTERNS) {
                 $elements = parseUniversalPattern($code);
                 if ($elements !== null) {
@@ -915,7 +964,7 @@ function inlineMarkdown(string $text, array $sources = [], array $refs = [], arr
             }
             return '<code class="inline-code">' . e($code) . '</code>';
         },
-        $escaped
+        $escaped,
     );
 
     return $escaped;
@@ -1197,17 +1246,8 @@ function resolveParagraphGlue(): array
 /**
  * Render normalized Markdown into themed HTML.
  *
- * Consumes pre-collected heading metadata (slug, number, manual_number) so the
- * rendered anchors and auto-numbering stay consistent with the TOC.
- *
- * @param string                   $md   Normalized Markdown source.
- * @param array<int, array{url:string,title:string}> $src  Numbered sources map.
- * @param array<int, array<string,mixed>>            $head Pre-collected headings.
- * @return string Rendered HTML fragment.
- *
- * v2.2.3: Unified heading metadata indexing (fixes manual-flag/slug desync),
- *         fence parsing aligned with collectHeadings (``` and ~~~, indent-aware),
- *         hardened reference/footnote stripping, reduced duplicate work.
+ * @since 2.2.5  Fixed setext heading rendering (sync with collectHeadings),
+ *               ATX regex aligned, closures capture by reference where mutable.
  */
 function renderMarkdown(string $md, array $src = [], array $head = []): string
 {
@@ -1216,7 +1256,7 @@ function renderMarkdown(string $md, array $src = [], array $head = []): string
     }
 
     $refs = FEATURE_REF_LINKS ? parseReferenceLinks($md) : [];
-    $fn   = FEATURE_FOOTNOTES ? parseFootnotes($md) : [];
+    $fn   = FEATURE_FOOTNOTES ? parseFootnotes($md)      : [];
 
     if (FEATURE_REF_LINKS) {
         $md = (string) preg_replace('/^[ \t]*\[[^\]]+\]:[ \t]*<?[^\s>]+>?.*$/mu', '', $md);
@@ -1229,34 +1269,34 @@ function renderMarkdown(string $md, array $src = [], array $head = []): string
         );
     }
 
-    // Single normalized heading metadata list — one index for slug/number/manual.
     $headingMeta = [];
     foreach ($head as $h) {
         if (!is_array($h)) {
             continue;
         }
         $headingMeta[] = [
-            'slug'         => toStr($h['slug'] ?? ''),
-            'number'       => toStr($h['number'] ?? ''),
+            'slug'         => toStr($h['slug']          ?? ''),
+            'number'       => toStr($h['number']        ?? ''),
             'manualNumber' => (bool) ($h['manual_number'] ?? false),
         ];
     }
 
-    $si      = 0;
-    $pc      = 0;
-    $lines   = explode("\n", $md);
-    $html    = [];
-    $para    = [];
-    $inList  = false;
-    $lType   = '';
-    $olC     = 0;
-    $inCode  = false;
-    $cBuf    = [];
-    $cLang   = '';
-    $fence   = '';   // active fence marker (``` or ~~~)
-    $tBuf    = [];
+    $si     = 0;
+    $pc     = 0;
+    $lines  = explode("\n", $md);
+    $n      = count($lines);
+    $html   = [];
+    $para   = [];
+    $inList = false;
+    $lType  = '';
+    $olC    = 0;
+    $inCode = false;
+    $cBuf   = [];
+    $cLang  = '';
+    $fence  = '';
+    $tBuf   = [];
 
-    $flushPara = static function () use (&$para, &$html, &$pc, $src, $refs, $fn): void {
+    $flushPara = static function () use (&$para, &$html, &$pc, &$src, &$refs, &$fn): void {
         if ($para === []) {
             return;
         }
@@ -1292,23 +1332,48 @@ function renderMarkdown(string $md, array $src = [], array $head = []): string
         }
     };
 
-    $flushTable = static function () use (&$tBuf, &$html, $src): void {
+    $flushTable = static function () use (&$tBuf, &$html, &$src): void {
         if ($tBuf !== []) {
             $html[] = renderTable($tBuf, $src);
-            $tBuf = [];
+            $tBuf   = [];
         }
     };
 
-    foreach ($lines as $raw) {
+    $renderHeading = static function (
+        int    $lvl,
+        string $txt,
+    ) use (&$si, &$html, &$headingMeta, &$src, &$refs, &$fn): void {
+        $meta        = $headingMeta[$si] ?? null;
+        $slug        = ($meta['slug'] ?? '') !== '' ? $meta['slug'] : slugify($txt);
+        $num         = AUTO_NUMBERING ? ($meta['number'] ?? '') : '';
+        $manualNum   = $meta['manualNumber'] ?? false;
+        $showAutoNum = AUTO_NUMBERING && $num !== '' && !$manualNum;
+        $si++;
+
+        $np = $showAutoNum
+            ? '<span class="heading-number text-slate-400 dark:text-slate-500 mr-2 font-mono">' . e($num) . '.</span>'
+            : '';
+
+        $html[] = sprintf(
+            '<h%d id="%s" class="%s">%s%s</h%d>',
+            $lvl,
+            e($slug),
+            getHeadingClasses($lvl),
+            $np,
+            inlineMarkdown($txt, $src, $refs, $fn),
+            $lvl
+        );
+    };
+
+    foreach ($lines as $idx => $raw) {
         $line = toStr($raw);
 
-        // Fenced code blocks — aligned with collectHeadings(): ``` or ~~~, up to 3 leading spaces.
+        // ── Fenced code blocks ──────────────────────────────────────────────
         $fm = [];
         if (preg_match('/^ {0,3}(`{3,}|~{3,})\s*([\w+-]*)\s*$/u', $line, $fm) === 1) {
             $marker = substr(toStr($fm[1] ?? ''), 0, 1);
 
             if ($inCode) {
-                // Close only with a matching fence type.
                 if ($marker === $fence) {
                     $html[]  = renderCodeBlock($cLang, $cBuf);
                     $inCode  = false;
@@ -1317,7 +1382,6 @@ function renderMarkdown(string $md, array $src = [], array $head = []): string
                     $fence   = '';
                     continue;
                 }
-                // Different fence inside an open block is treated as content.
                 $cBuf[] = $line;
                 continue;
             }
@@ -1336,6 +1400,7 @@ function renderMarkdown(string $md, array $src = [], array $head = []): string
             continue;
         }
 
+        // ── Tables ──────────────────────────────────────────────────────────
         if (isTableLine($line)) {
             $flushPara();
             $closeList();
@@ -1344,46 +1409,45 @@ function renderMarkdown(string $md, array $src = [], array $head = []): string
         }
         $flushTable();
 
+        // ── Blank line ──────────────────────────────────────────────────────
         if (trim($line) === '') {
             $flushPara();
             $closeList();
             continue;
         }
 
-        // ATX heading.
+        // ── ATX heading (aligned with collectHeadings regex) ────────────────
         $hm = [];
-        if (preg_match('/^(#{1,6})\s+(.*)$/u', $line, $hm) === 1) {
+        if (preg_match('/^ {0,3}(#{1,6})\s+(.*?)\s*#*\s*$/u', $line, $hm) === 1) {
             $flushPara();
             $closeList();
-
-            $lvl = max(1, min(6, strlen(toStr($hm[1] ?? '#'))));
-            $txt = trim(toStr($hm[2] ?? ''));
-
-            $meta       = $headingMeta[$si] ?? null;
-            $slug       = $meta['slug'] ?? '';
-            $slug       = $slug !== '' ? $slug : slugify($txt);
-            $num        = AUTO_NUMBERING ? ($meta['number'] ?? '') : '';
-            $manualNum  = $meta['manualNumber'] ?? false;
-            $showAutoNum = AUTO_NUMBERING && $num !== '' && !$manualNum;
-            $si++;
-
-            $np = $showAutoNum
-                ? '<span class="heading-number text-slate-400 dark:text-slate-500 mr-2 font-mono">' . e($num) . '.</span>'
-                : '';
-
-            $html[] = sprintf(
-                '<h%d id="%s" class="%s">%s%s</h%d>',
-                $lvl,
-                e($slug),
-                getHeadingClasses($lvl),
-                $np,
-                inlineMarkdown($txt, $src, $refs, $fn),
-                $lvl
+            $renderHeading(
+                max(1, min(6, strlen(toStr($hm[1] ?? '#')))),
+                trim(toStr($hm[2] ?? ''))
             );
             continue;
         }
 
-        // Blockquote.
+        // ── Setext heading (h1 = ===, h2 = ---)  ────────────────
+        $sx = [];
+        if (
+            $idx > 0
+            && preg_match('/^ {0,3}(=+|-+)\s*$/u', $line, $sx) === 1
+        ) {
+            $prev = trim(toStr($lines[$idx - 1] ?? ''));
+            // Предыдущая строка должна быть непустой и не быть ATX-заголовком
+            if ($prev !== '' && preg_match('/^ {0,3}#{1,6}\s+/u', $prev) !== 1) {
+                $flushPara();
+                $closeList();
+                $lvl = substr(toStr($sx[1] ?? '='), 0, 1) === '=' ? 1 : 2;
+                // Убираем предыдущую строку из параграфа — она стала заголовком
+                array_pop($para);
+                $renderHeading($lvl, $prev);
+                continue;
+            }
+        }
+
+        // ── Blockquote ──────────────────────────────────────────────────────
         $qm = [];
         if (preg_match('/^>\s?(.*)$/u', $line, $qm) === 1) {
             $flushPara();
@@ -1394,10 +1458,10 @@ function renderMarkdown(string $md, array $src = [], array $head = []): string
             continue;
         }
 
-        // Task list item.
+        // ── Task list ────────────────────────────────────────────────────────
         if (FEATURE_TASK_LISTS) {
             $tm = [];
-            if (preg_match('/^[\-\*\+]\s+\[([ xX])\]\s+(.*)$/u', $line, $tm) === 1) {
+            if (preg_match('/^[-\*\+]\s+\[([ xX])\]\s+(.*)$/u', $line, $tm) === 1) {
                 $flushPara();
                 $chk  = trim($tm[1]) !== '';
                 $itxt = trim(toStr($tm[2] ?? ''));
@@ -1407,16 +1471,15 @@ function renderMarkdown(string $md, array $src = [], array $head = []): string
                     $inList = true;
                     $lType  = 'ul';
                 }
-                $html[] = '<li class="flex items-start gap-3' . ($chk ? ' task-done' : '') . '"><input type="checkbox"'
-                    . ($chk ? ' checked disabled' : '')
-                    . ' class="mt-1 h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 disabled:opacity-50"><span class="flex-1">'
-                    . inlineMarkdown($itxt, $src, $refs, $fn)
-                    . '</span></li>';
+                $html[] = '<li class="flex items-start gap-3' . ($chk ? ' task-done' : '') . '">'
+                    . '<input type="checkbox"' . ($chk ? ' checked disabled' : '')
+                    . ' class="mt-1 h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 disabled:opacity-50">'
+                    . '<span class="flex-1">' . inlineMarkdown($itxt, $src, $refs, $fn) . '</span></li>';
                 continue;
             }
         }
 
-        // Unordered list item.
+        // ── Unordered list ──────────────────────────────────────────────────
         $um = [];
         if (preg_match('/^[-*+]\s+(.*)$/u', $line, $um) === 1) {
             $flushPara();
@@ -1430,7 +1493,7 @@ function renderMarkdown(string $md, array $src = [], array $head = []): string
             continue;
         }
 
-        // Ordered list item.
+        // ── Ordered list ────────────────────────────────────────────────────
         $om = [];
         if (preg_match('/^(\d+)\.\s+(.*)$/u', $line, $om) === 1) {
             $flushPara();
@@ -1448,7 +1511,7 @@ function renderMarkdown(string $md, array $src = [], array $head = []): string
             continue;
         }
 
-        // Horizontal rule.
+        // ── Horizontal rule ─────────────────────────────────────────────────
         if (preg_match('/^[-*_]{3,}\s*$/u', trim($line)) === 1) {
             $flushPara();
             $closeList();
@@ -1459,6 +1522,7 @@ function renderMarkdown(string $md, array $src = [], array $head = []): string
         $para[] = trim($line);
     }
 
+    // Flush остатков
     if ($inCode) {
         $html[] = renderCodeBlock($cLang, $cBuf);
     }
