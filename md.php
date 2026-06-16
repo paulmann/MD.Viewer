@@ -1,7 +1,7 @@
 <?php
 /**
  * Markdown Viewer
- * Version: 2.2.7
+ * Version: 2.2.9
  * Author: Mikhail Deynekin
  * Site: https://Deynekin.com
  * Email: Mikhail@Deynekin.com
@@ -177,73 +177,96 @@ function validateRequestedFile(string $file, string $baseDir): ?string
 /**
  * Replace fenced code block contents with inert byte-safe placeholders.
  *
- * v2.2.7: Fixed critical regex bug — backreference \1 required exact indentation
- *         match between opening and closing fences, breaking code blocks with
- *         different formatting. Now uses proper fence matching logic.
+ * Placeholder format: \x02CB{n}\x03 — bytes that never appear in valid UTF-8 Markdown.
  *
- * Placeholder format: \x02 CB{n} \x03 — these bytes never appear in valid UTF-8
- * Markdown, so strtr() restoration is exact.
+ * CommonMark §4.5 compliance:
+ *   - Closing fence MUST use the same character as the opening fence.
+ *   - Closing fence length MUST be >= opening fence length.
+ *   - Closing fence indent MUST be <= opening fence indent.
  *
- * @param  string $md Raw Markdown source.
- * @return array{string, array<string,string>}  [stripped, map]
+ * FIXED (v2.2.8): Previous implementation stored only the fence CHARACTER (\`or ~),
+ * ignoring the LENGTH. This caused an inner ``` fence to incorrectly close an outer
+ * ```` fence, breaking nested code examples such as:
  *
- * @since 2.2.7 Fixed fence matching logic
+ *   ````markdown        ← opens with 4 backticks
+ *   ```mermaid          ← was wrongly treated as closing fence (same char!)
+ *   graph TD …
+ *   ```
+ *   ````
+ *
+ * Now $fenceLen is tracked and the closing check requires $markerLen >= $fenceLen.
+ *
+ * @param  string $md  Raw Markdown source.
+ * @return array{string, array<string,string>}  [stripped_md, placeholder_map]
+ *
+ * @since 2.2.7  Initial state-machine implementation.
+ * @since 2.2.8  Fixed: track fence length per CommonMark §4.5.
  */
 function stripCodeBlocks(string $md): array
 {
-    $map = [];
-    $lines = explode("\n", $md);
-    $result = [];
-    $inCode = false;
-    $fence = '';
-    $fenceIndent = 0;
-    $codeLines = [];
-    
+    $map        = [];
+    $lines      = explode("\n", $md);
+    $result     = [];
+    $inCode     = false;
+    $fenceChar  = '';   // '`' or '~'
+    $fenceLen   = 0;    // length of opening fence (e.g. 3 for ```, 4 for ````)
+    $fenceIndent = 0;   // indent of opening fence
+    $codeLines  = [];
+
+    $fencePat = '/^([ \t]*)(`{3,}|~{3,})/u';
+
     foreach ($lines as $line) {
-        // Check for fence (opening or closing)
-        $fenceMatch = [];
-        if (preg_match('/^([ \t]*)(`{3,}|~{3,})/u', $line, $fenceMatch) === 1) {
-            $indent = strlen($fenceMatch[1]);
-            $marker = substr($fenceMatch[2], 0, 1);
-            $markerLen = strlen($fenceMatch[2]);
-            
+        $fm = [];
+        if (preg_match($fencePat, $line, $fm) === 1) {
+            $indent    = strlen($fm[1]);
+            $markerChar = substr($fm[2], 0, 1);
+            $markerLen  = strlen($fm[2]);
+
             if (!$inCode) {
-                // Opening fence
-                $inCode = true;
-                $fence = $marker;
+                // ── Opening fence ──────────────────────────────────────────
+                $inCode      = true;
+                $fenceChar   = $markerChar;
+                $fenceLen    = $markerLen;   // remember LENGTH, not just char
                 $fenceIndent = $indent;
-                $codeLines = [$line];
-                continue;
-            } elseif ($marker === $fence && $markerLen >= 3 && $indent <= $fenceIndent) {
-                // Closing fence (same marker, at least 3 chars, indent <= opening)
-                $codeLines[] = $line;
-                $codeBlock = implode("\n", $codeLines);
-                $ph = "\x02CB" . count($map) . "\x03";
-                $map[$ph] = $codeBlock;
-                $result[] = $ph;
-                $inCode = false;
-                $fence = '';
-                $fenceIndent = 0;
-                $codeLines = [];
+                $codeLines   = [$line];
                 continue;
             }
+
+            // ── Potential closing fence ────────────────────────────────────
+            // CommonMark §4.5: same char, length >= opening, indent <= opening.
+            if ($markerChar === $fenceChar
+                && $markerLen  >= $fenceLen
+                && $indent     <= $fenceIndent
+            ) {
+                $codeLines[] = $line;
+                $ph = "\x02CB" . count($map) . "\x03";
+                $map[$ph] = implode("\n", $codeLines);
+                $result[]  = $ph;
+                $inCode     = false;
+                $fenceChar  = '';
+                $fenceLen   = 0;
+                $fenceIndent = 0;
+                $codeLines  = [];
+                continue;
+            }
+
+            // Shorter / wrong fence char → treat as regular code content.
         }
-        
+
         if ($inCode) {
             $codeLines[] = $line;
         } else {
             $result[] = $line;
         }
     }
-    
-    // Handle unclosed code block (shouldn't happen in valid markdown, but be safe)
+
+    // ── Unclosed fence (invalid Markdown, but be safe) ─────────────────────
     if ($inCode && $codeLines !== []) {
-        $codeBlock = implode("\n", $codeLines);
         $ph = "\x02CB" . count($map) . "\x03";
-        $map[$ph] = $codeBlock;
-        $result[] = $ph;
+        $map[$ph] = implode("\n", $codeLines);
+        $result[]  = $ph;
     }
-    
+
     return [implode("\n", $result), $map];
 }
 
@@ -903,19 +926,40 @@ function inlineMarkdown(
     array  $refs      = [],
     array  $footnotes = [],
 ): string {
-	// ── 1. Protect inline code spans ──────────────────────────────────────────
-	// FIX (2.2.8): [^`\n] instead of [^`] — CommonMark §6.1 forbids newlines
-	// inside a code span. Without \n the greedy [^`]+ could swallow a newline
-	// and merge two separate lines into one span, breaking block detection.
-	$codeSpans = [];
-	$text = (string) preg_replace_callback(
-	    '/`([^`\n]+)`/u',
-	    static function (array $m) use (&$codeSpans): string {
-	        $codeSpans[] = $m[1];
-	        return "\u{FFFC}" . (count($codeSpans) - 1) . "\u{FFFC}";
-	    },
-	    $text,
-	);
+	// ── 1. Protect inline code spans ────────────────────────────────────────────
+	//
+	// CommonMark §6.1: code span is delimited by equal-length backtick strings.
+	// The pattern `/`([^`\n]+)`/u` correctly handles single-backtick spans.
+	//
+	// Edge case: ` ```mermaid ` in the source — the author intended to show the
+	// fenced code syntax inline. The parser sees:
+	//   span = " "          (backtick + space + backtick)
+	//   lone "`"               (first char of ``` — leftover in $text)
+	//   span[1] = "mermaid "   (backtick + word + space + backtick)
+	//
+	// After whitespace spans become plain spaces (step 12), the lone "`" is left
+	// dangling between placeholders and renders as a literal backtick in HTML.
+	//
+	// FIX (v2.2.8): after extracting all spans, remove any lone "`" that sits
+	// immediately between two adjacent placeholders — it is always an artifact
+	// of the ` ``` ` pattern, never meaningful content.
+    $codeSpans = [];
+    $text = (string) preg_replace_callback(
+        '/`([^`\n]+)`/u',
+        static function (array $m) use (&$codeSpans): string {
+            $codeSpans[] = $m[1];
+            return "\u{FFFC}" . (count($codeSpans) - 1) . "\u{FFFC}";
+        },
+        $text,
+    );
+
+    // Remove lone backtick artifact between adjacent placeholders.
+    // Occurs with ` ```lang ` patterns: span[" "] + "`" + span["lang "].
+    $text = (string) preg_replace(
+        '/(\x{FFFC}\d+\x{FFFC})`(\x{FFFC})/u',
+        '$1$2',
+        $text,
+    );
     // 2. Protect image spans BEFORE e() 
     // This is the critical fix: images are extracted into raw-HTML placeholders
     // so (a) <img> tags are never HTML-escaped, and (b) link handlers cannot
@@ -1070,24 +1114,30 @@ function inlineMarkdown(
         );
     }
 
-    // 12. Restore code placeholders â†’ <code> or pattern chain
+    // ── 12. Restore code placeholders → <code> or pattern chain ──────────────
     $escaped = (string) preg_replace_callback(
         '/\x{FFFC}(\d+)\x{FFFC}/u',
         static function (array $m) use ($codeSpans): string {
-            $code = $codeSpans[(int) $m[1]] ?? '';
+            $code    = $codeSpans[(int) $m[1]] ?? '';
+            $trimmed = trim($code);
+
+            if ($trimmed === '') {
+                return ' ';
+            }
+
             if (UNIVERSAL_PATTERNS || CYPHER_PATTERNS) {
-                $elements = parseUniversalPattern($code);
+                $elements = parseUniversalPattern($trimmed);
                 if ($elements !== null) {
                     return renderUniversalElements($elements);
                 }
             }
-            return '<code class="inline-code">' . e($code) . '</code>';
+
+            return '<code class="inline-code copy-on-click" title="Click to copy">'
+                 . e($trimmed)
+                 . '</code>';
         },
         $escaped,
     );
-
-    return $escaped;
-}
 
 function isTableLine(string $line): bool { $t = trim($line); return $t !== '' && str_starts_with($t, '|') && str_contains($t, '|'); }
 function parseTableRow(string $line): array { $t = trim($line); if (str_starts_with($t, '|')) $t = substr($t, 1); if (str_ends_with($t, '|')) $t = substr($t, 0, -1); return array_map(fn(string $c): string => trim($c), explode('|', $t)); }
@@ -1117,44 +1167,54 @@ function renderTable(array $lines, array $sources = []): string
 /**
  * Collect markdown headings with stable unique slugs and manual numbering metadata.
  *
- * v2.2.7: Added stripCodeBlocks() to prevent headings inside code blocks from
- *         being recognized as real headings.
+ * FIXED (v2.2.8): fence detection now tracks length per CommonMark §4.5,
+ * consistent with stripCodeBlocks() and renderMarkdown().
  *
  * @since 2.2.3
- * @since 2.2.7 Added code block protection
+ * @since 2.2.8  Fixed: fence length tracking (same fix as renderMarkdown).
  */
 function collectHeadings(string $markdown): array
 {
-    // Strip code blocks first to avoid false positives
+    // stripCodeBlocks already uses the corrected length-aware logic.
     [$stripped] = stripCodeBlocks($markdown);
-    
-    $headings = [];
-    $used = [];
-    $lines = explode("\n", $stripped);
 
-    $inCode = false;
-    $fence = '';
+    $headings = [];
+    $used     = [];
+    $lines    = explode("\n", $stripped);
+
+    // The second fence pass below only needs to handle placeholders, which
+    // stripCodeBlocks has already reduced to \x02CBn\x03 tokens. The inline
+    // fence loop is therefore kept only as a safety net for any edge cases
+    // stripCodeBlocks may have missed, and it now correctly tracks length.
+    $inCode    = false;
+    $fenceChar = '';
+    $fenceLen  = 0;
 
     for ($i = 0, $n = count($lines); $i < $n; $i++) {
         $line = toStr($lines[$i] ?? '');
-        
-        // Skip placeholders (they represent code blocks)
+
+        // Placeholders represent already-extracted code blocks — skip entirely.
         if (preg_match('/^\x02CB\d+\x03$/u', $line) === 1) {
             continue;
         }
 
+        // Fence detection — length-aware (CommonMark §4.5)
         $fenceMatch = [];
         if (preg_match('/^ {0,3}(`{3,}|~{3,})/u', $line, $fenceMatch) === 1) {
-            $currentFence = substr(toStr($fenceMatch[1] ?? ''), 0, 1);
+            $currentFenceChar = substr(toStr($fenceMatch[1] ?? ''), 0, 1);
+            $currentFenceLen  = strlen(toStr($fenceMatch[1] ?? ''));
 
             if (!$inCode) {
-                $inCode = true;
-                $fence = $currentFence;
-            } elseif ($currentFence === $fence) {
-                $inCode = false;
-                $fence = '';
+                $inCode    = true;
+                $fenceChar = $currentFenceChar;
+                $fenceLen  = $currentFenceLen;
+            } elseif ($currentFenceChar === $fenceChar && $currentFenceLen >= $fenceLen) {
+                // Valid closing fence
+                $inCode    = false;
+                $fenceChar = '';
+                $fenceLen  = 0;
             }
-
+            // else: inner fence with fewer chars — falls through as content (ignored anyway)
             continue;
         }
 
@@ -1173,7 +1233,6 @@ function collectHeadings(string $markdown): array
             $setextMatch = [];
             if ($i > 0 && preg_match('/^ {0,3}(=+|-+)\s*$/u', $line, $setextMatch) === 1) {
                 $prev = trim(toStr($lines[$i - 1] ?? ''));
-
                 if ($prev !== '' && preg_match('/^ {0,3}#{1,6}\s+/u', $prev) !== 1) {
                     $lvl = substr(toStr($setextMatch[1] ?? '='), 0, 1) === '=' ? 1 : 2;
                     $txt = $prev;
@@ -1185,14 +1244,12 @@ function collectHeadings(string $markdown): array
             continue;
         }
 
-        $base = slugify($txt);
-        $slug = $base;
-        $counter = 1;
-
+        $base  = slugify($txt);
+        $slug  = $base;
+        $count = 1;
         while (isset($used[$slug])) {
-            $slug = $base . '-' . ++$counter;
+            $slug = $base . '-' . ++$count;
         }
-
         $used[$slug] = true;
 
         $headings[] = [
@@ -1455,7 +1512,8 @@ function renderMarkdown(string $md, array $src = [], array $head = []): string
     $inCode = false;
     $cBuf   = [];
     $cLang  = '';
-    $fence  = '';
+    $fenceChar = '';   // fence character: '`' or '~'
+    $fenceLen  = 0;    // fence length: 3 for ```, 4 for ````, etc.
     $tBuf   = [];
 
     // ── Helper: Flush accumulated paragraph lines ──
@@ -1552,35 +1610,48 @@ function renderMarkdown(string $md, array $src = [], array $head = []): string
     foreach ($lines as $idx => $raw) {
         $line = toStr($raw);
 
-        // ── Fenced code block detection ──
-        $fm = [];
-        if (preg_match('/^ {0,3}(`{3,}|~{3,})\s*([\w+-]*)\s*$/u', $line, $fm) === 1) {
-            $marker = substr(toStr($fm[1] ?? ''), 0, 1);
-            
-            if ($inCode) {
-                // Closing fence
-                if ($marker === $fence) {
-                    $html[]  = renderCodeBlock($cLang, $cBuf);
-                    $inCode  = false;
-                    $cBuf    = [];
-                    $cLang   = '';
-                    $fence   = '';
-                    continue;
-                }
-                // Mismatched fence — treat as code content
-                $cBuf[] = $line;
-                continue;
-            }
-            
-            // Opening fence
-            $flushPara();
-            $closeList();
-            $flushTable();
-            $inCode = true;
-            $fence  = $marker;
-            $cLang  = toStr($fm[2] ?? '');
+// ── Fenced code block detection ────────────────────────────────────────────
+//
+// CommonMark §4.5 compliance (FIXED v2.2.8):
+//   - Store fence LENGTH ($fenceLen), not just the character.
+//   - Closing fence: same char + length >= opening + indent <= opening.
+//   - Inner fences with fewer backticks are CODE CONTENT, not closers.
+//
+// BROKEN before v2.2.8:
+//   $fence = $marker;  // stored only '`' or '~'
+//   if ($marker === $fence)  // matched ``` inside ```` → wrong close
+//
+$fm = [];
+if (preg_match('/^ {0,3}(`{3,}|~{3,})\s*([\w+.-]*)\s*$/u', $line, $fm) === 1) {
+    $markerChar = substr(toStr($fm[1] ?? ''), 0, 1);
+    $markerLen  = strlen(toStr($fm[1] ?? ''));
+
+    if ($inCode) {
+        // Closing fence: same char, length >= opening fence length
+        if ($markerChar === $fenceChar && $markerLen >= $fenceLen) {
+            $html[]  = renderCodeBlock($cLang, $cBuf);
+            $inCode  = false;
+            $cBuf    = [];
+            $cLang   = '';
+            $fenceChar = '';
+            $fenceLen  = 0;
             continue;
         }
+        // Inner fence with fewer chars (or wrong char) → treat as code content
+        $cBuf[] = $line;
+        continue;
+    }
+
+    // Opening fence
+    $flushPara();
+    $closeList();
+    $flushTable();
+    $inCode    = true;
+    $fenceChar = $markerChar;
+    $fenceLen  = $markerLen;   // ← key fix: store length
+    $cLang     = toStr($fm[2] ?? '');
+    continue;
+}
 
         // ── Inside code block — accumulate lines ──
         if ($inCode) {
@@ -1710,9 +1781,9 @@ function renderMarkdown(string $md, array $src = [], array $head = []): string
     if ($inCode) {
         $html[] = renderCodeBlock($cLang, $cBuf);
     }
-    $flushPara();
-    $closeList();
-    $flushTable();
+	$flushPara();
+	$closeList();
+	$flushTable();
 
     // ── Render footnotes section at the end ──
     if (FEATURE_FOOTNOTES && $fn !== []) {
