@@ -632,18 +632,76 @@ For air-gapped environments, replace these CDN references with locally hosted co
 
 ## 14. Changelog
 
+### v2.2.5
+
+- **FIXED:** Badge and inline images rendered vertically instead of inline when multiple
+  image-only lines appeared consecutively in a paragraph. The `$flushPara` closure now
+  uses per-pair glue resolution: any line boundary where at least one neighbour contains
+  an `<img>` uses a plain space instead of the configured `<br><br>` separator, so badges
+  flow horizontally without altering behaviour for plain-text paragraphs.
+- **FIXED:** Setext headings (`===` / `---` underline syntax) were never rendered by
+  `renderMarkdown`, causing heading-counter desynchronisation (`$si`) between
+  `collectHeadings` and `renderMarkdown`. A dedicated setext branch with `array_pop($para)`
+  was added, mirroring the logic already present in `collectHeadings`.
+- **FIXED:** ATX heading regex in `renderMarkdown` was narrower than the one in
+  `collectHeadings`, causing further `$si` drift for headings with leading spaces or
+  trailing `#` markers. Both functions now share the same pattern:
+  `/^ {0,3}(#{1,6})\s+(.*?)\s*#*\s*$/u`.
+- **REFACTOR:** Heading render logic extracted into a `$renderHeading` closure, eliminating
+  code duplication between the ATX and setext branches.
+- **REFACTOR:** `$src`, `$refs`, and `$fn` are now captured **by reference** (`&`) in all
+  inner closures of `renderMarkdown`, making data-flow explicit and preventing stale-copy
+  bugs if these arrays were ever mutated mid-render.
+
+### v2.2.4
+
+- **FIXED:** `TypeError: slugify(): Argument #1 must be of type string, int given` thrown
+  by `renderFootnotes` when footnote identifiers are numeric (e.g. `[^1]`). `slugify` now
+  accepts `string|int`; all call-sites that receive raw array keys cast them explicitly to
+  `string`.
+- **FIXED:** `[![badge](img)](url)` syntax corrupted — the `<img>` tag was HTML-escaped
+  and then re-wrapped in a spurious `<a>` by the link handler. Images are now extracted
+  into raw-HTML placeholders **before** `htmlspecialchars` runs, so the generated markup
+  is never escaped and link patterns cannot match it.
+
+### v2.2.3
+
+- **FIXED:** Robust numeric and Roman-numeral prefix detection in `hasManualNumbering`.
+  Corrects false negatives for short titles such as `5 A`, rejects year/ID/tech-label
+  tokens, and validates canonical Roman numerals to prevent plain words (`Civic`, `Mix`)
+  from being treated as numbering.
+- **FIXED:** Undefined `$lvl`, `$txt`, and `$slug` variables and a `TypeError` in
+  `hasManualNumbering` inside `collectHeadings`. Parser state is now initialised before
+  the loop; every heading entry carries a `manual_number` flag.
+- **IMPROVED:** GitHub-compatible anchor slugging in `slugify` — strips HTML tags,
+  lowercases with Unicode awareness, removes non-letter/digit/hyphen characters, and
+  replaces whitespace with hyphens, matching GitHub's own algorithm for `#anchor` links.
+- **IMPROVED:** Unicode-aware key normalisation in `parseReferenceLinks`; supports both
+  `"double"` and `'single'` quoted titles; first definition wins on duplicate keys.
+- **IMPROVED:** Hardened EOL-anchored terminator lookahead in `parseFootnotes`; duplicate
+  identifier guard added; multi-line bodies are whitespace-collapsed; identifiers always
+  stored as `string` to prevent downstream `TypeError`.
+
 ### v2.2.2
 
-- **FIXED:** Duplicate numbering in headings that already carry a manual prefix (e.g., `1. Title`). A manual-numbering detector was added that skips auto-numbering for such headings.
-- **FIXED:** The heading counter no longer increments for manually-numbered headings, preserving the correct sequence for subsequent auto-numbered headings.
-- **FIXED:** The TOC respects the manual-numbering flag — no duplicate prefixes appear in navigation links.
+- **FIXED:** Duplicate numbering in headings that already carry a manual prefix
+  (e.g., `1. Title`). A manual-numbering detector was added that skips auto-numbering
+  for such headings.
+- **FIXED:** The heading counter no longer increments for manually-numbered headings,
+  preserving the correct sequence for subsequent auto-numbered headings.
+- **FIXED:** The TOC respects the manual-numbering flag — no duplicate prefixes appear
+  in navigation links.
 
 ### v2.2.1
 
-- **FIXED:** "No .md files found" regression caused by `RecursiveDirectoryIterator` not exposing a `getDepth()` method. Replaced `RecursiveCallbackFilterIterator` with manual depth checks via `RecursiveIteratorIterator`.
-- **FIXED:** Silent exception swallowing — errors are now surfaced via `error_log` for diagnostics.
+- **FIXED:** "No .md files found" regression caused by `RecursiveDirectoryIterator` not
+  exposing a `getDepth()` method. Replaced `RecursiveCallbackFilterIterator` with manual
+  depth checks via `RecursiveIteratorIterator`.
+- **FIXED:** Silent exception swallowing — errors are now surfaced via `error_log` for
+  diagnostics.
 - **SECURITY:** Added symlink escape protection in the file scanner.
-- **IMPROVED:** Hidden file filtering now covers files nested inside hidden directories (e.g., `.hidden/sub.md`).
+- **IMPROVED:** Hidden file filtering now covers files nested inside hidden directories
+  (e.g., `.hidden/sub.md`).
 
 ### v2.2.0
 
