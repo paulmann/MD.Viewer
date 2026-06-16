@@ -491,32 +491,43 @@ function hasManualNumbering(string $text): bool
 /**
  * Convert heading text into a GitHub-compatible anchor slug.
  *
- * Mirrors GitHub's slugging so hand-written links such as
- * [Vision & Principles](#-vision--principles) resolve to the rendered heading id.
+ * Mirrors GitHub's slugging algorithm so that hand-written links such as
+ * [Vision & Principles](#-vision--principles) resolve correctly to the
+ * rendered heading's `id` attribute.
  *
- * Rules:
- * - lowercase (Unicode-aware)
- * - drop everything except letters, numbers, spaces and hyphens
- *   (emoji, "&", punctuation are removed — like GitHub)
- * - spaces -> hyphens; existing/produced hyphens are NOT collapsed or trimmed
+ * Algorithm (matches GitHub behaviour):
+ *  1. Strip HTML tags.
+ *  2. Lowercase the result (Unicode-aware).
+ *  3. Remove everything except Unicode letters, digits, whitespace, hyphens.
+ *  4. Collapse all Unicode whitespace variants to a single ASCII space.
+ *  5. Replace spaces with hyphens (existing hyphens are preserved as-is).
  *
- * @param string $text Raw heading text (may contain inline markup/emoji).
- * @return string Non-empty slug; falls back to "section".
+ * Accepts `string|int` to accommodate numeric footnote/heading identifiers
+ * that arrive as bare array keys from PHP's PCRE capture groups, preventing
+ * the downstream `TypeError: slugify(): Argument #1 must be of type string,
+ * int given` that manifests in {@see renderFootnotes()}.
  *
- * v2.2.3: GitHub-style slugging for anchor-link compatibility.
+ * @param  string|int $text Raw heading text (may contain inline markup or emoji).
+ * @return string           Non-empty, GitHub-compatible slug; falls back to "section".
+ *
+ * @since 2.2.3 GitHub-style slugging for anchor-link compatibility.
+ * @since 2.2.4 Accepts string|int; fixes TypeError on numeric footnote ids.
  */
-function slugify(string $text): string
+function slugify(string|int $text): string
 {
-    $text = strip_tags($text);
+    // Normalise to string early — all further operations are string-only.
+    $text = strip_tags((string) $text);
     $text = mb_strtolower($text, 'UTF-8');
 
-    // Keep only letters, numbers, whitespace and hyphens.
-    $text = (string) preg_replace('/[^\p{L}\p{N}\s-]+/u', '', $text);
+    // Remove every character that is not a Unicode letter, digit,
+    // whitespace, or hyphen — mirrors GitHub's stripping of emoji, "&", etc.
+    $text = (string) preg_replace('/[^\p{L}\p{N}\s\-]+/u', '', $text);
 
-    // Normalize Unicode whitespace to a single ASCII space, then to hyphens.
-    $text = (string) preg_replace('/\s/u', ' ', $text);
-    $text = str_replace(' ', '-', $text);
+    // Normalise any Unicode whitespace variant (NBSP, thin space, …) to a
+    // plain ASCII space, then convert spaces to hyphens in one pass.
+    $text = (string) preg_replace('/\s/u', '-', $text);
 
+    // Guard against blank input (all-emoji heading, empty string, …).
     return $text !== '' ? $text : 'section';
 }
 
@@ -567,44 +578,74 @@ function parseReferenceLinks(string $markdown): array
 }
 
 /**
- * Parse Markdown footnote definitions.
+ * Parse Markdown footnote definitions from a document source.
  *
- * Recognizes blocks like:  [^id]: Footnote text (may span lines until the
- * next footnote, heading, or end of document).
+ * Recognizes the standard extended-Markdown syntax:
  *
- * @param string $markdown Full Markdown source.
- * @return array<string, string> Map of footnote id => text (first wins).
+ *   [^identifier]: Footnote body text.
  *
- * v2.2.3: Hardened terminator lookahead (EOL-anchored), duplicate-id guard,
- *         whitespace-collapsed multi-line bodies.
+ * Multi-line bodies (continuation lines indented with spaces or tabs) are
+ * collapsed into a single space-separated string.  Duplicate identifiers are
+ * silently ignored — first definition wins, matching CommonMark semantics.
+ *
+ * The identifier is always stored as a trimmed **string**, even when it is
+ * purely numeric (e.g. `[^1]`), which prevents downstream type errors in
+ * functions that call slugify() on the map key.
+ *
+ * @param  string               $markdown Raw Markdown source.
+ * @return array<string,string>           Map of footnote-id => body text.
+ *
+ * @since  2.2.3  Hardened EOL-anchored terminator lookahead, duplicate-id
+ *                guard, whitespace-collapsed multi-line bodies.
+ * @since  2.2.4  Identifier always cast to string; slugify() TypeError fixed.
  */
 function parseFootnotes(string $markdown): array
 {
-    $footnotes = [];
-    $matches = [];
-
-    $pattern = '/^\[\^([^\]]+)\]:[ \t]*(.+?)(?=\n[ \t]*\[\^|\n[ \t]*#{1,6}\s|\n[ \t]*\n|\z)/msu';
-
-    if (preg_match_all($pattern, $markdown, $matches, PREG_SET_ORDER) === false) {
-        return $footnotes;
+    if ($markdown === '') {
+        return [];
     }
 
-    foreach ($matches as $match) {
-        $id = trim($match[1]);
+    /**
+     * Pattern breakdown:
+     *
+     *   ^\[\^([^\]]+)\]:   — Start of line: footnote marker + capture id
+     *   [ \t]*             — Optional horizontal whitespace after colon
+     *   (.+?)              — Non-greedy body (at least one character)
+     *   (?= ... |\z)       — Lookahead: stop at next footnote / heading /
+     *                        blank line / end of string
+     *
+     * The EOL anchor (^) with /m makes the lookahead correctly boundary-scoped
+     * so that inline `[^x]` citations are never mistaken for definitions.
+     */
+    $pattern = '/^\[\^([^\]]+)\]:\h*(.+?)(?=\n\h*\[\^|\n\h*#{1,6}\h|\n\h*\n|\z)/msu';
 
-        if ($id === '' || isset($footnotes[$id])) {
+    if (preg_match_all($pattern, $markdown, $matches, PREG_SET_ORDER) === false) {
+        return [];
+    }
+
+    $footnotes = [];
+
+    foreach ($matches as $match) {
+        // Always a string — avoids TypeError in slugify() for numeric ids.
+        $id = trim((string) ($match[1] ?? ''));
+
+        if ($id === '' || array_key_exists($id, $footnotes)) {
             continue;
         }
 
-        // Collapse internal line breaks/indentation into single spaces.
-        $body = (string) preg_replace('/\s+/u', ' ', trim($match[2]));
+        // Collapse multi-line / indented continuation into a single line.
+        $body = trim((string) ($match[2] ?? ''));
+        $body = (string) preg_replace('/\s+/u', ' ', $body);
+
+        if ($body === '') {
+            continue;
+        }
 
         $footnotes[$id] = $body;
     }
 
     return $footnotes;
 }
-
 function parseUniversalPattern(string $pattern): ?array
 {
     $pattern = trim($pattern);
@@ -1072,14 +1113,61 @@ function renderSourcesList(array $src): string
     $html[] = '</ul></div>'; return implode("\n", $html);
 }
 
+/**
+ * Render the footnotes section at the end of a document.
+ *
+ * Produces a semantic <section> containing an ordered list of footnote
+ * definitions.  Each item carries a back-link to its inline reference anchor
+ * and is fully accessible to screen readers via aria-label attributes.
+ *
+ * Returns an empty string when the feature flag is off or the input is empty,
+ * so the caller requires no guard of its own.
+ *
+ * @param  array<string|int, string> $fn  Map of footnote-id => body text,
+ *                                        as produced by parseFootnotes().
+ * @return string                         Rendered HTML fragment, or ''.
+ *
+ * @since 2.2.4  Explicit (string) cast on $id prevents TypeError in slugify()
+ *               when numeric footnote identifiers arrive as int array keys.
+ */
 function renderFootnotes(array $fn): string
 {
-    if (empty($fn) || !FEATURE_FOOTNOTES) return '';
-    $html = ['<section class="mt-16 pt-8 border-t border-slate-200/80 dark:border-slate-700/70" aria-label="Footnotes"><h3 class="text-lg font-semibold text-slate-800 dark:text-slate-200 mb-4">Footnotes</h3><ol class="space-y-3 text-sm text-slate-600 dark:text-slate-300">'];
-    foreach ($fn as $id => $txt) {
-        $slug = slugify($id); $html[] = '<li id="fn-' . e($slug) . '" class="flex gap-2"><a href="#fnref-' . e($slug) . '" class="footnote-backlink text-blue-600 dark:text-blue-400 font-bold" aria-label="Back to content">↩</a><span>' . inlineMarkdown($txt, [], [], []) . '</span></li>';
+    if (!FEATURE_FOOTNOTES || $fn === []) {
+        return '';
     }
-    $html[] = '</ol></section>'; return implode("\n", $html);
+
+    $items = [];
+
+    foreach ($fn as $id => $txt) {
+        // Cast to string: numeric ids ([^1], [^2]) arrive as int array keys.
+        $slug = slugify((string) $id);
+        $eid  = e($slug);
+
+        $items[] = sprintf(
+            '<li id="fn-%s" class="flex gap-2">'
+                . '<a href="#fnref-%s"'
+                . ' class="footnote-backlink text-blue-600 dark:text-blue-400 font-bold"'
+                . ' aria-label="Back to content">&#8617;</a>'
+                . '<span>%s</span>'
+            . '</li>',
+            $eid,
+            $eid,
+            inlineMarkdown($txt, [], [], []),
+        );
+    }
+
+    return implode("\n", [
+        '<section'
+            . ' class="mt-16 pt-8 border-t border-slate-200/80 dark:border-slate-700/70"'
+            . ' aria-label="Footnotes">',
+        '  <h3 class="text-lg font-semibold text-slate-800 dark:text-slate-200 mb-4">'
+            . 'Footnotes'
+            . '</h3>',
+        '  <ol class="space-y-3 text-sm text-slate-600 dark:text-slate-300">',
+        '    ' . implode("\n    ", $items),
+        '  </ol>',
+        '</section>',
+    ]);
 }
 
 function getHeadingClasses(int $lvl): string
@@ -1515,8 +1603,8 @@ if ($mode === 'viewer') {
             <div class="flex flex-wrap items-center gap-3">
                 <?php if ($mode === 'viewer'): ?>
                 <div class="inline-flex items-center rounded-full border border-slate-200 bg-white/80 p-1 shadow-soft dark:border-slate-700 dark:bg-slate-900/80">
-                    <button type="button" data-width="reading" class="width-switch rounded-full px-4 py-2 text-sm font-medium text-slate-600 transition hover:text-slate-950 dark:text-slate-300 dark:hover:text-white">Short</button>
-                    <button type="button" data-width="article" class="width-switch rounded-full px-4 py-2 text-sm font-medium text-slate-600 transition hover:text-slate-950 dark:text-slate-300 dark:hover:text-white">Middle</button>
+                    <button type="button" data-width="reading" class="width-switch rounded-full px-4 py-2 text-sm font-medium text-slate-600 transition hover:text-slate-950 dark:text-slate-300 dark:hover:text-white">Narrow</button>
+                    <button type="button" data-width="article" class="width-switch rounded-full px-4 py-2 text-sm font-medium text-slate-600 transition hover:text-slate-950 dark:text-slate-300 dark:hover:text-white">Medium</button>
                     <button type="button" data-width="wide" class="width-switch rounded-full px-4 py-2 text-sm font-medium text-slate-600 transition hover:text-slate-950 dark:text-slate-300 dark:hover:text-white">Wide</button>
                 </div>
                 <?php endif; ?>
