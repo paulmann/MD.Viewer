@@ -4,7 +4,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://github.com/paulmann/MD.Viewer/blob/main/LICENSE)
 [![PHP](https://img.shields.io/badge/PHP-8.0%2B-777BB4?logo=php&logoColor=white)](https://php.net)
-[![Version](https://img.shields.io/badge/version-2.2.2-success)](https://github.com/paulmann/MD.Viewer/releases)
+[![Version](https://img.shields.io/badge/version-2.3.0-success)](https://github.com/paulmann/MD.Viewer/releases)
 
 ---
 
