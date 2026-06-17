@@ -1469,7 +1469,6 @@ function renderTable(array $lines, array $sources = [], string $tableSlug = ''):
     }
     $html[] = '</tbody></table></div></div>'; return implode("\n", $html);
 }
-}
 
 
 /**
