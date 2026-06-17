@@ -1,10 +1,18 @@
 <?php
 /**
  * Markdown Viewer
- * Version: 2.4.0
+ * Version: 2.5.0
  * Author: Mikhail Deynekin
  * Site: https://Deynekin.com
  * Email: Mikhail@Deynekin.com
+ *
+ * Changelog v2.5.0:
+ * - FEATURE: Settings panel with font-size, line-height, page width controls
+ * - FEATURE: Feature toggle switches (PHP cookie override + reload)
+ * - FEATURE: Check Updates / Apply Updates in Settings panel (updater.php)
+ * - FEATURE: Cookie consent (session-only vs persistent cookies)
+ * - FEATURE: Mobile: auto-Wide mode, font-size +/− in header
+ * - FEATURE: Tooltip header — full first-column cell shown above tooltip body
  *
  * Changelog v2.4.0:
  * - FEATURE: Glossary tooltip system — MD tables with a first column of terms
@@ -2838,6 +2846,30 @@ if ($mode === 'viewer') {
                 </button>
             </section>
 
+            <!-- Updates -->
+            <section class="settings-section" id="sp-updates-section">
+                <div class="settings-section-title">
+                    Updates
+                    <span id="sp-version-badge" class="settings-version-badge"></span>
+                </div>
+                <div id="sp-update-status" class="sp-update-status" style="display:none"></div>
+                <div id="sp-file-list" class="sp-file-list" style="display:none"></div>
+                <div class="sp-update-actions">
+                    <button type="button" id="sp-check-updates" class="settings-check-btn">
+                        ↻ Check for Updates
+                    </button>
+                    <button type="button" id="sp-apply-updates" class="settings-apply-updates-btn" style="display:none">
+                        ↓ Apply Updates
+                    </button>
+                    <button type="button" id="sp-reinstall-btn" class="settings-reinstall-btn" style="display:none">
+                        ↺ Reinstall Files
+                    </button>
+                    <button type="button" id="sp-reload-after-update" class="settings-apply-btn" style="display:none">
+                        ↺ Reload Page
+                    </button>
+                </div>
+            </section>
+
         </div>
     </aside>
 
@@ -2989,6 +3021,78 @@ if ($mode === 'viewer') {
     .settings-apply-btn:active { transform: scale(.98); }
     html[class~="dark"] .settings-apply-btn { background: #3b82f6; }
     html[class~="dark"] .settings-apply-btn:hover { background: #2563eb; }
+
+    /* ── Updates section ───────────────────────────────────────────────────── */
+    .settings-version-badge {
+        font-size: .65rem; background: #f1f5f9; color: #475569; border-radius: 99px;
+        padding: 1px 8px; font-weight: 600; letter-spacing: .02em; text-transform: none;
+        border: 1px solid #e2e8f0;
+    }
+    html[class~="dark"] .settings-version-badge { background: #1e293b; color: #94a3b8; border-color: #334155; }
+
+    .sp-update-status {
+        font-size: .8rem; line-height: 1.5; margin-bottom: 8px; padding: 8px 10px;
+        border-radius: 8px; border: 1px solid transparent;
+    }
+    .sp-update-status.ok    { background: #f0fdf4; border-color: #bbf7d0; color: #15803d; }
+    .sp-update-status.warn  { background: #fffbeb; border-color: #fde68a; color: #92400e; }
+    .sp-update-status.error { background: #fef2f2; border-color: #fecaca; color: #b91c1c; }
+    .sp-update-status.info  { background: #eff6ff; border-color: #bfdbfe; color: #1d4ed8; }
+    html[class~="dark"] .sp-update-status.ok    { background: #052e16; border-color: #166534; color: #4ade80; }
+    html[class~="dark"] .sp-update-status.warn  { background: #1c1700; border-color: #854d0e; color: #fbbf24; }
+    html[class~="dark"] .sp-update-status.error { background: #1f0707; border-color: #991b1b; color: #f87171; }
+    html[class~="dark"] .sp-update-status.info  { background: #0c1a2e; border-color: #1e40af; color: #93c5fd; }
+
+    .sp-file-list {
+        margin-bottom: 8px; font-size: .75rem; display: flex; flex-direction: column; gap: 3px;
+    }
+    .sp-file-row {
+        display: flex; align-items: center; justify-content: space-between;
+        padding: 4px 8px; border-radius: 6px; background: #f8fafc;
+    }
+    html[class~="dark"] .sp-file-row { background: #1e293b; }
+    .sp-file-name { color: #475569; font-family: monospace; }
+    html[class~="dark"] .sp-file-name { color: #94a3b8; }
+    .sp-file-pill {
+        font-size: .65rem; font-weight: 700; border-radius: 99px; padding: 1px 7px;
+    }
+    .sp-file-pill.up-to-date { background: #dcfce7; color: #16a34a; }
+    .sp-file-pill.outdated   { background: #fef3c7; color: #b45309; }
+    .sp-file-pill.missing    { background: #fee2e2; color: #dc2626; }
+    .sp-file-pill.local-only { background: #f3f4f6; color: #6b7280; }
+    .sp-file-pill.error      { background: #fee2e2; color: #dc2626; }
+    html[class~="dark"] .sp-file-pill.up-to-date { background: #14532d; color: #4ade80; }
+    html[class~="dark"] .sp-file-pill.outdated   { background: #451a03; color: #fbbf24; }
+    html[class~="dark"] .sp-file-pill.missing    { background: #450a0a; color: #f87171; }
+
+    .sp-update-actions { display: flex; flex-direction: column; gap: 6px; }
+    .settings-check-btn {
+        width: 100%; padding: 9px 16px; background: #f8fafc; color: #334155;
+        border: 1px solid #e2e8f0; border-radius: 9px; font-size: .83rem;
+        font-weight: 600; cursor: pointer; transition: background .15s, border-color .15s;
+    }
+    .settings-check-btn:hover { background: #e2e8f0; border-color: #cbd5e1; }
+    .settings-check-btn:disabled { opacity: .5; cursor: not-allowed; }
+    html[class~="dark"] .settings-check-btn { background: #1e293b; border-color: #334155; color: #cbd5e1; }
+    html[class~="dark"] .settings-check-btn:hover { background: #334155; }
+
+    .settings-apply-updates-btn {
+        width: 100%; padding: 10px 16px; background: #16a34a; color: #fff;
+        border: none; border-radius: 9px; font-size: .84rem; font-weight: 700;
+        cursor: pointer; transition: background .15s, transform .1s;
+    }
+    .settings-apply-updates-btn:hover  { background: #15803d; }
+    .settings-apply-updates-btn:active { transform: scale(.98); }
+    .settings-apply-updates-btn:disabled { opacity: .6; cursor: not-allowed; }
+
+    .settings-reinstall-btn {
+        width: 100%; padding: 9px 16px; background: transparent; color: #94a3b8;
+        border: 1px solid #e2e8f0; border-radius: 9px; font-size: .78rem;
+        font-weight: 600; cursor: pointer; transition: color .15s, background .15s;
+    }
+    .settings-reinstall-btn:hover { color: #334155; background: #f8fafc; }
+    html[class~="dark"] .settings-reinstall-btn { border-color: #334155; }
+    html[class~="dark"] .settings-reinstall-btn:hover { color: #e2e8f0; background: #1e293b; }
     </style>
 
     <script>
@@ -3338,6 +3442,160 @@ if ($mode === 'viewer') {
                 }
             }, 200);
         }, { passive: true });
+
+        // ── Updates ───────────────────────────────────────────────────────────
+        const UPDATER_URL   = '/updater.php';
+        const UPDATER_TOKEN = 'mdv-update-2025';
+        const updHeaders    = { 'X-Updater-Token': UPDATER_TOKEN };
+
+        const elCheckBtn    = document.getElementById('sp-check-updates');
+        const elApplyBtn    = document.getElementById('sp-apply-updates');
+        const elReinstall   = document.getElementById('sp-reinstall-btn');
+        const elReloadAfter = document.getElementById('sp-reload-after-update');
+        const elStatus      = document.getElementById('sp-update-status');
+        const elFileList    = document.getElementById('sp-file-list');
+        const elVerBadge    = document.getElementById('sp-version-badge');
+
+        function setStatus(msg, type /* ok|warn|error|info */) {
+            elStatus.className = 'sp-update-status ' + type;
+            elStatus.innerHTML = msg;
+            elStatus.style.display = '';
+        }
+
+        function renderFileList(files) {
+            if (!files || !files.length) { elFileList.style.display = 'none'; return; }
+            const labels = {
+                'up-to-date': 'Up to date',
+                'outdated':   'Update available',
+                'missing':    'Missing locally',
+                'local-only': 'Local only',
+                'error':      'Error',
+            };
+            elFileList.innerHTML = files.map(function (f) {
+                const pill  = f.status || (f.hasUpdate ? 'outdated' : 'up-to-date');
+                const label = labels[pill] || pill;
+                return '<div class="sp-file-row">'
+                     +   '<span class="sp-file-name">' + f.path + '</span>'
+                     +   '<span class="sp-file-pill ' + pill + '">' + label + '</span>'
+                     + '</div>';
+            }).join('');
+            elFileList.style.display = '';
+        }
+
+        // Load local version badge on panel open
+        function loadVersionBadge() {
+            if (!elVerBadge || elVerBadge.dataset.loaded) return;
+            fetch(UPDATER_URL + '?action=version', { headers: updHeaders })
+                .then(function (r) { return r.json(); })
+                .then(function (d) {
+                    if (d.version) {
+                        elVerBadge.textContent = 'v' + d.version;
+                        elVerBadge.dataset.loaded = '1';
+                    }
+                })
+                .catch(function () { /* silent */ });
+        }
+
+        // Patch openPanel to also load version badge
+        const _origOpen = openPanel;
+        openPanel = function () { _origOpen(); loadVersionBadge(); };
+
+        if (elCheckBtn) elCheckBtn.addEventListener('click', function () {
+            elCheckBtn.disabled = true;
+            elCheckBtn.textContent = '⟳ Checking…';
+            elApplyBtn.style.display  = 'none';
+            elReinstall.style.display = 'none';
+            elReloadAfter.style.display = 'none';
+            setStatus('Contacting GitHub…', 'info');
+            elFileList.style.display = 'none';
+
+            fetch(UPDATER_URL + '?action=check', { headers: updHeaders })
+                .then(function (r) {
+                    if (!r.ok) throw new Error('HTTP ' + r.status);
+                    return r.json();
+                })
+                .then(function (d) {
+                    if (d.error) { setStatus('⚠ ' + d.error, 'error'); return; }
+
+                    // Version line
+                    const sameVer = d.localVersion === d.remoteVersion;
+                    if (elVerBadge) elVerBadge.textContent = 'v' + d.localVersion;
+
+                    renderFileList(d.files);
+
+                    if (d.hasUpdates) {
+                        const verInfo = sameVer
+                            ? ''
+                            : ' <strong>' + d.localVersion + '</strong> → <strong>' + d.remoteVersion + '</strong>';
+                        setStatus('Updates available' + verInfo, 'warn');
+                        elApplyBtn.style.display  = '';
+                        elReinstall.style.display = 'none';
+                    } else {
+                        setStatus('✓ All files are up to date (v' + d.localVersion + ')', 'ok');
+                        elApplyBtn.style.display  = 'none';
+                        elReinstall.style.display = '';
+                    }
+                })
+                .catch(function (err) {
+                    setStatus('⚠ Check failed: ' + err.message + '<br><small>Is updater.php accessible?</small>', 'error');
+                })
+                .finally(function () {
+                    elCheckBtn.disabled = false;
+                    elCheckBtn.textContent = '↻ Check for Updates';
+                });
+        });
+
+        function runApply(force) {
+            const btn = force ? elReinstall : elApplyBtn;
+            btn.disabled = true;
+            btn.textContent = force ? '⟳ Reinstalling…' : '⟳ Applying…';
+            elFileList.style.display = 'none';
+            setStatus(force ? 'Reinstalling all files…' : 'Downloading updates…', 'info');
+
+            const url = UPDATER_URL + '?action=apply' + (force ? '&force=1' : '');
+            fetch(url, { headers: updHeaders })
+                .then(function (r) {
+                    if (!r.ok) throw new Error('HTTP ' + r.status);
+                    return r.json();
+                })
+                .then(function (d) {
+                    if (d.error) { setStatus('⚠ ' + d.error, 'error'); return; }
+
+                    if (d.success) {
+                        const lines = [];
+                        if (d.updated.length)
+                            lines.push('✓ Updated: ' + d.updated.join(', '));
+                        if (d.skipped.length)
+                            lines.push('· Skipped (already current): ' + d.skipped.join(', '));
+                        if (d.newVersion)
+                            lines.push('New version: <strong>v' + d.newVersion + '</strong>');
+                        setStatus(lines.join('<br>'), 'ok');
+                        elApplyBtn.style.display    = 'none';
+                        elReinstall.style.display   = 'none';
+                        elReloadAfter.style.display = '';
+                    } else {
+                        const failMsg = d.failed && d.failed.length
+                            ? '⚠ Failed: ' + d.failed.join(', ')
+                            : '⚠ Update failed';
+                        setStatus(failMsg, 'error');
+                    }
+                })
+                .catch(function (err) {
+                    setStatus('⚠ Apply failed: ' + err.message, 'error');
+                })
+                .finally(function () {
+                    btn.disabled = false;
+                    btn.textContent = force ? '↺ Reinstall Files' : '↓ Apply Updates';
+                });
+        }
+
+        if (elApplyBtn)    elApplyBtn.addEventListener('click',    function () { runApply(false); });
+        if (elReinstall)   elReinstall.addEventListener('click',   function () { runApply(true);  });
+        if (elReloadAfter) elReloadAfter.addEventListener('click', function () { location.reload(); });
+
+        // Load version badge immediately if panel is already open on init
+        loadVersionBadge();
+
 
     }());
     </script>
