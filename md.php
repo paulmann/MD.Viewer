@@ -2831,6 +2831,13 @@ if ($mode === 'viewer') {
                 </label>
             </section>
 
+            <!-- Apply and Reload (shown when PHP-side features changed) -->
+            <section class="settings-section settings-section-apply" id="sp-apply-section" style="display:none">
+                <button type="button" id="sp-apply-reload" class="settings-apply-btn">
+                    ↺ Apply and Reload
+                </button>
+            </section>
+
         </div>
     </aside>
 
@@ -2969,6 +2976,19 @@ if ($mode === 'viewer') {
     .settings-checkbox-label { font-size: .81rem; color: #334155; line-height: 1.45; }
     html[class~="dark"] .settings-checkbox-label { color: #94a3b8; }
     .settings-checkbox-label small { display: block; font-size: .71rem; color: #94a3b8; margin-top: 3px; }
+
+    /* Apply and Reload button */
+    .settings-section-apply { padding: 12px 20px; }
+    .settings-apply-btn {
+        display: block; width: 100%; padding: 11px 16px;
+        background: #2563eb; color: #fff; border: none; border-radius: 10px;
+        font-size: .86rem; font-weight: 700; cursor: pointer; text-align: center;
+        transition: background .15s, transform .1s; letter-spacing: .01em;
+    }
+    .settings-apply-btn:hover  { background: #1d4ed8; }
+    .settings-apply-btn:active { transform: scale(.98); }
+    html[class~="dark"] .settings-apply-btn { background: #3b82f6; }
+    html[class~="dark"] .settings-apply-btn:hover { background: #2563eb; }
     </style>
 
     <script>
@@ -3142,6 +3162,12 @@ if ($mode === 'viewer') {
             pendingReload = true;
             const badge = document.getElementById('sp-reload-badge');
             if (badge) badge.style.display = '';
+            const applySection = document.getElementById('sp-apply-section');
+            if (applySection) applySection.style.display = '';
+        }
+
+        function doReload() {
+            location.reload();
         }
 
         const featContainer = document.getElementById('sp-features');
@@ -3189,6 +3215,11 @@ if ($mode === 'viewer') {
             });
         });
 
+        // Apply and Reload button
+        document.getElementById('sp-apply-reload')?.addEventListener('click', function () {
+            doReload();
+        });
+
         // ── Panel open / close ────────────────────────────────────────────────
         const panel    = document.getElementById('settings-panel');
         const overlay  = document.getElementById('settings-overlay');
@@ -3201,13 +3232,26 @@ if ($mode === 'viewer') {
             if (btn) btn.setAttribute('aria-expanded', 'true');
         }
         function closePanel() {
-            // If features changed, offer reload
             if (pendingReload) {
+                // Ask user whether to apply or discard — no auto-reload on X/overlay close
+                const apply = confirm(
+                    'Feature settings were changed.\n\n' +
+                    'OK — Apply & Reload\n' +
+                    'Cancel — Discard changes'
+                );
+                if (apply) { location.reload(); return; }
+                // Discard: clear pending feat cookies from sessionStorage
+                FEATURES.forEach(function (f) {
+                    sessionStorage.removeItem(FEAT + f.key);
+                    clearCookie(FEAT + f.key);
+                });
+                sessionStorage.removeItem(FEAT + 'PARAGRAPH_BREAK_STYLE');
+                clearCookie(FEAT + 'PARAGRAPH_BREAK_STYLE');
                 pendingReload = false;
-                if (confirm('Feature settings changed. Reload page to apply?')) {
-                    location.reload();
-                    return;
-                }
+                const badge = document.getElementById('sp-reload-badge');
+                if (badge) badge.style.display = 'none';
+                const applySection = document.getElementById('sp-apply-section');
+                if (applySection) applySection.style.display = 'none';
             }
             panel.classList.remove('open');
             overlay.classList.remove('open');
