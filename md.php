@@ -2630,86 +2630,7 @@ if ($mode === 'viewer') {
     <meta name="description" content="<?= e($desc) ?>">
     <meta name="color-scheme" content="light dark">
     <!-- Critical CSS for FOUC prevention and code block enhancements -->
-    <style>
-        :root { color-scheme: light; }
-        html[data-theme="dark"] { color-scheme: dark; }
-        body { margin: 0; font-family: Inter, system-ui, sans-serif; }
-        .code-block-wrapper pre {
-            scrollbar-width: thin;
-            scrollbar-color: #475569 transparent;
-        }
-        .code-block-wrapper pre::-webkit-scrollbar { height: 8px; }
-        .code-block-wrapper pre::-webkit-scrollbar-track { background: transparent; }
-        .code-block-wrapper pre::-webkit-scrollbar-thumb { background-color: #475569; border-radius: 4px; }
-        .code-block-wrapper pre::-webkit-scrollbar-thumb:hover { background-color: #64748b; }
-        .copy-btn .copy-icon, .copy-btn .check-icon { transition: opacity 0.2s ease, transform 0.2s ease; }
-        .copy-btn:active:not(:disabled) { transform: scale(0.95); }
-        /* File browser row hover effect */
-        .file-row:hover td { background-color: rgba(59, 130, 246, 0.05); }
-        html[data-theme="dark"] .file-row:hover td { background-color: rgba(59, 130, 246, 0.1); }
-        /* Sort indicator states */
-        th.sortable.asc .sort-ind::after { content: ' ↑'; color: #3b82f6; }
-        th.sortable.desc .sort-ind::after { content: ' ↓'; color: #3b82f6; }
-        th.sortable .sort-ind::after { content: ' ⇅'; }
-        /* Hidden rows (search filter) */
-        .file-row.filtered-out { display: none; }
-        /* No results message */
-        #no-results-msg { display: none; }
-	#viewer { width: 100%; }
-	#viewer > .markdown-body,
-	#viewer > .toc,
-	#viewer .markdown-body { max-width: none; width: 100%; }
-	.markdown-body { line-height: 1.1; max-width: none; width: 100%; }
-	.toc ul { line-height: 1; max-width: none;  }
-        /* ── Glossary tooltip (v2.4.0) ── */
-        .glossary-term {
-            border-bottom: 1.5px dashed #60a5fa;
-            cursor: help;
-            position: relative;
-            transition: border-color 0.15s;
-        }
-        html[data-theme="dark"] .glossary-term { border-color: #3b82f6; }
-        .glossary-term:hover { border-color: #2563eb; }
-
-        /* Floating tooltip bubble */
-        .g-tooltip {
-            position: fixed;
-            z-index: 9999;
-            max-width: min(420px, calc(100vw - 24px));
-            background: #fff;
-            border: 1px solid #e2e8f0;
-            border-radius: 14px;
-            box-shadow: 0 16px 48px rgba(15,23,42,0.16), 0 2px 8px rgba(15,23,42,0.08);
-            padding: 14px 18px;
-            font-size: 0.82rem;
-            line-height: 1.55;
-            color: #334155;
-            pointer-events: auto;
-            opacity: 0;
-            transform: translateY(6px);
-            transition: opacity 0.18s ease, transform 0.18s ease;
-        }
-        html[data-theme="dark"] .g-tooltip {
-            background: #1e293b;
-            border-color: #334155;
-            color: #cbd5e1;
-            box-shadow: 0 16px 48px rgba(0,0,0,0.45), 0 2px 8px rgba(0,0,0,0.3);
-        }
-        .g-tooltip.visible { opacity: 1; transform: translateY(0); }
-        .g-tooltip-row { margin-bottom: 8px; }
-        .g-tooltip-row:last-child { margin-bottom: 0; }
-        .g-tooltip-label {
-            font-weight: 600;
-            font-size: 0.7rem;
-            text-transform: uppercase;
-            letter-spacing: 0.1em;
-            color: #94a3b8;
-            margin-bottom: 3px;
-        }
-        html[data-theme="dark"] .g-tooltip-label { color: #64748b; }
-        .g-tooltip-val { color: #1e293b; }
-        html[data-theme="dark"] .g-tooltip-val { color: #e2e8f0; }
-    </style>
+    <link rel="stylesheet" href="/assets/css/tooltips.css">
     <link rel="stylesheet" href="/assets/css/md.css">
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
@@ -2731,7 +2652,7 @@ if ($mode === 'viewer') {
                 </div>
                 <?php endif; ?>
                 <button type="button" data-theme-toggle class="inline-flex min-h-11 items-center gap-2 rounded-full border border-slate-200 bg-white/80 px-4 py-2 text-sm font-medium text-slate-700 shadow-soft transition hover:-translate-y-0.5 hover:text-slate-950 dark:border-slate-700 dark:bg-slate-900/80 dark:text-slate-200 dark:hover:text-white" aria-label="ÐŸÐµÑ€ÐµÐºÐ»ÑŽÑ‡Ð¸Ñ‚ÑŒ Ñ‚ÐµÐ¼Ñƒ">
-                    <span data-theme-icon aria-hidden="true"></span><span>Theme</span>
+                    <span data-theme-icon aria-hidden="true"></span>
                 </button>
             </div>
         </div>
