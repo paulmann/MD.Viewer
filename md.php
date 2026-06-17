@@ -1,10 +1,31 @@
 <?php
 /**
  * Markdown Viewer
- * Version: 2.3.0
+ * Version: 2.4.0
  * Author: Mikhail Deynekin
  * Site: https://Deynekin.com
  * Email: Mikhail@Deynekin.com
+ *
+ * Changelog v2.4.0:
+ * - FEATURE: Glossary tooltip system — MD tables with a first column of terms
+ *   are parsed into a lean index. All occurrences of those terms in the rendered
+ *   HTML (outside the glossary table's own first column) are wrapped in
+ *   <span class="glossary-term" data-gterm="slug"> elements.
+ * - FEATURE: Parenthetical aliases — a term like "Нейрообратная связь (NF)"
+ *   registers three keys: the full string, the base "Нейрообратная связь",
+ *   and the abbreviation "NF". All three resolve to the same tooltip.
+ * - FEATURE: Data cells of glossary tables receive id="gd-{tableSlug}-{row}-{col}"
+ *   so the tooltip JavaScript can read live DOM content instead of duplicating
+ *   it as data-attributes. HTML page size stays minimal.
+ * - FEATURE: parseGlossaryTables() — extracts glossary index from Markdown
+ *   before rendering, respecting code-block protection via stripCodeBlocks().
+ * - FEATURE: applyGlossaryTooltipsToHtml() — post-processes rendered HTML with
+ *   a tokenizer that skips <a>, <code>, <pre>, <script>, <style>, <th> tags
+ *   and table first-column <td data-gc="1"> cells.
+ * - FEATURE: Inline JS tooltip engine — on first hover over a .glossary-term
+ *   span, data is fetched from the DOM by id, a floating tooltip is built once
+ *   and reused. No extra network requests, no data bloat in HTML.
+ * - FEATURE: Added GLOSSARY_TOOLTIPS feature toggle constant.
  *
  * Changelog v2.3.0:
  * - FEATURE: Added SPLIT_TITLE_BY_COLON toggle for metadata extraction.
@@ -133,6 +154,7 @@ const FEATURE_FOOTNOTES = true;
 const FEATURE_SUBSUP = true;
 const FEATURE_EMOJI = true;
 const SPLIT_TITLE_BY_COLON = true;
+const GLOSSARY_TOOLTIPS = true;
 
 const PARAGRAPH_BREAK_STYLE = 'double-br';
 
@@ -1417,7 +1439,7 @@ function parseTableRow(string $line): array { $t = trim($line); if (str_starts_w
 function isAlignmentSeparator(string $line): bool { $t = trim($line); if (!str_contains($t, '|') || !str_contains($t, '-')) return false; foreach (parseTableRow($t) as $c) { $c = trim($c); if ($c === '' || preg_match('/^:?-{1,}:?$/', $c) !== 1) return false; } return true; }
 function parseTableAlignments(string $line): array { $align = []; foreach (parseTableRow($line) as $c) { $c = trim($c); $l = str_starts_with($c, ':'); $r = str_ends_with($c, ':'); $align[] = $l && $r ? 'center' : ($r ? 'right' : 'left'); } return $align; }
 
-function renderTable(array $lines, array $sources = []): string
+function renderTable(array $lines, array $sources = [], string $tableSlug = ''): string
 {
     if (count($lines) < 2) return '';
     $headers = parseTableRow(toStr($lines[0] ?? '')); if ($headers === []) return '';
@@ -1430,10 +1452,23 @@ function renderTable(array $lines, array $sources = []): string
     foreach ($bodyLines as $ri => $line) {
         $cells = parseTableRow(toStr($line)); $rc = $ri % 2 === 0 ? 'bg-white/70 dark:bg-slate-950/20' : 'bg-slate-50/80 dark:bg-slate-900/60';
         $html[] = '<tr class="' . $rc . ' hover:bg-slate-100/80 dark:hover:bg-slate-800/50 transition">';
-        foreach ($headers as $i => $h) { $a = $aligns[$i] ?? 'left'; $cls = $a === 'center' ? 'text-center' : ($a === 'right' ? 'text-right' : 'text-left'); $html[] = '<td class="px-5 py-4 align-top leading-5 text-slate-600 dark:text-slate-300 ' . $cls . '">' . inlineMarkdown(toStr($cells[$i] ?? ''), [], [], []) . '</td>'; }
+        foreach ($headers as $i => $h) {
+            $a   = $aligns[$i] ?? 'left';
+            $cls = $a === 'center' ? 'text-center' : ($a === 'right' ? 'text-right' : 'text-left');
+            if ($i === 0) {
+                // First column: mark as glossary source cell (no tooltip wrapping here)
+                $html[] = '<td class="px-5 py-4 align-top leading-5 text-slate-600 dark:text-slate-300 ' . $cls . '" data-gc="1">' . inlineMarkdown(toStr($cells[$i] ?? ''), [], [], []) . '</td>';
+            } else {
+                // Non-first columns: assign stable id so JS can read tooltip content by reference
+                $cellId = $tableSlug !== '' ? ('gd-' . $tableSlug . '-' . $ri . '-' . $i) : '';
+                $idAttr = $cellId !== '' ? ' id="' . e($cellId) . '"' : '';
+                $html[] = '<td' . $idAttr . ' class="px-5 py-4 align-top leading-5 text-slate-600 dark:text-slate-300 ' . $cls . '">' . inlineMarkdown(toStr($cells[$i] ?? ''), [], [], []) . '</td>';
+            }
+        }
         $html[] = '</tr>';
     }
     $html[] = '</tbody></table></div></div>'; return implode("\n", $html);
+}
 }
 
 
@@ -1640,6 +1675,267 @@ function renderSourcesList(array $src): string
  * @since 2.2.4  Explicit (string) cast on $id prevents TypeError in slugify()
  *               when numeric footnote identifiers arrive as int array keys.
  */
+
+// ============================================================
+// GLOSSARY TOOLTIP SYSTEM (v2.4.0)
+// ============================================================
+
+/**
+ * Strip Markdown inline markers to get a plain-text term key.
+ * Handles **bold**, *em*, `code`, and leading/trailing whitespace.
+ *
+ * @since 2.4.0
+ */
+function glossaryPlainText(string $raw): string
+{
+    $raw = trim($raw);
+    // Remove bold/italic/code markers
+    $raw = (string) preg_replace('/(\*\*|__|~~|`+)/u', '', $raw);
+    $raw = (string) preg_replace('/(?<!\*)\*([^*]+)\*(?!\*)/u', '$1', $raw);
+    $raw = (string) preg_replace('/(?<!_)_([^_]+)_(?!_)/u', '$1', $raw);
+    return trim($raw);
+}
+
+/**
+ * Expand a raw first-column term into its alias list.
+ *
+ * "Нейрообратная связь (NF)" → ["Нейрообратная связь (NF)", "Нейрообратная связь", "NF"]
+ * "Осознанность"             → ["Осознанность"]
+ *
+ * @since 2.4.0
+ */
+function expandGlossaryAliases(string $plain): array
+{
+    $terms = [trim($plain)];
+    // Match trailing parenthetical: "Base term (ALIAS)"
+    if (preg_match('/^(.+?)\s*\(([^)]+)\)\s*$/u', $plain, $m) === 1) {
+        $base  = trim($m[1]);
+        $alias = trim($m[2]);
+        if ($base !== '' && !in_array($base, $terms, true)) {
+            $terms[] = $base;
+        }
+        if ($alias !== '' && !in_array($alias, $terms, true)) {
+            $terms[] = $alias;
+        }
+    }
+    return array_filter($terms, static fn(string $t): bool => $t !== '');
+}
+
+/**
+ * Parse all Markdown tables and build a glossary index.
+ *
+ * Each table whose first column contains non-empty terms contributes entries.
+ * The index maps normalized lowercase term → [tableSlug, rowIndex, headers[]]
+ * so the JS tooltip engine can locate the correct <td id="gd-{slug}-{row}-{col}">
+ * elements at runtime.
+ *
+ * Only tables where the first-column header is non-empty are treated as glossary
+ * tables (heuristic: a glossary always has a named term column).
+ *
+ * @param  string $markdown  Normalized Markdown source.
+ * @return array             Glossary map:
+ *                           term (lowercase) → [
+ *                             'slug'    => string,   // "tbl-N"
+ *                             'row'     => int,      // 0-based body row index
+ *                             'cols'    => int,      // total column count
+ *                             'display' => string,   // original display term
+ *                           ]
+ * @since 2.4.0
+ */
+function parseGlossaryTables(string $markdown): array
+{
+    if (!GLOSSARY_TOOLTIPS || $markdown === '') {
+        return [];
+    }
+
+    [$stripped] = stripCodeBlocks($markdown);
+    $lines      = explode("\n", $stripped);
+    $n          = count($lines);
+    $glossary   = [];
+    $tIdx       = 0;  // mirrors renderMarkdown table counter
+    $i          = 0;
+
+    while ($i < $n) {
+        $line = $lines[$i];
+
+        // Collect a table block
+        if (!isTableLine($line)) {
+            $i++;
+            continue;
+        }
+
+        $block = [];
+        while ($i < $n && isTableLine($lines[$i])) {
+            $block[] = $lines[$i];
+            $i++;
+        }
+
+        if (count($block) < 2) {
+            continue;
+        }
+
+        $tIdx++;
+        $slug    = 'tbl-' . $tIdx;
+        $headers = parseTableRow(toStr($block[0]));
+        $colCnt  = count($headers);
+
+        if ($colCnt < 2) {
+            continue; // Need at least term + one data column
+        }
+
+        // Only treat as glossary if first header is non-empty
+        $firstHeader = glossaryPlainText(toStr($headers[0]));
+        if ($firstHeader === '') {
+            continue;
+        }
+
+        $hasAlign  = isAlignmentSeparator(toStr($block[1]));
+        $bodyStart = $hasAlign ? 2 : 1;
+        $bodyRows  = array_slice($block, $bodyStart);
+
+        foreach ($bodyRows as $ri => $rowLine) {
+            $cells    = parseTableRow($rowLine);
+            $rawTerm  = toStr($cells[0] ?? '');
+            $plain    = glossaryPlainText($rawTerm);
+            if ($plain === '') {
+                continue;
+            }
+
+            $aliases = expandGlossaryAliases($plain);
+            foreach ($aliases as $alias) {
+                $key = mb_strtolower($alias, 'UTF-8');
+                if ($key === '' || isset($glossary[$key])) {
+                    continue;
+                }
+                $glossary[$key] = [
+                    'slug'    => $slug,
+                    'row'     => $ri,
+                    'cols'    => $colCnt,
+                    'display' => $alias,
+                ];
+            }
+        }
+    }
+
+    return $glossary;
+}
+
+/**
+ * Apply glossary tooltip spans to rendered HTML.
+ *
+ * Strategy: tokenize HTML into tags and text nodes. For text nodes outside
+ * protected contexts (<a>, <code>, <pre>, <script>, <style>, <th>, and
+ * first-column <td data-gc="1"> cells), replace term occurrences with
+ * <span class="glossary-term" data-gterm="{slug}:{row}:{cols}">{term}</span>.
+ *
+ * The JS engine uses data-gterm to locate the matching <td id="gd-..."> cells
+ * and build the tooltip from their live DOM content — zero HTML duplication.
+ *
+ * Matching is case-insensitive, Unicode-aware, and word-boundary-safe.
+ * Longer terms are matched first to prevent partial replacements.
+ *
+ * @param  string $html      Rendered HTML from renderMarkdown().
+ * @param  array  $glossary  Index from parseGlossaryTables().
+ * @return string            HTML with glossary spans injected.
+ *
+ * @since 2.4.0
+ */
+function applyGlossaryTooltipsToHtml(string $html, array $glossary): string
+{
+    if (!GLOSSARY_TOOLTIPS || $glossary === [] || $html === '') {
+        return $html;
+    }
+
+    // Sort terms longest-first to prevent "NF" from stealing "Нейрообратная связь (NF)"
+    $terms = array_keys($glossary);
+    usort($terms, static fn(string $a, string $b): int => mb_strlen($b, 'UTF-8') <=> mb_strlen($a, 'UTF-8'));
+
+    // Build one combined pattern for all terms (alternation, word-boundary-safe)
+    $patterns = array_map(
+        static fn(string $t): string => preg_quote($t, '/'),
+        $terms
+    );
+    // Use Unicode word boundary via lookahead/lookbehind with \p{L}\p{N}
+    $combined = '/(?<!\p{L})(?<!\p{N})(' . implode('|', $patterns) . ')(?!\p{L})(?!\p{N})/iu';
+
+    // Tags that protect their entire content from tooltip injection
+    $protectedTags = ['a', 'code', 'pre', 'script', 'style', 'th'];
+    $depth    = [];   // stack of protected tag names
+    $gcDepth  = 0;    // depth inside data-gc="1" first-column cells
+    $result   = '';
+
+    // Simple HTML tokenizer: alternate between tags and text
+    $pos = 0;
+    $len = strlen($html);
+
+    while ($pos < $len) {
+        if ($html[$pos] !== '<') {
+            // Text node
+            $end  = strpos($html, '<', $pos);
+            $text = $end === false ? substr($html, $pos) : substr($html, $pos, $end - $pos);
+            $pos  = $end === false ? $len : $end;
+
+            // Inject tooltips only when not inside protected context
+            if ($depth === [] && $gcDepth === 0 && $text !== '') {
+                $text = (string) preg_replace_callback(
+                    $combined,
+                    static function (array $m) use ($glossary): string {
+                        $key  = mb_strtolower($m[1], 'UTF-8');
+                        $info = $glossary[$key] ?? null;
+                        if ($info === null) {
+                            return $m[1];
+                        }
+                        $ref = e($info['slug']) . ':' . $info['row'] . ':' . $info['cols'];
+                        return '<span class="glossary-term" data-gterm="' . $ref . '">' . $m[1] . '</span>';
+                    },
+                    $text,
+                );
+            }
+            $result .= $text;
+            continue;
+        }
+
+        // Tag node: read until '>'
+        $end = strpos($html, '>', $pos);
+        if ($end === false) {
+            $result .= substr($html, $pos);
+            break;
+        }
+        $tag = substr($html, $pos, $end - $pos + 1);
+        $pos = $end + 1;
+        $result .= $tag;
+
+        // Detect opening/closing/self-closing
+        $inner = trim(substr($tag, 1, -1));
+        if (str_starts_with($inner, '!') || str_starts_with($inner, '?')) {
+            continue; // comment / doctype / PI
+        }
+        $isClose = str_starts_with($inner, '/');
+        $isSelf  = str_ends_with($inner, '/');
+        $tagName = strtolower(preg_replace('/[\s\/>].*$/s', '', ltrim($inner, '/')));
+
+        // Track first-column cell (data-gc="1")
+        if (!$isClose && $tagName === 'td' && str_contains($tag, 'data-gc="1"')) {
+            $gcDepth++;
+            continue;
+        }
+        if ($isClose && $tagName === 'td' && $gcDepth > 0) {
+            $gcDepth--;
+            continue;
+        }
+
+        // Track protected tag depth
+        if (!$isClose && !$isSelf && in_array($tagName, $protectedTags, true)) {
+            $depth[] = $tagName;
+        } elseif ($isClose && $depth !== [] && end($depth) === $tagName) {
+            array_pop($depth);
+        }
+    }
+
+    return $result;
+}
+
+
 function renderFootnotes(array $fn): string
 {
     if (!FEATURE_FOOTNOTES || $fn === []) {
@@ -1774,6 +2070,7 @@ function renderMarkdown(string $md, array $src = [], array $head = []): string
 
     // ── Initialize parser state ──
     $si     = 0;  // heading index counter
+    $tIdx   = 0;  // table index counter for glossary cell IDs
     $pc     = 0;  // paragraph counter
     $lines  = explode("\n", $md);
     $n      = count($lines);
@@ -1845,9 +2142,10 @@ function renderMarkdown(string $md, array $src = [], array $head = []): string
     };
 
     // ── Helper: Flush accumulated table rows ──
-    $flushTable = static function () use (&$tBuf, &$html, &$src): void {
+    $flushTable = static function () use (&$tBuf, &$html, &$src, &$tIdx): void {
         if ($tBuf !== []) {
-            $html[] = renderTable($tBuf, $src);
+            $slug = 'tbl-' . (++$tIdx);
+            $html[] = renderTable($tBuf, $src, $slug);
             $tBuf   = [];
         }
     };
@@ -2309,11 +2607,13 @@ if ($mode === 'viewer') {
 	    1
     );
     $src = parseSources($md);
+    $glossary = GLOSSARY_TOOLTIPS ? parseGlossaryTables($md) : [];
     $md = removeSourcesSection($md);
     $head = collectHeadings($md);
     if (AUTO_NUMBERING) $head = assignHeadingNumbers($head);
     $toc  = AUTO_TOC ? renderTOC($head) : '';
     $rend = renderMarkdown($md, $src, $head);
+    $rend = applyGlossaryTooltipsToHtml($rend, $glossary);
     $srcList = AUTO_FOOTNOTES_LINKS ? renderSourcesList($src) : '';
 } else {
     $title = 'Markdown Files';
@@ -2362,6 +2662,54 @@ if ($mode === 'viewer') {
 	#viewer .markdown-body { max-width: none; width: 100%; }
 	.markdown-body { line-height: 1.1; max-width: none; width: 100%; }
 	.toc ul { line-height: 1; max-width: none;  }
+        /* ── Glossary tooltip (v2.4.0) ── */
+        .glossary-term {
+            border-bottom: 1.5px dashed #60a5fa;
+            cursor: help;
+            position: relative;
+            transition: border-color 0.15s;
+        }
+        html[data-theme="dark"] .glossary-term { border-color: #3b82f6; }
+        .glossary-term:hover { border-color: #2563eb; }
+
+        /* Floating tooltip bubble */
+        .g-tooltip {
+            position: fixed;
+            z-index: 9999;
+            max-width: min(420px, calc(100vw - 24px));
+            background: #fff;
+            border: 1px solid #e2e8f0;
+            border-radius: 14px;
+            box-shadow: 0 16px 48px rgba(15,23,42,0.16), 0 2px 8px rgba(15,23,42,0.08);
+            padding: 14px 18px;
+            font-size: 0.82rem;
+            line-height: 1.55;
+            color: #334155;
+            pointer-events: none;
+            opacity: 0;
+            transform: translateY(6px);
+            transition: opacity 0.18s ease, transform 0.18s ease;
+        }
+        html[data-theme="dark"] .g-tooltip {
+            background: #1e293b;
+            border-color: #334155;
+            color: #cbd5e1;
+            box-shadow: 0 16px 48px rgba(0,0,0,0.45), 0 2px 8px rgba(0,0,0,0.3);
+        }
+        .g-tooltip.visible { opacity: 1; transform: translateY(0); }
+        .g-tooltip-row { margin-bottom: 8px; }
+        .g-tooltip-row:last-child { margin-bottom: 0; }
+        .g-tooltip-label {
+            font-weight: 600;
+            font-size: 0.7rem;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            color: #94a3b8;
+            margin-bottom: 3px;
+        }
+        html[data-theme="dark"] .g-tooltip-label { color: #64748b; }
+        .g-tooltip-val { color: #1e293b; }
+        html[data-theme="dark"] .g-tooltip-val { color: #e2e8f0; }
     </style>
     <link rel="stylesheet" href="/assets/css/md.css">
     <script src="https://cdn.tailwindcss.com"></script>
@@ -2436,5 +2784,130 @@ if ($mode === 'viewer') {
     <div aria-live="polite" aria-atomic="true" class="sr-only" id="copy-status"></div>
     
     <script type="module" src="/assets/js/md.js"></script>
+    <!-- Glossary tooltip engine (v2.4.0) -->
+    <script>
+    (function () {
+        if (!document.querySelector('.glossary-term')) return;
+
+        // Header text cache: tableSlug → [header1text, header2text, ...]
+        const hdrCache = {};
+        // Tooltip element (singleton, reused)
+        const tip = document.createElement('div');
+        tip.className = 'g-tooltip';
+        document.body.appendChild(tip);
+
+        let showTimer = null;
+        let activeEl  = null;
+
+        /**
+         * Collect header texts for a given table slug.
+         * Reads from <thead> of the table that owns cells with id starting "gd-{slug}-".
+         */
+        function getHeaders(slug) {
+            if (hdrCache[slug]) return hdrCache[slug];
+            // Find any cell in this table to locate its <table> ancestor
+            const firstCell = document.getElementById('gd-' + slug + '-0-1');
+            if (!firstCell) return [];
+            const tbl  = firstCell.closest('table');
+            if (!tbl) return [];
+            const ths  = tbl.querySelectorAll('thead th');
+            hdrCache[slug] = Array.from(ths).map(th => th.textContent.trim());
+            return hdrCache[slug];
+        }
+
+        /**
+         * Build tooltip HTML from DOM cells. Data is read live — no duplication.
+         * data-gterm = "{slug}:{row}:{cols}"
+         */
+        function buildTip(el) {
+            const raw   = (el.dataset.gterm || '').split(':');
+            const slug  = raw[0] || '';
+            const row   = parseInt(raw[1] ?? '0', 10);
+            const cols  = parseInt(raw[2] ?? '0', 10);
+            if (!slug || cols < 2) return '';
+
+            const headers = getHeaders(slug);
+            let html = '';
+            for (let c = 1; c < cols; c++) {
+                const cell = document.getElementById('gd-' + slug + '-' + row + '-' + c);
+                if (!cell) continue;
+                const val = cell.innerHTML.trim();
+                if (!val) continue;
+                const label = headers[c] || ('Column ' + c);
+                html += '<div class="g-tooltip-row">'
+                      + '<div class="g-tooltip-label">' + label + '</div>'
+                      + '<div class="g-tooltip-val">'   + val   + '</div>'
+                      + '</div>';
+            }
+            return html;
+        }
+
+        /** Position tooltip near the target element, keeping it inside viewport. */
+        function positionTip(el) {
+            const r  = el.getBoundingClientRect();
+            const tw = tip.offsetWidth;
+            const th = tip.offsetHeight;
+            const vw = window.innerWidth;
+            const vh = window.innerHeight;
+            const GAP = 10;
+
+            let left = r.left + r.width / 2 - tw / 2;
+            let top  = r.bottom + GAP;
+
+            if (left + tw > vw - GAP) left = vw - tw - GAP;
+            if (left < GAP)           left = GAP;
+            if (top + th > vh - GAP)  top  = r.top - th - GAP;
+
+            tip.style.left = Math.round(left) + 'px';
+            tip.style.top  = Math.round(top)  + 'px';
+        }
+
+        function showTip(el) {
+            const html = buildTip(el);
+            if (!html) return;
+            tip.innerHTML = html;
+            tip.style.opacity = '0';
+            tip.style.display = 'block';
+            positionTip(el);
+            // Force reflow then animate
+            tip.offsetHeight;
+            tip.classList.add('visible');
+        }
+
+        function hideTip() {
+            tip.classList.remove('visible');
+        }
+
+        // Event delegation on document
+        document.addEventListener('mouseover', function (e) {
+            const el = e.target.closest('.glossary-term');
+            if (!el || el === activeEl) return;
+            activeEl = el;
+            clearTimeout(showTimer);
+            showTimer = setTimeout(() => showTip(el), 120);
+        });
+
+        document.addEventListener('mouseout', function (e) {
+            const el = e.target.closest('.glossary-term');
+            if (!el) return;
+            clearTimeout(showTimer);
+            hideTip();
+            activeEl = null;
+        });
+
+        // Reposition on scroll/resize
+        window.addEventListener('scroll', hideTip, { passive: true });
+        window.addEventListener('resize', hideTip, { passive: true });
+
+        // Touch support: toggle on tap
+        document.addEventListener('touchstart', function (e) {
+            const el = e.target.closest('.glossary-term');
+            if (!el) { hideTip(); activeEl = null; return; }
+            if (el === activeEl) { hideTip(); activeEl = null; return; }
+            activeEl = el;
+            showTip(el);
+        }, { passive: true });
+    })();
+    </script>
 </body>
 </html>
