@@ -19,6 +19,11 @@
  *   so "_word_" inside a target became "<em>word</em>" and leaked into the href.
  *   Link targets are now masked with \u{FFF9} sentinels before escaping and
  *   restored after link assembly, keeping URLs intact.
+ * - FIXED: An inline link wrapped in literal brackets, e.g. [[26](url)], rendered
+ *   with the opening parenthesis glued into the anchor text ([26 instead of 26).
+ *   The label class in the inline/anchor and absolute link patterns accepted [ ( )
+ *   so the match started on the outer bracket. Label classes are now restricted to
+ *   [^\[\]()]+ in steps 2a, 6 and 7, so the surrounding brackets stay literal text.
  * - FIXED: UTF-8 BOM handling in normalizeMarkdown(). Replaced the /u regex
  *   BOM removal with byte-safe str_starts_with("\\xEF\\xBB\\xBF") + substr()
  *   because the BOM bytes can make the string invalid for Unicode regex
@@ -1218,7 +1223,7 @@ function inlineMarkdown(
 	// \u{FFF9} sentinels BEFORE escaping/emphasis (step 3-4) and restored after the
 	// link handlers have run (step 11), so the href stays a valid URL.
 	$text = (string) preg_replace_callback(
-		'/(?<!!)(?<!\\\\)(\[[^\]]+\]\()([^)\s]+)(\)|\s)/u',
+				'/(?<!!)(?<!\\)(\[[^\[\]()]+\]\()([^)\s]+)(\)|\s)/u',
 		static function (array $m): string {
 			$url = strtr($m[2], [
 				'_' => "\u{FFF9}U\u{FFF9}",
@@ -1273,7 +1278,7 @@ $text = (string) preg_replace_callback(
 
     // 6. Internal / anchor links  [Text](#anchor) or [Text](relative/path) 
     $escaped = (string) preg_replace_callback(
-        '/(?<!!)(?<!\\\\)\[([^\]]+)\]\((#[^\s)]+|[^):\s]+(?:\/[^\s)]*)?)\)/u',
+        		'/(?<!!)(?<!\\)\[([^\[\]()]+)\]\((#[^\s)]+|[^):\s]+(?:\/[^\s)]*)?)\)/u',
         static function (array $m) use ($lc): string {
             $href = trim($m[2] ?? '');
             return $href !== ''
@@ -1285,7 +1290,7 @@ $text = (string) preg_replace_callback(
 
     // 7. Absolute links  [Text](https://
     $escaped = (string) preg_replace_callback(
-        '/(?<!!)(?<!\\\\)\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/u',
+        		'/(?<!!)(?<!\\)\[([^\[\]()]+)\]\((https?:\/\/[^\s)]+)\)/u',
         static function (array $m) use ($lc): string {
             return '<a href="' . e($m[2]) . '" target="_blank" rel="noopener noreferrer"'
                  . ' class="' . $lc . '">' . e($m[1]) . '</a>';
