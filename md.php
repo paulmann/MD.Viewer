@@ -140,25 +140,44 @@
 
 declare(strict_types=1);
 
-// Feature toggles
-const AUTO_NUMBERING = true;
-const AUTO_TOC = true;
-const AUTO_FOOTNOTES_LINKS = true;
-const DOUBLE_LINE_BREAKS = true;
-const CYPHER_PATTERNS = true;
-const UNIVERSAL_PATTERNS = true;
-const FEATURE_IMAGES = true;
-const FEATURE_REF_LINKS = true;
-const FEATURE_TASK_LISTS = true;
-const FEATURE_FOOTNOTES = true;
-const FEATURE_SUBSUP = true;
-const FEATURE_EMOJI = true;
-const SPLIT_TITLE_BY_COLON = true;
-const GLOSSARY_TOOLTIPS = true;
 
-const COOKIE_ACCEPT        = false;
+// ── Feature toggle resolver (v2.5.1) ────────────────────────────────────────
+// Reads user override from cookie (mdv_feat_{NAME}), falls back to $default.
+// Cookie value "1"/"0" maps to true/false; for string constants, raw value used.
+// This allows settings panel to override PHP rendering features on next page load.
+function feat(string $name, bool|string $default): bool|string
+{
+    $key = 'mdv_feat_' . $name;
+    if (!isset($_COOKIE[$key])) {
+        return $default;
+    }
+    $val = $_COOKIE[$key];
+    if (is_bool($default)) {
+        return $val === '1';
+    }
+    // String constant (e.g. PARAGRAPH_BREAK_STYLE)
+    return $val !== '' ? $val : $default;
+}
 
-const PARAGRAPH_BREAK_STYLE = 'double-br';
+// Feature toggles — server defaults, overridable via cookie (set by Settings panel)
+define('AUTO_NUMBERING',       feat('AUTO_NUMBERING',       true));
+define('AUTO_TOC',             feat('AUTO_TOC',             true));
+define('AUTO_FOOTNOTES_LINKS', feat('AUTO_FOOTNOTES_LINKS', true));
+define('DOUBLE_LINE_BREAKS',   feat('DOUBLE_LINE_BREAKS',   true));
+define('CYPHER_PATTERNS',      feat('CYPHER_PATTERNS',      true));
+define('UNIVERSAL_PATTERNS',   feat('UNIVERSAL_PATTERNS',   true));
+define('FEATURE_IMAGES',       feat('FEATURE_IMAGES',       true));
+define('FEATURE_REF_LINKS',    feat('FEATURE_REF_LINKS',    true));
+define('FEATURE_TASK_LISTS',   feat('FEATURE_TASK_LISTS',   true));
+define('FEATURE_FOOTNOTES',    feat('FEATURE_FOOTNOTES',    true));
+define('FEATURE_SUBSUP',       feat('FEATURE_SUBSUP',       true));
+define('FEATURE_EMOJI',        feat('FEATURE_EMOJI',        true));
+define('SPLIT_TITLE_BY_COLON', feat('SPLIT_TITLE_BY_COLON', true));
+define('GLOSSARY_TOOLTIPS',    feat('GLOSSARY_TOOLTIPS',    true));
+
+define('COOKIE_ACCEPT',        false);  // Master switch — managed only via JS/cookie
+
+define('PARAGRAPH_BREAK_STYLE', feat('PARAGRAPH_BREAK_STYLE', 'double-br'));
 
 // Security limits
 const MAX_FILE_PARAM_LENGTH = 255;
@@ -2741,7 +2760,7 @@ if ($mode === 'viewer') {
     <div aria-live="polite" aria-atomic="true" class="sr-only" id="copy-status"></div>
 
 
-    <!-- ── Settings Panel (v2.5.0) ─────────────────────────────────────────── -->
+    <!-- ── Settings Panel (v2.5.1) ─────────────────────────────────────────── -->
     <div id="settings-overlay" class="settings-overlay" aria-hidden="true"></div>
     <aside id="settings-panel" role="dialog" aria-modal="true" aria-label="Settings" class="settings-panel">
         <div class="settings-header">
@@ -2753,15 +2772,26 @@ if ($mode === 'viewer') {
             <!-- Font size -->
             <section class="settings-section">
                 <div class="settings-section-title">Font Size</div>
-                <div class="settings-font-row">
-                    <button type="button" id="sp-fs-decrease" class="settings-fs-btn" aria-label="Decrease">−</button>
-                    <span id="sp-fs-label" class="settings-fs-label"></span>
-                    <button type="button" id="sp-fs-increase" class="settings-fs-btn" aria-label="Increase">+</button>
-                    <button type="button" id="sp-fs-reset" class="settings-fs-reset">Reset</button>
+                <div class="settings-spinner-row">
+                    <button type="button" id="sp-fs-decrease" class="settings-spin-btn" aria-label="Decrease">−</button>
+                    <span id="sp-fs-label" class="settings-spin-label"></span>
+                    <button type="button" id="sp-fs-increase" class="settings-spin-btn" aria-label="Increase">+</button>
+                    <button type="button" id="sp-fs-reset" class="settings-reset-btn">Reset</button>
                 </div>
             </section>
 
-            <!-- Page width (shown for all, including mobile via Settings) -->
+            <!-- Line height -->
+            <section class="settings-section">
+                <div class="settings-section-title">Line Spacing</div>
+                <div class="settings-spinner-row">
+                    <button type="button" id="sp-lh-decrease" class="settings-spin-btn" aria-label="Decrease">−</button>
+                    <span id="sp-lh-label" class="settings-spin-label"></span>
+                    <button type="button" id="sp-lh-increase" class="settings-spin-btn" aria-label="Increase">+</button>
+                    <button type="button" id="sp-lh-reset" class="settings-reset-btn">Reset</button>
+                </div>
+            </section>
+
+            <!-- Page width -->
             <section class="settings-section" id="sp-width-section">
                 <div class="settings-section-title">Page Width</div>
                 <div class="settings-btn-group">
@@ -2771,19 +2801,32 @@ if ($mode === 'viewer') {
                 </div>
             </section>
 
-            <!-- Feature toggles (read-only info — server-side PHP constants) -->
+            <!-- Feature toggles — PHP-side (require reload) -->
             <section class="settings-section">
-                <div class="settings-section-title">Active Features <span class="settings-badge">server</span></div>
+                <div class="settings-section-title">
+                    Features
+                    <span class="settings-badge" id="sp-reload-badge" style="display:none">reload to apply</span>
+                </div>
                 <div class="settings-toggles" id="sp-features"></div>
             </section>
 
+            <!-- Paragraph break style -->
+            <section class="settings-section">
+                <div class="settings-section-title">Paragraph Break</div>
+                <div class="settings-btn-group">
+                    <button type="button" data-sp-para="double-br"    class="settings-width-btn">Double BR</button>
+                    <button type="button" data-sp-para="single-space" class="settings-width-btn">Single Space</button>
+                    <button type="button" data-sp-para="margin"       class="settings-width-btn">Margin</button>
+                </div>
+            </section>
+
             <!-- Cookie consent -->
-            <section class="settings-section settings-section-cookie">
-                <label class="settings-checkbox-row" id="sp-cookie-row">
+            <section class="settings-section">
+                <label class="settings-checkbox-row">
                     <input type="checkbox" id="sp-cookie-accept" class="settings-checkbox">
                     <span class="settings-checkbox-label">
                         Allow Cookies
-                        <small>Settings are saved in cookies when enabled, otherwise in sessionStorage only.</small>
+                        <small>When enabled, settings persist between visits via cookies. Otherwise only for this session.</small>
                     </span>
                 </label>
             </section>
@@ -2792,7 +2835,7 @@ if ($mode === 'viewer') {
     </aside>
 
     <style>
-    /* ── Settings panel (v2.5.0) ───────────────────────────────────────────── */
+    /* ── Settings panel (v2.5.1) ───────────────────────────────────────────── */
     .settings-overlay {
         display: none; position: fixed; inset: 0;
         background: rgba(0,0,0,.35); z-index: 10000;
@@ -2802,8 +2845,8 @@ if ($mode === 'viewer') {
     .settings-overlay.open { display: block; opacity: 1; }
 
     .settings-panel {
-        position: fixed; top: 0; right: -360px; height: 100%;
-        width: min(340px, 100vw);
+        position: fixed; top: 0; right: -380px; height: 100%;
+        width: min(360px, 100vw);
         background: #fff; border-left: 1px solid #e2e8f0;
         box-shadow: -8px 0 40px rgba(15,23,42,.14);
         z-index: 10001; display: flex; flex-direction: column;
@@ -2818,12 +2861,9 @@ if ($mode === 'viewer') {
 
     .settings-header {
         display: flex; align-items: center; justify-content: space-between;
-        padding: 18px 20px 14px;
-        border-bottom: 1px solid #e2e8f0;
-        flex-shrink: 0;
+        padding: 18px 20px 14px; border-bottom: 1px solid #e2e8f0; flex-shrink: 0;
     }
     html[class~="dark"] .settings-header { border-color: #1e293b; }
-
     .settings-title { font-weight: 700; font-size: .95rem; color: #0f172a; }
     html[class~="dark"] .settings-title { color: #f1f5f9; }
 
@@ -2836,245 +2876,339 @@ if ($mode === 'viewer') {
     .settings-close:hover { background: #f1f5f9; color: #0f172a; }
     html[class~="dark"] .settings-close:hover { background: #1e293b; color: #f1f5f9; }
 
-    .settings-body { flex: 1; overflow-y: auto; padding: 8px 0 24px; }
-
-    .settings-section {
-        padding: 14px 20px;
-        border-bottom: 1px solid #f1f5f9;
-    }
+    .settings-body { flex: 1; overflow-y: auto; padding: 4px 0 32px; }
+    .settings-section { padding: 13px 20px; border-bottom: 1px solid #f1f5f9; }
     html[class~="dark"] .settings-section { border-color: #1e293b; }
     .settings-section:last-child { border-bottom: none; }
 
     .settings-section-title {
-        font-size: .7rem; font-weight: 700; letter-spacing: .1em;
-        text-transform: uppercase; color: #94a3b8; margin-bottom: 10px;
-        display: flex; align-items: center; gap: 6px;
+        font-size: .68rem; font-weight: 700; letter-spacing: .1em;
+        text-transform: uppercase; color: #94a3b8; margin-bottom: 9px;
+        display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
     }
     .settings-badge {
-        font-size: .6rem; background: #e0e7ff; color: #4338ca;
-        border-radius: 4px; padding: 1px 5px; letter-spacing: .04em;
-        text-transform: none; font-weight: 600;
+        font-size: .6rem; border-radius: 4px; padding: 1px 6px;
+        letter-spacing: .03em; text-transform: none; font-weight: 600;
     }
-    html[class~="dark"] .settings-badge { background: #1e1b4b; color: #818cf8; }
+    .settings-badge { background: #fef3c7; color: #92400e; }
+    html[class~="dark"] .settings-badge { background: #451a03; color: #fbbf24; }
 
-    /* Font size controls */
-    .settings-font-row {
-        display: flex; align-items: center; gap: 8px;
-    }
-    .settings-fs-btn {
+    /* Spinner rows (font-size, line-height) */
+    .settings-spinner-row { display: flex; align-items: center; gap: 8px; }
+    .settings-spin-btn {
         width: 34px; height: 34px; border-radius: 8px;
         border: 1px solid #e2e8f0; background: #f8fafc;
-        font-size: 1.2rem; font-weight: 700; cursor: pointer;
+        font-size: 1.15rem; font-weight: 700; cursor: pointer;
         color: #334155; transition: background .15s, border-color .15s;
-        display: flex; align-items: center; justify-content: center;
+        display: flex; align-items: center; justify-content: center; flex-shrink: 0;
     }
-    .settings-fs-btn:hover { background: #e2e8f0; border-color: #cbd5e1; }
-    html[class~="dark"] .settings-fs-btn {
-        background: #1e293b; border-color: #334155; color: #cbd5e1;
-    }
-    html[class~="dark"] .settings-fs-btn:hover { background: #334155; }
-    .settings-fs-label {
-        min-width: 42px; text-align: center; font-size: .85rem;
+    .settings-spin-btn:hover { background: #e2e8f0; border-color: #cbd5e1; }
+    html[class~="dark"] .settings-spin-btn { background: #1e293b; border-color: #334155; color: #cbd5e1; }
+    html[class~="dark"] .settings-spin-btn:hover { background: #334155; }
+    .settings-spin-label {
+        min-width: 48px; text-align: center; font-size: .83rem;
         font-weight: 600; color: #334155; font-variant-numeric: tabular-nums;
     }
-    html[class~="dark"] .settings-fs-label { color: #cbd5e1; }
-    .settings-fs-reset {
-        margin-left: auto; font-size: .75rem; color: #94a3b8;
-        background: none; border: none; cursor: pointer; padding: 4px 8px;
-        border-radius: 6px; transition: color .15s, background .15s;
+    html[class~="dark"] .settings-spin-label { color: #cbd5e1; }
+    .settings-reset-btn {
+        margin-left: auto; font-size: .73rem; color: #94a3b8;
+        background: none; border: 1px solid #e2e8f0; cursor: pointer;
+        padding: 4px 10px; border-radius: 6px; transition: color .15s, background .15s, border-color .15s;
     }
-    .settings-fs-reset:hover { color: #334155; background: #f1f5f9; }
-    html[class~="dark"] .settings-fs-reset:hover { color: #e2e8f0; background: #1e293b; }
+    .settings-reset-btn:hover { color: #334155; background: #f1f5f9; border-color: #cbd5e1; }
+    html[class~="dark"] .settings-reset-btn { border-color: #334155; }
+    html[class~="dark"] .settings-reset-btn:hover { color: #e2e8f0; background: #1e293b; }
 
-    /* Width buttons */
+    /* Width / para-break button groups */
     .settings-btn-group { display: flex; gap: 6px; }
     .settings-width-btn {
         flex: 1; padding: 7px 4px; border-radius: 8px; border: 1px solid #e2e8f0;
-        background: #f8fafc; font-size: .8rem; font-weight: 600; cursor: pointer;
+        background: #f8fafc; font-size: .78rem; font-weight: 600; cursor: pointer;
         color: #475569; transition: background .15s, border-color .15s, color .15s;
+        white-space: nowrap;
     }
     .settings-width-btn:hover { background: #e2e8f0; }
-    .settings-width-btn.active {
-        background: #0f172a; color: #fff; border-color: #0f172a;
-    }
-    html[class~="dark"] .settings-width-btn {
-        background: #1e293b; border-color: #334155; color: #94a3b8;
-    }
+    .settings-width-btn.active { background: #0f172a; color: #fff; border-color: #0f172a; }
+    html[class~="dark"] .settings-width-btn { background: #1e293b; border-color: #334155; color: #94a3b8; }
     html[class~="dark"] .settings-width-btn:hover { background: #334155; color: #e2e8f0; }
-    html[class~="dark"] .settings-width-btn.active {
-        background: #3b82f6; border-color: #3b82f6; color: #fff;
-    }
+    html[class~="dark"] .settings-width-btn.active { background: #3b82f6; border-color: #3b82f6; color: #fff; }
 
-    /* Feature toggles list */
-    .settings-toggles {
-        display: flex; flex-direction: column; gap: 4px;
-    }
+    /* Feature toggle rows */
+    .settings-toggles { display: flex; flex-direction: column; gap: 2px; }
     .settings-toggle-row {
         display: flex; align-items: center; justify-content: space-between;
-        padding: 5px 0; font-size: .8rem; color: #475569;
+        padding: 5px 6px; border-radius: 7px; cursor: pointer;
+        transition: background .12s;
     }
-    html[class~="dark"] .settings-toggle-row { color: #94a3b8; }
-    .settings-toggle-pill {
-        font-size: .68rem; font-weight: 700; border-radius: 99px;
-        padding: 2px 8px;
+    .settings-toggle-row:hover { background: #f8fafc; }
+    html[class~="dark"] .settings-toggle-row:hover { background: #1e293b; }
+    .settings-toggle-name { font-size: .8rem; color: #334155; user-select: none; }
+    html[class~="dark"] .settings-toggle-name { color: #94a3b8; }
+    /* Custom toggle switch */
+    .settings-toggle-switch {
+        position: relative; width: 36px; height: 20px; flex-shrink: 0;
     }
-    .settings-toggle-pill.on  { background: #dcfce7; color: #16a34a; }
-    .settings-toggle-pill.off { background: #fee2e2; color: #dc2626; }
-    html[class~="dark"] .settings-toggle-pill.on  { background: #14532d; color: #4ade80; }
-    html[class~="dark"] .settings-toggle-pill.off { background: #450a0a; color: #f87171; }
+    .settings-toggle-switch input { opacity: 0; width: 0; height: 0; position: absolute; }
+    .settings-toggle-track {
+        position: absolute; inset: 0; background: #cbd5e1; border-radius: 99px;
+        transition: background .2s; cursor: pointer;
+    }
+    .settings-toggle-track::after {
+        content: ''; position: absolute; top: 2px; left: 2px;
+        width: 16px; height: 16px; background: #fff; border-radius: 50%;
+        transition: transform .2s; box-shadow: 0 1px 3px rgba(0,0,0,.2);
+    }
+    .settings-toggle-switch input:checked + .settings-toggle-track { background: #22c55e; }
+    .settings-toggle-switch input:checked + .settings-toggle-track::after { transform: translateX(16px); }
+    html[class~="dark"] .settings-toggle-track { background: #334155; }
+    html[class~="dark"] .settings-toggle-switch input:checked + .settings-toggle-track { background: #16a34a; }
 
-    /* Cookie row */
-    .settings-checkbox-row {
-        display: flex; align-items: flex-start; gap: 10px; cursor: pointer;
-    }
-    .settings-checkbox { width: 16px; height: 16px; margin-top: 2px; cursor: pointer; flex-shrink: 0; }
-    .settings-checkbox-label { font-size: .82rem; color: #334155; line-height: 1.4; }
+    /* Checkbox (cookie) */
+    .settings-checkbox-row { display: flex; align-items: flex-start; gap: 10px; cursor: pointer; }
+    .settings-checkbox { width: 16px; height: 16px; margin-top: 3px; cursor: pointer; flex-shrink: 0; accent-color: #3b82f6; }
+    .settings-checkbox-label { font-size: .81rem; color: #334155; line-height: 1.45; }
     html[class~="dark"] .settings-checkbox-label { color: #94a3b8; }
-    .settings-checkbox-label small {
-        display: block; font-size: .72rem; color: #94a3b8; margin-top: 2px;
-    }
+    .settings-checkbox-label small { display: block; font-size: .71rem; color: #94a3b8; margin-top: 3px; }
     </style>
 
     <script>
     /**
-     * MD Viewer — Settings Panel Engine (v2.5.0)
+     * MD Viewer — Settings Panel Engine (v2.5.1)
      * Author: Mikhail Deynekin | https://Deynekin.com
      *
-     * - Settings slide-in panel with gear button toggle
-     * - Font size control: +/- in header (mobile) and in panel (all)
-     *   Range: 12–24px, default 16px, step 1px
-     * - Page width control: mirrored between header switcher and panel
-     * - Mobile: auto-applies Wide mode, shows font-size +/- instead of width buttons
-     * - Feature toggles: read from MDV_CONFIG (PHP constants), displayed read-only
-     * - Cookie consent: checkbox in panel; when off → sessionStorage only
-     * - Storage key prefix: "mdv_"
+     * Controls: font-size, line-height, page width, feature toggles (PHP cookie),
+     *           paragraph break style, cookie consent.
+     * Storage: sessionStorage always; cookies when consent given.
+     * PHP features: written to cookie mdv_feat_{NAME}=1/0, page reloads to apply.
      */
     (function () {
         'use strict';
 
         const CFG    = window.MDV_CONFIG || {};
         const PREFIX = 'mdv_';
-        const FS_MIN = 12, FS_MAX = 24, FS_DEF = 16, FS_STEP = 1;
+        const FEAT   = 'mdv_feat_';
 
-        // ── Storage: cookie-aware ─────────────────────────────────────────────
+        // ── Storage ───────────────────────────────────────────────────────────
         function cookiesAllowed() {
-            // Live check: may be toggled during session
-            const v = sessionStorage.getItem(PREFIX + 'cookieAccept');
-            return v === '1';
+            return sessionStorage.getItem(PREFIX + 'cookieAccept') === '1';
         }
 
         function store(key, val) {
-            const k = PREFIX + key;
-            sessionStorage.setItem(k, val);
+            sessionStorage.setItem(key, String(val));
             if (cookiesAllowed()) {
                 const exp = new Date(Date.now() + 365 * 864e5).toUTCString();
-                document.cookie = k + '=' + encodeURIComponent(val) + '; path=/; expires=' + exp + '; SameSite=Lax';
+                document.cookie = key + '=' + encodeURIComponent(val)
+                    + '; path=/; expires=' + exp + '; SameSite=Lax';
             }
         }
 
         function load(key, fallback) {
-            const k = PREFIX + key;
-            // Session first (fastest, always available)
-            const sv = sessionStorage.getItem(k);
+            const sv = sessionStorage.getItem(key);
             if (sv !== null) return sv;
-            // Cookie fallback
-            const match = document.cookie.match('(?:^|;)\\s*' + k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '=([^;]*)');
-            if (match) return decodeURIComponent(match[1]);
-            return fallback;
+            const rx = new RegExp('(?:^|;)\\s*' + key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '=([^;]*)');
+            const m  = document.cookie.match(rx);
+            return m ? decodeURIComponent(m[1]) : fallback;
         }
 
-        // Initialise cookieAccept from MDV_CONFIG server default, then override from storage
-        const storedCA = load('cookieAccept', null);
-        if (storedCA !== null) {
-            if (storedCA === '1') sessionStorage.setItem(PREFIX + 'cookieAccept', '1');
-        } else if (CFG.cookieAccept) {
-            // Server default is true
-            sessionStorage.setItem(PREFIX + 'cookieAccept', '1');
+        function clearCookie(key) {
+            document.cookie = key + '=; path=/; expires=Thu,01 Jan 1970 00:00:00 GMT; SameSite=Lax';
         }
 
-        // ── Mobile detection ──────────────────────────────────────────────────
+        // Init cookie consent
+        (function () {
+            const stored = load(PREFIX + 'cookieAccept', null);
+            if (stored !== null) {
+                sessionStorage.setItem(PREFIX + 'cookieAccept', stored);
+            } else if (CFG.cookieAccept) {
+                sessionStorage.setItem(PREFIX + 'cookieAccept', '1');
+            }
+        })();
+
+        // ── Mobile ────────────────────────────────────────────────────────────
         const isMobile = () => window.innerWidth < 768;
 
         // ── Font size ─────────────────────────────────────────────────────────
-        let currentFS = parseInt(load('fontSize', String(FS_DEF)), 10);
-        currentFS = Math.min(FS_MAX, Math.max(FS_MIN, currentFS || FS_DEF));
+        const FS_MIN = 12, FS_MAX = 24, FS_DEF = 16, FS_STEP = 1;
+        let currentFS = Math.min(FS_MAX, Math.max(FS_MIN,
+            parseInt(load(PREFIX + 'fontSize', String(FS_DEF)), 10) || FS_DEF));
 
         function applyFS(size) {
             currentFS = Math.min(FS_MAX, Math.max(FS_MIN, size));
             document.documentElement.style.fontSize = currentFS + 'px';
-            store('fontSize', String(currentFS));
-            updateFSLabels();
+            store(PREFIX + 'fontSize', currentFS);
+            updateFSLabel();
         }
-
-        function updateFSLabels() {
-            [
-                document.getElementById('fs-label'),
-                document.getElementById('sp-fs-label'),
-            ].forEach(el => { if (el) el.textContent = currentFS + 'px'; });
+        function updateFSLabel() {
+            [document.getElementById('fs-label'),
+             document.getElementById('sp-fs-label')]
+                .forEach(el => { if (el) el.textContent = currentFS + 'px'; });
         }
+        applyFS(currentFS);
 
-        applyFS(currentFS); // Apply on load
+        // ── Line height ───────────────────────────────────────────────────────
+        const LH_MIN = 1.2, LH_MAX = 2.4, LH_DEF = 1.65, LH_STEP = 0.05;
+        let currentLH = Math.min(LH_MAX, Math.max(LH_MIN,
+            parseFloat(load(PREFIX + 'lineHeight', String(LH_DEF))) || LH_DEF));
+
+        function applyLH(val) {
+            currentLH = Math.min(LH_MAX, Math.max(LH_MIN,
+                Math.round(val * 100) / 100));  // 2-decimal precision
+            document.documentElement.style.lineHeight = currentLH;
+            store(PREFIX + 'lineHeight', currentLH);
+            updateLHLabel();
+        }
+        function updateLHLabel() {
+            const el = document.getElementById('sp-lh-label');
+            if (el) el.textContent = currentLH.toFixed(2);
+        }
+        applyLH(currentLH);
 
         // ── Width ─────────────────────────────────────────────────────────────
         const WIDTHS    = ['reading', 'article', 'wide'];
         const DEF_WIDTH = 'article';
-        let   currentWidth;
+        let   currentWidth = DEF_WIDTH;
 
         function applyWidth(w) {
             if (!WIDTHS.includes(w)) w = DEF_WIDTH;
             currentWidth = w;
-            store('width', w);
-
-            // Sync width-switch buttons in header
-            document.querySelectorAll('.width-switch').forEach(btn => {
-                const active = btn.dataset.width === w;
-                btn.classList.toggle('bg-slate-950', active);
-                btn.classList.toggle('text-white', active);
-                btn.classList.toggle('dark:bg-slate-200', active);
-                btn.classList.toggle('dark:text-slate-900', active);
+            store(PREFIX + 'width', w);
+            const maxW = { reading: '72ch', article: '100ch', wide: '160ch' }[w];
+            document.querySelectorAll('[data-width-target], .width-target').forEach(el => {
+                el.style.maxWidth = maxW;
             });
-
-            // Sync settings panel buttons
+            // Sync header width-switch buttons
+            document.querySelectorAll('.width-switch').forEach(btn => {
+                const on = btn.dataset.width === w;
+                btn.classList.toggle('bg-slate-950', on);
+                btn.classList.toggle('text-white', on);
+                btn.classList.toggle('dark:bg-slate-200', on);
+                btn.classList.toggle('dark:text-slate-900', on);
+            });
+            // Sync panel buttons
             document.querySelectorAll('[data-sp-width]').forEach(btn => {
                 btn.classList.toggle('active', btn.dataset.spWidth === w);
-            });
-
-            // Apply to all width-target containers
-            document.querySelectorAll('.width-target, [data-width-target]').forEach(el => {
-                WIDTHS.forEach(ww => el.classList.remove('max-w-' + ww));
-                el.style.maxWidth = '';
-                const maxW = { reading: '72ch', article: '100ch', wide: '160ch' }[w];
-                el.style.maxWidth = maxW;
             });
         }
 
         function initWidth() {
-            // On mobile: always Wide
             if (isMobile()) {
                 applyWidth('wide');
-                // Hide width section from panel on mobile (font-size is the control)
                 const sec = document.getElementById('sp-width-section');
                 if (sec) sec.style.display = 'none';
             } else {
-                const saved = load('width', DEF_WIDTH);
-                applyWidth(saved);
+                applyWidth(load(PREFIX + 'width', DEF_WIDTH));
             }
         }
 
-        // ── Settings panel open/close ─────────────────────────────────────────
-        const panel   = document.getElementById('settings-panel');
-        const overlay = document.getElementById('settings-overlay');
-        const btn     = document.getElementById('settings-btn');
-        const closeBtn= document.getElementById('settings-close');
+        // ── Feature toggles (PHP-side, require reload) ────────────────────────
+        const FEATURES = [
+            { key: 'AUTO_NUMBERING',       label: 'Auto Numbering'     },
+            { key: 'AUTO_TOC',             label: 'Auto TOC'           },
+            { key: 'AUTO_FOOTNOTES_LINKS', label: 'Footnote Links'     },
+            { key: 'DOUBLE_LINE_BREAKS',   label: 'Double Line Breaks' },
+            { key: 'CYPHER_PATTERNS',      label: 'Cypher Patterns'    },
+            { key: 'UNIVERSAL_PATTERNS',   label: 'Universal Patterns' },
+            { key: 'FEATURE_IMAGES',       label: 'Images'             },
+            { key: 'FEATURE_REF_LINKS',    label: 'Ref Links'          },
+            { key: 'FEATURE_TASK_LISTS',   label: 'Task Lists'         },
+            { key: 'FEATURE_FOOTNOTES',    label: 'Footnotes'          },
+            { key: 'FEATURE_SUBSUP',       label: 'Sub / Sup'          },
+            { key: 'FEATURE_EMOJI',        label: 'Emoji'              },
+            { key: 'SPLIT_TITLE_BY_COLON', label: 'Split Title'        },
+            { key: 'GLOSSARY_TOOLTIPS',    label: 'Glossary Tooltips'  },
+        ];
 
-        function openPanel() {
+        // Map MDV_CONFIG keys to FEATURES keys
+        const CFG_MAP = {
+            AUTO_NUMBERING:       CFG.autoNumbering,
+            AUTO_TOC:             CFG.autoToc,
+            AUTO_FOOTNOTES_LINKS: CFG.autoFootnotes,
+            DOUBLE_LINE_BREAKS:   CFG.doubleLineBreaks,
+            CYPHER_PATTERNS:      CFG.cypherPatterns,
+            UNIVERSAL_PATTERNS:   CFG.universalPatterns,
+            FEATURE_IMAGES:       CFG.featureImages,
+            FEATURE_REF_LINKS:    CFG.featureRefLinks,
+            FEATURE_TASK_LISTS:   CFG.featureTaskLists,
+            FEATURE_FOOTNOTES:    CFG.featureFootnotes,
+            FEATURE_SUBSUP:       CFG.featureSubSup,
+            FEATURE_EMOJI:        CFG.featureEmoji,
+            SPLIT_TITLE_BY_COLON: CFG.splitTitleByColon,
+            GLOSSARY_TOOLTIPS:    CFG.glossaryTooltips,
+        };
+
+        let pendingReload = false;
+
+        function markReload() {
+            pendingReload = true;
+            const badge = document.getElementById('sp-reload-badge');
+            if (badge) badge.style.display = '';
+        }
+
+        const featContainer = document.getElementById('sp-features');
+        if (featContainer) {
+            featContainer.innerHTML = FEATURES.map(function (f) {
+                // Cookie override wins over PHP default
+                const storedVal = load(FEAT + f.key, null);
+                const checked   = storedVal !== null
+                    ? storedVal === '1'
+                    : (CFG_MAP[f.key] !== false && CFG_MAP[f.key] !== undefined);
+                return '<label class="settings-toggle-row" title="Requires page reload">'
+                     +   '<span class="settings-toggle-name">' + f.label + '</span>'
+                     +   '<span class="settings-toggle-switch">'
+                     +     '<input type="checkbox" data-feat="' + f.key + '"'
+                     +       (checked ? ' checked' : '') + '>'
+                     +     '<span class="settings-toggle-track"></span>'
+                     +   '</span>'
+                     + '</label>';
+            }).join('');
+
+            featContainer.addEventListener('change', function (e) {
+                const cb = e.target.closest('[data-feat]');
+                if (!cb) return;
+                store(FEAT + cb.dataset.feat, cb.checked ? '1' : '0');
+                markReload();
+            });
+        }
+
+        // ── Paragraph break style ─────────────────────────────────────────────
+        let currentPara = load(FEAT + 'PARAGRAPH_BREAK_STYLE', CFG.paragraphBreak || 'double-br');
+
+        function applyParaButtons(val) {
+            document.querySelectorAll('[data-sp-para]').forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.spPara === val);
+            });
+        }
+        applyParaButtons(currentPara);
+
+        document.querySelectorAll('[data-sp-para]').forEach(btn => {
+            btn.addEventListener('click', function () {
+                currentPara = this.dataset.spPara;
+                store(FEAT + 'PARAGRAPH_BREAK_STYLE', currentPara);
+                applyParaButtons(currentPara);
+                markReload();
+            });
+        });
+
+        // ── Panel open / close ────────────────────────────────────────────────
+        const panel    = document.getElementById('settings-panel');
+        const overlay  = document.getElementById('settings-overlay');
+        const btn      = document.getElementById('settings-btn');
+        const closeBtn = document.getElementById('settings-close');
+
+        function openPanel()  {
             panel.classList.add('open');
             overlay.classList.add('open');
             if (btn) btn.setAttribute('aria-expanded', 'true');
-            panel.focus();
         }
-
         function closePanel() {
+            // If features changed, offer reload
+            if (pendingReload) {
+                pendingReload = false;
+                if (confirm('Feature settings changed. Reload page to apply?')) {
+                    location.reload();
+                    return;
+                }
+            }
             panel.classList.remove('open');
             overlay.classList.remove('open');
             if (btn) btn.setAttribute('aria-expanded', 'false');
@@ -3085,41 +3219,9 @@ if ($mode === 'viewer') {
         });
         if (closeBtn) closeBtn.addEventListener('click', closePanel);
         if (overlay)  overlay.addEventListener('click', closePanel);
-
         document.addEventListener('keydown', function (e) {
-            if (e.key === 'Escape') closePanel();
+            if (e.key === 'Escape' && panel.classList.contains('open')) closePanel();
         });
-
-        // ── Feature toggles list (read-only) ──────────────────────────────────
-        const featureMap = {
-            'Auto Numbering':     CFG.autoNumbering,
-            'Auto TOC':           CFG.autoToc,
-            'Footnote Links':     CFG.autoFootnotes,
-            'Double Line Breaks': CFG.doubleLineBreaks,
-            'Cypher Patterns':    CFG.cypherPatterns,
-            'Universal Patterns': CFG.universalPatterns,
-            'Images':             CFG.featureImages,
-            'Ref Links':          CFG.featureRefLinks,
-            'Task Lists':         CFG.featureTaskLists,
-            'Footnotes':          CFG.featureFootnotes,
-            'Sub/Sup':            CFG.featureSubSup,
-            'Emoji':              CFG.featureEmoji,
-            'Split Title':        CFG.splitTitleByColon,
-            'Glossary Tooltips':  CFG.glossaryTooltips,
-        };
-
-        const featContainer = document.getElementById('sp-features');
-        if (featContainer) {
-            featContainer.innerHTML = Object.entries(featureMap).map(function([name, val]) {
-                const on = val !== false && val !== null && val !== undefined;
-                return '<div class="settings-toggle-row">'
-                     +   '<span>' + name + '</span>'
-                     +   '<span class="settings-toggle-pill ' + (on ? 'on' : 'off') + '">'
-                     +     (on ? 'ON' : 'OFF')
-                     +   '</span>'
-                     + '</div>';
-            }).join('');
-        }
 
         // ── Cookie consent ────────────────────────────────────────────────────
         const cookieCb = document.getElementById('sp-cookie-accept');
@@ -3128,47 +3230,56 @@ if ($mode === 'viewer') {
             cookieCb.addEventListener('change', function () {
                 if (this.checked) {
                     sessionStorage.setItem(PREFIX + 'cookieAccept', '1');
-                    // Re-persist existing settings to cookies now
-                    store('fontSize', String(currentFS));
-                    store('width', currentWidth || DEF_WIDTH);
+                    // Persist all current settings to cookies immediately
+                    store(PREFIX + 'fontSize',   currentFS);
+                    store(PREFIX + 'lineHeight',  currentLH);
+                    store(PREFIX + 'width',       currentWidth);
+                    store(PREFIX + 'cookieAccept', '1');
+                    FEATURES.forEach(function (f) {
+                        const v = sessionStorage.getItem(FEAT + f.key);
+                        if (v !== null) store(FEAT + f.key, v);
+                    });
+                    store(FEAT + 'PARAGRAPH_BREAK_STYLE', currentPara);
                 } else {
                     sessionStorage.setItem(PREFIX + 'cookieAccept', '0');
-                    // Clear all mdv_ cookies
-                    ['fontSize', 'width', 'cookieAccept'].forEach(function (k) {
-                        document.cookie = PREFIX + k + '=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax';
-                    });
+                    // Wipe all mdv_ cookies
+                    [PREFIX + 'fontSize', PREFIX + 'lineHeight', PREFIX + 'width',
+                     PREFIX + 'cookieAccept', FEAT + 'PARAGRAPH_BREAK_STYLE',
+                     ...FEATURES.map(f => FEAT + f.key)
+                    ].forEach(clearCookie);
                 }
             });
         }
 
-        // ── Wire up all buttons ───────────────────────────────────────────────
-        function wireFS(decId, incId, resetId) {
-            const dec   = document.getElementById(decId);
-            const inc   = document.getElementById(incId);
-            const reset = document.getElementById(resetId);
-            if (dec)   dec.addEventListener('click',   function () { applyFS(currentFS - FS_STEP); });
-            if (inc)   inc.addEventListener('click',   function () { applyFS(currentFS + FS_STEP); });
-            if (reset) reset.addEventListener('click', function () { applyFS(FS_DEF); });
-        }
+        // ── Wire up buttons ───────────────────────────────────────────────────
+        // Header font-size (mobile)
+        const hDec = document.getElementById('fs-decrease');
+        const hInc = document.getElementById('fs-increase');
+        if (hDec) hDec.addEventListener('click', () => applyFS(currentFS - FS_STEP));
+        if (hInc) hInc.addEventListener('click', () => applyFS(currentFS + FS_STEP));
 
-        wireFS('fs-decrease',    'fs-increase',    null);        // header mobile
-        wireFS('sp-fs-decrease', 'sp-fs-increase', 'sp-fs-reset'); // settings panel
+        // Panel font-size
+        document.getElementById('sp-fs-decrease')?.addEventListener('click', () => applyFS(currentFS - FS_STEP));
+        document.getElementById('sp-fs-increase')?.addEventListener('click', () => applyFS(currentFS + FS_STEP));
+        document.getElementById('sp-fs-reset')?.addEventListener('click',    () => applyFS(FS_DEF));
 
-        // Width in settings panel
-        document.querySelectorAll('[data-sp-width]').forEach(function (b) {
-            b.addEventListener('click', function () { applyWidth(this.dataset.spWidth); });
-        });
+        // Panel line-height
+        document.getElementById('sp-lh-decrease')?.addEventListener('click', () => applyLH(currentLH - LH_STEP));
+        document.getElementById('sp-lh-increase')?.addEventListener('click', () => applyLH(currentLH + LH_STEP));
+        document.getElementById('sp-lh-reset')?.addEventListener('click',    () => applyLH(LH_DEF));
 
-        // Width in header (desktop)
-        document.querySelectorAll('.width-switch').forEach(function (b) {
-            b.addEventListener('click', function () { applyWidth(this.dataset.width); });
-        });
+        // Width buttons
+        document.querySelectorAll('[data-sp-width]').forEach(b =>
+            b.addEventListener('click', function () { applyWidth(this.dataset.spWidth); }));
+        document.querySelectorAll('.width-switch').forEach(b =>
+            b.addEventListener('click', function () { applyWidth(this.dataset.width); }));
 
         // ── Init ──────────────────────────────────────────────────────────────
         initWidth();
-        updateFSLabels();
+        updateFSLabel();
+        updateLHLabel();
 
-        // Re-check mobile on resize (debounced)
+        // Resize debounce for mobile/desktop switch
         let resizeTimer;
         window.addEventListener('resize', function () {
             clearTimeout(resizeTimer);
@@ -3177,19 +3288,16 @@ if ($mode === 'viewer') {
                 if (isMobile()) {
                     applyWidth('wide');
                     if (sec) sec.style.display = 'none';
-                    document.getElementById('fontsize-controls').style.display = '';
-                    document.getElementById('width-switcher').style.display    = 'none';
                 } else {
                     if (sec) sec.style.display = '';
-                    document.getElementById('fontsize-controls').style.display = 'none';
-                    document.getElementById('width-switcher').style.display    = '';
-                    applyWidth(load('width', DEF_WIDTH));
+                    applyWidth(load(PREFIX + 'width', DEF_WIDTH));
                 }
             }, 200);
         }, { passive: true });
 
     }());
     </script>
+
     <script src="/assets/js/tooltips.js" defer></script>
     <script type="module" src="/assets/js/md.js"></script>
 </body>
