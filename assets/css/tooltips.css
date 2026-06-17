@@ -86,3 +86,16 @@
         html[data-theme="dark"] .g-tooltip-label { color: #64748b; }
         .g-tooltip-val { color: #1e293b; }
         html[data-theme="dark"] .g-tooltip-val { color: #e2e8f0; }
+        /* ── Tooltip header (v2.4.3) — full first-column cell content ── */
+        .g-tooltip-header {
+            font-weight: 700;
+            font-size: 0.85rem;
+            color: #0f172a;
+            line-height: 1.4;
+            padding-bottom: 8px;
+            margin-bottom: 8px;
+            border-bottom: 1px solid rgba(148,163,184,0.25);
+            word-break: break-word;
+        }
+        html[data-theme="dark"] .g-tooltip-header { color: #f1f5f9; border-bottom-color: rgba(71,85,105,0.4); }
+
