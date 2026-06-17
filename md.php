@@ -156,6 +156,8 @@ const FEATURE_EMOJI = true;
 const SPLIT_TITLE_BY_COLON = true;
 const GLOSSARY_TOOLTIPS = true;
 
+const COOKIE_ACCEPT        = false;
+
 const PARAGRAPH_BREAK_STYLE = 'double-br';
 
 // Security limits
@@ -2638,6 +2640,26 @@ if ($mode === 'viewer') {
     </script>
     <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Sora:wght@600;700;800&display=swap" rel="stylesheet">
+    <script>
+        window.MDV_CONFIG = <?php echo json_encode([
+            'cookieAccept'      => COOKIE_ACCEPT,
+            'autoNumbering'     => AUTO_NUMBERING,
+            'autoToc'           => AUTO_TOC,
+            'autoFootnotes'     => AUTO_FOOTNOTES_LINKS,
+            'doubleLineBreaks'  => DOUBLE_LINE_BREAKS,
+            'cypherPatterns'    => CYPHER_PATTERNS,
+            'universalPatterns' => UNIVERSAL_PATTERNS,
+            'featureImages'     => FEATURE_IMAGES,
+            'featureRefLinks'   => FEATURE_REF_LINKS,
+            'featureTaskLists'  => FEATURE_TASK_LISTS,
+            'featureFootnotes'  => FEATURE_FOOTNOTES,
+            'featureSubSup'     => FEATURE_SUBSUP,
+            'featureEmoji'      => FEATURE_EMOJI,
+            'splitTitleByColon' => SPLIT_TITLE_BY_COLON,
+            'glossaryTooltips'  => GLOSSARY_TOOLTIPS,
+            'paragraphBreak'    => PARAGRAPH_BREAK_STYLE,
+        ], JSON_THROW_ON_ERROR); ?>;
+    </script>
 </head>
 <body class="flex flex-col min-h-screen antialiased">
     <header class="sticky top-0 z-50 border-b border-slate-200/70 bg-white/70 backdrop-blur-xl dark:border-slate-800 dark:bg-slate-950/65">
@@ -2645,14 +2667,29 @@ if ($mode === 'viewer') {
             <a href="?" class="font-display text-lg font-semibold text-slate-900 dark:text-white hover:text-blue-600 dark:hover:text-blue-400 transition">MD Viewer</a>
             <div class="flex flex-wrap items-center gap-3">
                 <?php if ($mode === 'viewer'): ?>
-                <div class="inline-flex items-center rounded-full border border-slate-200 bg-white/80 p-1 shadow-soft dark:border-slate-700 dark:bg-slate-900/80">
+                <!-- Width switcher: desktop only -->
+                <div id="width-switcher" class="hidden md:inline-flex items-center rounded-full border border-slate-200 bg-white/80 p-1 shadow-soft dark:border-slate-700 dark:bg-slate-900/80">
                     <button type="button" data-width="reading" class="width-switch rounded-full px-4 py-2 text-sm font-medium text-slate-600 transition hover:text-slate-950 dark:text-slate-300 dark:hover:text-white">Narrow</button>
                     <button type="button" data-width="article" class="width-switch rounded-full px-4 py-2 text-sm font-medium text-slate-600 transition hover:text-slate-950 dark:text-slate-300 dark:hover:text-white">Medium</button>
                     <button type="button" data-width="wide" class="width-switch rounded-full px-4 py-2 text-sm font-medium text-slate-600 transition hover:text-slate-950 dark:text-slate-300 dark:hover:text-white">Wide</button>
                 </div>
+                <!-- Font-size controls: mobile only -->
+                <div id="fontsize-controls" class="inline-flex md:hidden items-center rounded-full border border-slate-200 bg-white/80 p-1 shadow-soft dark:border-slate-700 dark:bg-slate-900/80">
+                    <button type="button" id="fs-decrease" aria-label="Decrease font size" class="rounded-full w-9 h-9 flex items-center justify-center text-lg font-bold text-slate-600 transition hover:text-slate-950 dark:text-slate-300 dark:hover:text-white">−</button>
+                    <span id="fs-label" class="px-2 text-xs font-medium text-slate-500 dark:text-slate-400 tabular-nums w-10 text-center"></span>
+                    <button type="button" id="fs-increase" aria-label="Increase font size" class="rounded-full w-9 h-9 flex items-center justify-center text-lg font-bold text-slate-600 transition hover:text-slate-950 dark:text-slate-300 dark:hover:text-white">+</button>
+                </div>
                 <?php endif; ?>
-                <button type="button" data-theme-toggle class="inline-flex min-h-11 items-center gap-2 rounded-full border border-slate-200 bg-white/80 px-4 py-2 text-sm font-medium text-slate-700 shadow-soft transition hover:-translate-y-0.5 hover:text-slate-950 dark:border-slate-700 dark:bg-slate-900/80 dark:text-slate-200 dark:hover:text-white" aria-label="ÐŸÐµÑ€ÐµÐºÐ»ÑŽÑ‡Ð¸Ñ‚ÑŒ Ñ‚ÐµÐ¼Ñƒ">
+                <!-- Theme toggle -->
+                <button type="button" data-theme-toggle class="inline-flex min-h-11 items-center gap-2 rounded-full border border-slate-200 bg-white/80 px-4 py-2 text-sm font-medium text-slate-700 shadow-soft transition hover:-translate-y-0.5 hover:text-slate-950 dark:border-slate-700 dark:bg-slate-900/80 dark:text-slate-200 dark:hover:text-white" aria-label="Toggle theme">
                     <span data-theme-icon aria-hidden="true"></span>
+                </button>
+                <!-- Settings button -->
+                <button type="button" id="settings-btn" aria-label="Settings" aria-expanded="false" aria-controls="settings-panel"
+                    class="inline-flex min-h-11 items-center gap-2 rounded-full border border-slate-200 bg-white/80 px-4 py-2 text-sm font-medium text-slate-700 shadow-soft transition hover:-translate-y-0.5 hover:text-slate-950 dark:border-slate-700 dark:bg-slate-900/80 dark:text-slate-200 dark:hover:text-white">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+                    </svg>
                 </button>
             </div>
         </div>
@@ -2703,6 +2740,456 @@ if ($mode === 'viewer') {
     <!-- Accessible live region for copy status announcements -->
     <div aria-live="polite" aria-atomic="true" class="sr-only" id="copy-status"></div>
 
+
+    <!-- ── Settings Panel (v2.5.0) ─────────────────────────────────────────── -->
+    <div id="settings-overlay" class="settings-overlay" aria-hidden="true"></div>
+    <aside id="settings-panel" role="dialog" aria-modal="true" aria-label="Settings" class="settings-panel">
+        <div class="settings-header">
+            <span class="settings-title">⚙ Settings</span>
+            <button type="button" id="settings-close" aria-label="Close settings" class="settings-close">✕</button>
+        </div>
+        <div class="settings-body">
+
+            <!-- Font size -->
+            <section class="settings-section">
+                <div class="settings-section-title">Font Size</div>
+                <div class="settings-font-row">
+                    <button type="button" id="sp-fs-decrease" class="settings-fs-btn" aria-label="Decrease">−</button>
+                    <span id="sp-fs-label" class="settings-fs-label"></span>
+                    <button type="button" id="sp-fs-increase" class="settings-fs-btn" aria-label="Increase">+</button>
+                    <button type="button" id="sp-fs-reset" class="settings-fs-reset">Reset</button>
+                </div>
+            </section>
+
+            <!-- Page width (shown for all, including mobile via Settings) -->
+            <section class="settings-section" id="sp-width-section">
+                <div class="settings-section-title">Page Width</div>
+                <div class="settings-btn-group">
+                    <button type="button" data-sp-width="reading" class="settings-width-btn">Narrow</button>
+                    <button type="button" data-sp-width="article" class="settings-width-btn">Medium</button>
+                    <button type="button" data-sp-width="wide"    class="settings-width-btn">Wide</button>
+                </div>
+            </section>
+
+            <!-- Feature toggles (read-only info — server-side PHP constants) -->
+            <section class="settings-section">
+                <div class="settings-section-title">Active Features <span class="settings-badge">server</span></div>
+                <div class="settings-toggles" id="sp-features"></div>
+            </section>
+
+            <!-- Cookie consent -->
+            <section class="settings-section settings-section-cookie">
+                <label class="settings-checkbox-row" id="sp-cookie-row">
+                    <input type="checkbox" id="sp-cookie-accept" class="settings-checkbox">
+                    <span class="settings-checkbox-label">
+                        Allow Cookies
+                        <small>Settings are saved in cookies when enabled, otherwise in sessionStorage only.</small>
+                    </span>
+                </label>
+            </section>
+
+        </div>
+    </aside>
+
+    <style>
+    /* ── Settings panel (v2.5.0) ───────────────────────────────────────────── */
+    .settings-overlay {
+        display: none; position: fixed; inset: 0;
+        background: rgba(0,0,0,.35); z-index: 10000;
+        backdrop-filter: blur(2px); -webkit-backdrop-filter: blur(2px);
+        opacity: 0; transition: opacity .2s;
+    }
+    .settings-overlay.open { display: block; opacity: 1; }
+
+    .settings-panel {
+        position: fixed; top: 0; right: -360px; height: 100%;
+        width: min(340px, 100vw);
+        background: #fff; border-left: 1px solid #e2e8f0;
+        box-shadow: -8px 0 40px rgba(15,23,42,.14);
+        z-index: 10001; display: flex; flex-direction: column;
+        transition: right .25s cubic-bezier(.4,0,.2,1);
+        overflow: hidden;
+    }
+    .settings-panel.open { right: 0; }
+    html[class~="dark"] .settings-panel {
+        background: #0f172a; border-color: #1e293b;
+        box-shadow: -8px 0 40px rgba(0,0,0,.5);
+    }
+
+    .settings-header {
+        display: flex; align-items: center; justify-content: space-between;
+        padding: 18px 20px 14px;
+        border-bottom: 1px solid #e2e8f0;
+        flex-shrink: 0;
+    }
+    html[class~="dark"] .settings-header { border-color: #1e293b; }
+
+    .settings-title { font-weight: 700; font-size: .95rem; color: #0f172a; }
+    html[class~="dark"] .settings-title { color: #f1f5f9; }
+
+    .settings-close {
+        width: 32px; height: 32px; display: flex; align-items: center;
+        justify-content: center; border-radius: 8px; border: none;
+        background: transparent; cursor: pointer; font-size: 1rem;
+        color: #64748b; transition: background .15s, color .15s;
+    }
+    .settings-close:hover { background: #f1f5f9; color: #0f172a; }
+    html[class~="dark"] .settings-close:hover { background: #1e293b; color: #f1f5f9; }
+
+    .settings-body { flex: 1; overflow-y: auto; padding: 8px 0 24px; }
+
+    .settings-section {
+        padding: 14px 20px;
+        border-bottom: 1px solid #f1f5f9;
+    }
+    html[class~="dark"] .settings-section { border-color: #1e293b; }
+    .settings-section:last-child { border-bottom: none; }
+
+    .settings-section-title {
+        font-size: .7rem; font-weight: 700; letter-spacing: .1em;
+        text-transform: uppercase; color: #94a3b8; margin-bottom: 10px;
+        display: flex; align-items: center; gap: 6px;
+    }
+    .settings-badge {
+        font-size: .6rem; background: #e0e7ff; color: #4338ca;
+        border-radius: 4px; padding: 1px 5px; letter-spacing: .04em;
+        text-transform: none; font-weight: 600;
+    }
+    html[class~="dark"] .settings-badge { background: #1e1b4b; color: #818cf8; }
+
+    /* Font size controls */
+    .settings-font-row {
+        display: flex; align-items: center; gap: 8px;
+    }
+    .settings-fs-btn {
+        width: 34px; height: 34px; border-radius: 8px;
+        border: 1px solid #e2e8f0; background: #f8fafc;
+        font-size: 1.2rem; font-weight: 700; cursor: pointer;
+        color: #334155; transition: background .15s, border-color .15s;
+        display: flex; align-items: center; justify-content: center;
+    }
+    .settings-fs-btn:hover { background: #e2e8f0; border-color: #cbd5e1; }
+    html[class~="dark"] .settings-fs-btn {
+        background: #1e293b; border-color: #334155; color: #cbd5e1;
+    }
+    html[class~="dark"] .settings-fs-btn:hover { background: #334155; }
+    .settings-fs-label {
+        min-width: 42px; text-align: center; font-size: .85rem;
+        font-weight: 600; color: #334155; font-variant-numeric: tabular-nums;
+    }
+    html[class~="dark"] .settings-fs-label { color: #cbd5e1; }
+    .settings-fs-reset {
+        margin-left: auto; font-size: .75rem; color: #94a3b8;
+        background: none; border: none; cursor: pointer; padding: 4px 8px;
+        border-radius: 6px; transition: color .15s, background .15s;
+    }
+    .settings-fs-reset:hover { color: #334155; background: #f1f5f9; }
+    html[class~="dark"] .settings-fs-reset:hover { color: #e2e8f0; background: #1e293b; }
+
+    /* Width buttons */
+    .settings-btn-group { display: flex; gap: 6px; }
+    .settings-width-btn {
+        flex: 1; padding: 7px 4px; border-radius: 8px; border: 1px solid #e2e8f0;
+        background: #f8fafc; font-size: .8rem; font-weight: 600; cursor: pointer;
+        color: #475569; transition: background .15s, border-color .15s, color .15s;
+    }
+    .settings-width-btn:hover { background: #e2e8f0; }
+    .settings-width-btn.active {
+        background: #0f172a; color: #fff; border-color: #0f172a;
+    }
+    html[class~="dark"] .settings-width-btn {
+        background: #1e293b; border-color: #334155; color: #94a3b8;
+    }
+    html[class~="dark"] .settings-width-btn:hover { background: #334155; color: #e2e8f0; }
+    html[class~="dark"] .settings-width-btn.active {
+        background: #3b82f6; border-color: #3b82f6; color: #fff;
+    }
+
+    /* Feature toggles list */
+    .settings-toggles {
+        display: flex; flex-direction: column; gap: 4px;
+    }
+    .settings-toggle-row {
+        display: flex; align-items: center; justify-content: space-between;
+        padding: 5px 0; font-size: .8rem; color: #475569;
+    }
+    html[class~="dark"] .settings-toggle-row { color: #94a3b8; }
+    .settings-toggle-pill {
+        font-size: .68rem; font-weight: 700; border-radius: 99px;
+        padding: 2px 8px;
+    }
+    .settings-toggle-pill.on  { background: #dcfce7; color: #16a34a; }
+    .settings-toggle-pill.off { background: #fee2e2; color: #dc2626; }
+    html[class~="dark"] .settings-toggle-pill.on  { background: #14532d; color: #4ade80; }
+    html[class~="dark"] .settings-toggle-pill.off { background: #450a0a; color: #f87171; }
+
+    /* Cookie row */
+    .settings-checkbox-row {
+        display: flex; align-items: flex-start; gap: 10px; cursor: pointer;
+    }
+    .settings-checkbox { width: 16px; height: 16px; margin-top: 2px; cursor: pointer; flex-shrink: 0; }
+    .settings-checkbox-label { font-size: .82rem; color: #334155; line-height: 1.4; }
+    html[class~="dark"] .settings-checkbox-label { color: #94a3b8; }
+    .settings-checkbox-label small {
+        display: block; font-size: .72rem; color: #94a3b8; margin-top: 2px;
+    }
+    </style>
+
+    <script>
+    /**
+     * MD Viewer — Settings Panel Engine (v2.5.0)
+     * Author: Mikhail Deynekin | https://Deynekin.com
+     *
+     * - Settings slide-in panel with gear button toggle
+     * - Font size control: +/- in header (mobile) and in panel (all)
+     *   Range: 12–24px, default 16px, step 1px
+     * - Page width control: mirrored between header switcher and panel
+     * - Mobile: auto-applies Wide mode, shows font-size +/- instead of width buttons
+     * - Feature toggles: read from MDV_CONFIG (PHP constants), displayed read-only
+     * - Cookie consent: checkbox in panel; when off → sessionStorage only
+     * - Storage key prefix: "mdv_"
+     */
+    (function () {
+        'use strict';
+
+        const CFG    = window.MDV_CONFIG || {};
+        const PREFIX = 'mdv_';
+        const FS_MIN = 12, FS_MAX = 24, FS_DEF = 16, FS_STEP = 1;
+
+        // ── Storage: cookie-aware ─────────────────────────────────────────────
+        function cookiesAllowed() {
+            // Live check: may be toggled during session
+            const v = sessionStorage.getItem(PREFIX + 'cookieAccept');
+            return v === '1';
+        }
+
+        function store(key, val) {
+            const k = PREFIX + key;
+            sessionStorage.setItem(k, val);
+            if (cookiesAllowed()) {
+                const exp = new Date(Date.now() + 365 * 864e5).toUTCString();
+                document.cookie = k + '=' + encodeURIComponent(val) + '; path=/; expires=' + exp + '; SameSite=Lax';
+            }
+        }
+
+        function load(key, fallback) {
+            const k = PREFIX + key;
+            // Session first (fastest, always available)
+            const sv = sessionStorage.getItem(k);
+            if (sv !== null) return sv;
+            // Cookie fallback
+            const match = document.cookie.match('(?:^|;)\\s*' + k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '=([^;]*)');
+            if (match) return decodeURIComponent(match[1]);
+            return fallback;
+        }
+
+        // Initialise cookieAccept from MDV_CONFIG server default, then override from storage
+        const storedCA = load('cookieAccept', null);
+        if (storedCA !== null) {
+            if (storedCA === '1') sessionStorage.setItem(PREFIX + 'cookieAccept', '1');
+        } else if (CFG.cookieAccept) {
+            // Server default is true
+            sessionStorage.setItem(PREFIX + 'cookieAccept', '1');
+        }
+
+        // ── Mobile detection ──────────────────────────────────────────────────
+        const isMobile = () => window.innerWidth < 768;
+
+        // ── Font size ─────────────────────────────────────────────────────────
+        let currentFS = parseInt(load('fontSize', String(FS_DEF)), 10);
+        currentFS = Math.min(FS_MAX, Math.max(FS_MIN, currentFS || FS_DEF));
+
+        function applyFS(size) {
+            currentFS = Math.min(FS_MAX, Math.max(FS_MIN, size));
+            document.documentElement.style.fontSize = currentFS + 'px';
+            store('fontSize', String(currentFS));
+            updateFSLabels();
+        }
+
+        function updateFSLabels() {
+            [
+                document.getElementById('fs-label'),
+                document.getElementById('sp-fs-label'),
+            ].forEach(el => { if (el) el.textContent = currentFS + 'px'; });
+        }
+
+        applyFS(currentFS); // Apply on load
+
+        // ── Width ─────────────────────────────────────────────────────────────
+        const WIDTHS    = ['reading', 'article', 'wide'];
+        const DEF_WIDTH = 'article';
+        let   currentWidth;
+
+        function applyWidth(w) {
+            if (!WIDTHS.includes(w)) w = DEF_WIDTH;
+            currentWidth = w;
+            store('width', w);
+
+            // Sync width-switch buttons in header
+            document.querySelectorAll('.width-switch').forEach(btn => {
+                const active = btn.dataset.width === w;
+                btn.classList.toggle('bg-slate-950', active);
+                btn.classList.toggle('text-white', active);
+                btn.classList.toggle('dark:bg-slate-200', active);
+                btn.classList.toggle('dark:text-slate-900', active);
+            });
+
+            // Sync settings panel buttons
+            document.querySelectorAll('[data-sp-width]').forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.spWidth === w);
+            });
+
+            // Apply to all width-target containers
+            document.querySelectorAll('.width-target, [data-width-target]').forEach(el => {
+                WIDTHS.forEach(ww => el.classList.remove('max-w-' + ww));
+                el.style.maxWidth = '';
+                const maxW = { reading: '72ch', article: '100ch', wide: '160ch' }[w];
+                el.style.maxWidth = maxW;
+            });
+        }
+
+        function initWidth() {
+            // On mobile: always Wide
+            if (isMobile()) {
+                applyWidth('wide');
+                // Hide width section from panel on mobile (font-size is the control)
+                const sec = document.getElementById('sp-width-section');
+                if (sec) sec.style.display = 'none';
+            } else {
+                const saved = load('width', DEF_WIDTH);
+                applyWidth(saved);
+            }
+        }
+
+        // ── Settings panel open/close ─────────────────────────────────────────
+        const panel   = document.getElementById('settings-panel');
+        const overlay = document.getElementById('settings-overlay');
+        const btn     = document.getElementById('settings-btn');
+        const closeBtn= document.getElementById('settings-close');
+
+        function openPanel() {
+            panel.classList.add('open');
+            overlay.classList.add('open');
+            if (btn) btn.setAttribute('aria-expanded', 'true');
+            panel.focus();
+        }
+
+        function closePanel() {
+            panel.classList.remove('open');
+            overlay.classList.remove('open');
+            if (btn) btn.setAttribute('aria-expanded', 'false');
+        }
+
+        if (btn)      btn.addEventListener('click', function () {
+            panel.classList.contains('open') ? closePanel() : openPanel();
+        });
+        if (closeBtn) closeBtn.addEventListener('click', closePanel);
+        if (overlay)  overlay.addEventListener('click', closePanel);
+
+        document.addEventListener('keydown', function (e) {
+            if (e.key === 'Escape') closePanel();
+        });
+
+        // ── Feature toggles list (read-only) ──────────────────────────────────
+        const featureMap = {
+            'Auto Numbering':     CFG.autoNumbering,
+            'Auto TOC':           CFG.autoToc,
+            'Footnote Links':     CFG.autoFootnotes,
+            'Double Line Breaks': CFG.doubleLineBreaks,
+            'Cypher Patterns':    CFG.cypherPatterns,
+            'Universal Patterns': CFG.universalPatterns,
+            'Images':             CFG.featureImages,
+            'Ref Links':          CFG.featureRefLinks,
+            'Task Lists':         CFG.featureTaskLists,
+            'Footnotes':          CFG.featureFootnotes,
+            'Sub/Sup':            CFG.featureSubSup,
+            'Emoji':              CFG.featureEmoji,
+            'Split Title':        CFG.splitTitleByColon,
+            'Glossary Tooltips':  CFG.glossaryTooltips,
+        };
+
+        const featContainer = document.getElementById('sp-features');
+        if (featContainer) {
+            featContainer.innerHTML = Object.entries(featureMap).map(function([name, val]) {
+                const on = val !== false && val !== null && val !== undefined;
+                return '<div class="settings-toggle-row">'
+                     +   '<span>' + name + '</span>'
+                     +   '<span class="settings-toggle-pill ' + (on ? 'on' : 'off') + '">'
+                     +     (on ? 'ON' : 'OFF')
+                     +   '</span>'
+                     + '</div>';
+            }).join('');
+        }
+
+        // ── Cookie consent ────────────────────────────────────────────────────
+        const cookieCb = document.getElementById('sp-cookie-accept');
+        if (cookieCb) {
+            cookieCb.checked = cookiesAllowed();
+            cookieCb.addEventListener('change', function () {
+                if (this.checked) {
+                    sessionStorage.setItem(PREFIX + 'cookieAccept', '1');
+                    // Re-persist existing settings to cookies now
+                    store('fontSize', String(currentFS));
+                    store('width', currentWidth || DEF_WIDTH);
+                } else {
+                    sessionStorage.setItem(PREFIX + 'cookieAccept', '0');
+                    // Clear all mdv_ cookies
+                    ['fontSize', 'width', 'cookieAccept'].forEach(function (k) {
+                        document.cookie = PREFIX + k + '=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax';
+                    });
+                }
+            });
+        }
+
+        // ── Wire up all buttons ───────────────────────────────────────────────
+        function wireFS(decId, incId, resetId) {
+            const dec   = document.getElementById(decId);
+            const inc   = document.getElementById(incId);
+            const reset = document.getElementById(resetId);
+            if (dec)   dec.addEventListener('click',   function () { applyFS(currentFS - FS_STEP); });
+            if (inc)   inc.addEventListener('click',   function () { applyFS(currentFS + FS_STEP); });
+            if (reset) reset.addEventListener('click', function () { applyFS(FS_DEF); });
+        }
+
+        wireFS('fs-decrease',    'fs-increase',    null);        // header mobile
+        wireFS('sp-fs-decrease', 'sp-fs-increase', 'sp-fs-reset'); // settings panel
+
+        // Width in settings panel
+        document.querySelectorAll('[data-sp-width]').forEach(function (b) {
+            b.addEventListener('click', function () { applyWidth(this.dataset.spWidth); });
+        });
+
+        // Width in header (desktop)
+        document.querySelectorAll('.width-switch').forEach(function (b) {
+            b.addEventListener('click', function () { applyWidth(this.dataset.width); });
+        });
+
+        // ── Init ──────────────────────────────────────────────────────────────
+        initWidth();
+        updateFSLabels();
+
+        // Re-check mobile on resize (debounced)
+        let resizeTimer;
+        window.addEventListener('resize', function () {
+            clearTimeout(resizeTimer);
+            resizeTimer = setTimeout(function () {
+                const sec = document.getElementById('sp-width-section');
+                if (isMobile()) {
+                    applyWidth('wide');
+                    if (sec) sec.style.display = 'none';
+                    document.getElementById('fontsize-controls').style.display = '';
+                    document.getElementById('width-switcher').style.display    = 'none';
+                } else {
+                    if (sec) sec.style.display = '';
+                    document.getElementById('fontsize-controls').style.display = 'none';
+                    document.getElementById('width-switcher').style.display    = '';
+                    applyWidth(load('width', DEF_WIDTH));
+                }
+            }, 200);
+        }, { passive: true });
+
+    }());
+    </script>
     <script src="/assets/js/tooltips.js" defer></script>
     <script type="module" src="/assets/js/md.js"></script>
 </body>
