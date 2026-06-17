@@ -6,6 +6,33 @@
  * Site: https://Deynekin.com
  * Email: Mikhail@Deynekin.com
  *
+ * Changelog v2.3.0:
+ * - FEATURE: Added SPLIT_TITLE_BY_COLON toggle for metadata extraction.
+ *   When enabled, an H1 like "# Main Title: Subtitle" is rendered as
+ *   page title "Main Title" and subtitle/description "Subtitle".
+ * - FEATURE: extractMeta() now supports colon-based H1 splitting using both
+ *   ASCII ":" and full-width "：" separators, with non-empty validation on
+ *   both sides of the split.
+ * - FIXED: UTF-8 BOM handling in normalizeMarkdown(). Replaced the /u regex
+ *   BOM removal with byte-safe str_starts_with("\\xEF\\xBB\\xBF") + substr()
+ *   because the BOM bytes can make the string invalid for Unicode regex
+ *   matching before cleanup.
+ * - FIXED: H1 metadata extraction no longer falls back to "Markdown Viewer"
+ *   when a Markdown file starts with BOM or common invisible Unicode markers
+ *   such as U+FEFF, U+200B, U+200C, U+200D, or U+2060.
+ * - FIXED: Removed temporary debug error_log() calls from extractMeta() that
+ *   referenced an out-of-scope $md variable.
+ * - IMPROVED: Refactored extractMeta() with explicit resolution order:
+ *   H1 title first, optional colon split for description, then first H2 as
+ *   fallback description.
+ * - IMPROVED: Added defensive matching for invisible Unicode markers before
+ *   H1/H2 metadata headings.
+ * - IMPROVED: Added PHPDoc for normalizeMarkdown() and extractMeta(), documenting
+ *   BOM cleanup order, invisible marker handling, SPLIT_TITLE_BY_COLON behavior,
+ *   return shape, and metadata extraction precedence.
+ * - UI: Removed the narrow max-w-3xl constraint from the header description so
+ *   the subtitle can use the same available width as the H1 in Wide mode.
+ *
  * Changelog v2.2.9:
  * - FIXED: Duplicate paragraph content — regular paragraph lines were added to
  *   $para[] twice due to a leftover assignment after the Raw HTML block handler.
@@ -2333,7 +2360,7 @@ if ($mode === 'viewer') {
         <section id="viewer" data-width-target class="content-shell mx-auto rounded-[2rem] px-6 py-8 shadow-soft transition-[max-width] duration-300 ease-out sm:px-8 lg:px-10 lg:py-10">
             <div class="mb-10 border-b border-slate-200/70 pb-6 dark:border-slate-800">
                 <h1 class="font-display text-4xl font-semibold tracking-[-0.05em] text-slate-950 sm:text-5xl dark:text-white"><?= e($title) ?></h1>
-                <p class="mt-4 max-w-3xl text-base leading-8 text-slate-600 dark:text-slate-300"><?= e($desc) ?></p>
+                <p class="mt-4 max-w-5xl text-base leading-8 text-slate-600 dark:text-slate-300"><?= e($desc) ?></p>
             </div>
             <?= $toc ?>
             <article class="markdown-body"><?= $rend ?><?= $srcList ?></article>
