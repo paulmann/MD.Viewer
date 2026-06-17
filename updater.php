@@ -1,37 +1,38 @@
 <?php
 /**
- * MD Viewer — Updater
- * Version: 1.0.0
+ * Markdown Viewer — Self-Updater
+ * Version: 2.0.0
  * Author: Mikhail Deynekin
  * Site: https://Deynekin.com
+ * Email: Mikhail@Deynekin.com
  *
- * Checks and applies updates from GitHub for tracked MD Viewer files.
- * Never deletes local files that are absent from the remote repository.
+ * Pure PHP 8.3+ self-update engine. No GitHub API, no tokens.
+ * Uses HTTP Range requests to fetch only the first 1000 bytes per file
+ * for version checking, then full downloads only when applying updates.
  *
- * Usage:
- *   updater.php?action=check           — returns JSON status of all tracked files
- *   updater.php?action=apply           — downloads and overwrites updated files
- *   updater.php?action=version         — returns current local version only
+ * Version standard (all tracked files):
+ *   PHP / JS  :  /** ... \n *  * Version: X.Y.Z\n *  ...
+ *   CSS       :  /* ...  \n *  * Version: X.Y.Z\n *  ...
+ * The updater reads the first 1000 bytes and looks for " * Version: X.Y.Z".
  *
- * Security: requests must include header X-Updater-Token matching UPDATER_TOKEN.
- * Set UPDATER_TOKEN to a secret value in your environment or edit below.
+ * Endpoints (GET ?action=):
+ *   check   — compare local vs remote versions (Range: bytes=0-999 per file)
+ *   apply   — full download + atomic replace of outdated files
+ *   version — local version of md.php only (used by Settings badge)
  *
- * Called from the Settings panel in md.php via fetch().
+ * Never deletes local files that are absent from the remote.
+ * Atomic write: temp file → rename() to prevent partial writes.
+ *
+ * v2.0.0: Rewrote from GitHub API to raw.githubusercontent.com Range requests.
+ *         Unified version format across PHP/JS/CSS (" * Version: X.Y.Z").
+ *         Removed token auth — runs purely via HTTP.
  */
 declare(strict_types=1);
 
 // ── Configuration ────────────────────────────────────────────────────────────
 
-const GITHUB_OWNER  = 'paulmann';
-const GITHUB_REPO   = 'MD.Viewer';
-const GITHUB_BRANCH = 'main';
+const RAW_BASE = 'https://raw.githubusercontent.com/paulmann/MD.Viewer/refs/heads/main';
 
-// Secret token — set via env var MDV_UPDATER_TOKEN or change default here.
-// Must match the value sent in X-Updater-Token header from the browser.
-const UPDATER_TOKEN = 'mdv-update-2025';
-
-// Files to track (relative to document root = repo root).
-// Never deleted locally even if absent from GitHub.
 const TRACKED_FILES = [
     'md.php',
     'assets/js/md.js',
@@ -44,121 +45,113 @@ const TRACKED_FILES = [
 
 header('Content-Type: application/json; charset=utf-8');
 header('X-Content-Type-Options: nosniff');
+header('Cache-Control: no-store');
 
-// CORS — allow same origin only
-$origin = $_SERVER['HTTP_ORIGIN'] ?? '';
-if ($origin !== '') {
-    $host = $_SERVER['HTTP_HOST'] ?? '';
-    $originHost = parse_url($origin, PHP_URL_HOST) ?? '';
-    if ($originHost !== $host) {
+// Same-origin guard
+$reqOrigin   = $_SERVER['HTTP_ORIGIN'] ?? '';
+$serverHost  = $_SERVER['HTTP_HOST']   ?? '';
+if ($reqOrigin !== '') {
+    $originHost = parse_url($reqOrigin, PHP_URL_HOST) ?? '';
+    if ($originHost !== $serverHost) {
         http_response_code(403);
         echo json_encode(['error' => 'Forbidden origin']);
         exit;
     }
 }
 
-// ── Auth ──────────────────────────────────────────────────────────────────────
-$token = $_SERVER['HTTP_X_UPDATER_TOKEN'] ?? ($_GET['token'] ?? '');
-if (!hash_equals(UPDATER_TOKEN, $token)) {
-    http_response_code(401);
-    echo json_encode(['error' => 'Unauthorized — invalid updater token']);
+// Only allow POST for mutating actions, GET for read-only
+$action = $_REQUEST['action'] ?? 'check';
+if ($action === 'apply' && $_SERVER['REQUEST_METHOD'] !== 'POST') {
+    http_response_code(405);
+    echo json_encode(['error' => 'POST required for apply']);
     exit;
 }
-
-// ── Action routing ────────────────────────────────────────────────────────────
-$action = $_GET['action'] ?? 'check';
 
 match ($action) {
     'check'   => doCheck(),
     'apply'   => doApply(),
     'version' => doVersion(),
-    default   => badRequest('Unknown action'),
+    default   => jsonError(400, 'Unknown action'),
 };
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
+// ── Core helpers ──────────────────────────────────────────────────────────────
 
 function docRoot(): string
 {
-    return rtrim($_SERVER['DOCUMENT_ROOT'], '/\\');
+    return rtrim($_SERVER['DOCUMENT_ROOT'] ?: dirname(__DIR__), '/\\');
 }
 
 function localPath(string $file): string
 {
-    return docRoot() . '/' . ltrim($file, '/');
+    return docRoot() . '/' . ltrim($file, '/\\');
 }
 
-function localSha(string $file): string
+function rawUrl(string $file): string
+{
+    return RAW_BASE . '/' . ltrim($file, '/');
+}
+
+/**
+ * Extract " * Version: X.Y.Z" from a string (first 1000 bytes is enough).
+ */
+function extractVersion(string $content): string
+{
+    if (preg_match('/\*\s+Version:\s*(\d[\w.\-]+)/m', $content, $m)) {
+        return $m[1];
+    }
+    return '';
+}
+
+function localVersion(string $file = 'md.php'): string
 {
     $path = localPath($file);
     if (!is_file($path)) return '';
-    // GitHub blob SHA: sha1("blob {size}\0{content}")
-    $content = file_get_contents($path);
-    if ($content === false) return '';
-    return sha1('blob ' . strlen($content) . "\0" . $content);
-}
-
-function githubApiUrl(string $path): string
-{
-    return 'https://api.github.com/repos/' . GITHUB_OWNER . '/' . GITHUB_REPO
-         . '/contents/' . ltrim($path, '/') . '?ref=' . GITHUB_BRANCH;
-}
-
-function githubGet(string $url): array|null
-{
-    $ctx = stream_context_create(['http' => [
-        'method'  => 'GET',
-        'header'  => "User-Agent: MDViewer-Updater/1.0\r\n"
-                   . "Accept: application/vnd.github.v3+json\r\n",
-        'timeout' => 15,
-        'ignore_errors' => true,
-    ]]);
-    $body = @file_get_contents($url, false, $ctx);
-    if ($body === false) return null;
-    $data = json_decode($body, true);
-    return is_array($data) ? $data : null;
-}
-
-function githubRaw(string $url): string|null
-{
-    $ctx = stream_context_create(['http' => [
-        'method'  => 'GET',
-        'header'  => "User-Agent: MDViewer-Updater/1.0\r\n",
-        'timeout' => 30,
-        'ignore_errors' => true,
-    ]]);
-    $body = @file_get_contents($url, false, $ctx);
-    return ($body !== false) ? $body : null;
-}
-
-function extractVersion(string $content): string
-{
-    if (preg_match('/\*\s+Version:\s*(\S+)/', $content, $m)) return $m[1];
-    return 'unknown';
-}
-
-function localVersion(): string
-{
-    $path = localPath('md.php');
-    if (!is_file($path)) return 'unknown';
-    // Read only first 3 KB — version is in the header comment
-    $fh = fopen($path, 'r');
-    if (!$fh) return 'unknown';
-    $head = fread($fh, 3072);
+    $fh = fopen($path, 'rb');
+    if (!$fh) return '';
+    $head = fread($fh, 1000);
     fclose($fh);
-    return extractVersion($head);
+    return extractVersion((string)$head);
 }
 
-function remoteVersion(array $remoteInfo): string
+/**
+ * Fetch remote content with HTTP Range: bytes=0-{limit-1}.
+ * Falls back to full fetch if server does not honour Range (206).
+ *
+ * @param  int  $limit  0 = full file
+ * @return string|false
+ */
+function remoteGet(string $url, int $limit = 0): string|false
 {
-    // remoteInfo is the GitHub API response for md.php
-    $raw = base64_decode(str_replace(["\n", "\r"], '', $remoteInfo['content'] ?? ''));
-    if ($raw === false || $raw === '') return 'unknown';
-    return extractVersion(substr($raw, 0, 3072));
+    $headers = "User-Agent: MDViewer-Updater/2.0\r\n"
+             . "Accept: */*\r\n"
+             . "Connection: close\r\n";
+
+    if ($limit > 0) {
+        $headers .= "Range: bytes=0-" . ($limit - 1) . "\r\n";
+    }
+
+    $ctx = stream_context_create([
+        'http' => [
+            'method'         => 'GET',
+            'header'         => $headers,
+            'timeout'        => ($limit > 0 ? 8 : 30),
+            'ignore_errors'  => true,
+            'follow_location'=> 1,
+        ],
+        'ssl'  => ['verify_peer' => true],
+    ]);
+
+    $body = @file_get_contents($url, false, $ctx);
+    if ($body === false) return false;
+
+    // If Range was honoured, $http_response_header[0] has "HTTP/... 206"
+    // Either way we have the content we need.
+    return $body;
 }
 
-function badRequest(string $msg): never
+function jsonError(int $code, string $msg): never
 {
-    http_response_code(400);
+    http_response_code($code);
     echo json_encode(['error' => $msg]);
     exit;
 }
@@ -167,136 +160,143 @@ function badRequest(string $msg): never
 
 function doVersion(): never
 {
-    echo json_encode(['version' => localVersion()]);
+    echo json_encode(['version' => localVersion('md.php')]);
     exit;
 }
 
 function doCheck(): never
 {
-    $results      = [];
-    $hasUpdates   = false;
-    $remoteVer    = null;
-    $localVer     = localVersion();
+    $results    = [];
+    $hasUpdates = false;
+    $localVer   = localVersion('md.php');
+    $remoteVer  = '';
 
     foreach (TRACKED_FILES as $file) {
-        $apiUrl   = githubApiUrl($file);
-        $remote   = githubGet($apiUrl);
-        $localSha = localSha($file);
+        $url      = rawUrl($file);
+        $remote   = remoteGet($url, 1000);
         $exists   = is_file(localPath($file));
 
-        if ($remote === null) {
+        if ($remote === false) {
             $results[] = [
-                'path'      => $file,
-                'status'    => 'error',
-                'message'   => 'GitHub API unreachable',
-                'localSha'  => $localSha,
-                'remoteSha' => null,
-                'hasUpdate' => false,
+                'path'          => $file,
+                'status'        => 'error',
+                'localVersion'  => localVersion($file),
+                'remoteVersion' => null,
+                'hasUpdate'     => false,
+                'error'         => 'Remote unreachable',
             ];
             continue;
         }
 
-        if (isset($remote['message'])) {
-            // File not found on GitHub — skip, never delete locally
-            $results[] = [
-                'path'      => $file,
-                'status'    => $exists ? 'local-only' : 'missing',
-                'localSha'  => $localSha,
-                'remoteSha' => null,
-                'hasUpdate' => false,
-            ];
-            continue;
+        $remVer  = extractVersion($remote);
+        $locVer  = localVersion($file);
+
+        // Version comparison: semver-aware where possible
+        $upToDate = ($locVer !== '' && $remVer !== '' && $locVer === $remVer);
+        if (!$upToDate && $locVer !== '' && $remVer !== '') {
+            $hasUpdates = true;
         }
 
-        $remoteSha = $remote['sha'] ?? '';
-        $upToDate  = ($localSha !== '' && $localSha === $remoteSha);
+        if ($file === 'md.php') $remoteVer = $remVer;
 
-        if (!$upToDate) $hasUpdates = true;
+        $status = match(true) {
+            !$exists                  => 'missing',
+            $locVer === ''            => 'no-version',
+            $upToDate                 => 'up-to-date',
+            version_compare($remVer, $locVer, '>') => 'outdated',
+            version_compare($remVer, $locVer, '<') => 'newer-local',
+            default                   => 'outdated',
+        };
 
-        // Extract remote version from md.php
-        if ($file === 'md.php' && $remoteVer === null) {
-            $remoteVer = remoteVersion($remote);
+        if (in_array($status, ['missing', 'outdated', 'no-version'], true)) {
+            $hasUpdates = true;
         }
 
         $results[] = [
-            'path'        => $file,
-            'status'      => $upToDate ? 'up-to-date' : ($exists ? 'outdated' : 'missing'),
-            'localSha'    => $localSha,
-            'remoteSha'   => $remoteSha,
-            'hasUpdate'   => !$upToDate,
-            'downloadUrl' => $remote['download_url'] ?? null,
+            'path'          => $file,
+            'status'        => $status,
+            'localVersion'  => $locVer,
+            'remoteVersion' => $remVer,
+            'hasUpdate'     => in_array($status, ['missing', 'outdated', 'no-version'], true),
         ];
     }
 
     echo json_encode([
         'localVersion'  => $localVer,
-        'remoteVersion' => $remoteVer ?? $localVer,
+        'remoteVersion' => $remoteVer,
         'hasUpdates'    => $hasUpdates,
         'files'         => $results,
-    ]);
+    ], JSON_PRETTY_PRINT);
     exit;
 }
 
 function doApply(): never
 {
     $updated = [];
-    $failed  = [];
     $skipped = [];
+    $failed  = [];
 
     foreach (TRACKED_FILES as $file) {
-        $apiUrl  = githubApiUrl($file);
-        $remote  = githubGet($apiUrl);
+        $url     = rawUrl($file);
+        $locPath = localPath($file);
+        $exists  = is_file($locPath);
 
-        if ($remote === null || isset($remote['message'])) {
-            // Not on GitHub — skip, never delete
+        // Quick version check first (1000 bytes)
+        $head = remoteGet($url, 1000);
+        if ($head === false) {
+            $failed[] = ['path' => $file, 'reason' => 'Remote unreachable'];
+            continue;
+        }
+
+        $remVer = extractVersion($head);
+        $locVer = localVersion($file);
+
+        // Skip if same version (and file exists)
+        if ($exists && $remVer !== '' && $locVer === $remVer) {
             $skipped[] = $file;
             continue;
         }
 
-        $remoteSha = $remote['sha'] ?? '';
-        $localSha  = localSha($file);
-
-        if ($localSha === $remoteSha && $localSha !== '') {
-            $skipped[] = $file;
+        // Full download
+        $content = remoteGet($url, 0);
+        if ($content === false || strlen($content) < 64) {
+            $failed[] = ['path' => $file, 'reason' => 'Download failed or empty'];
             continue;
         }
 
-        $downloadUrl = $remote['download_url'] ?? null;
-        if (!$downloadUrl) { $failed[] = $file; continue; }
-
-        $content = githubRaw($downloadUrl);
-        if ($content === null) { $failed[] = $file; continue; }
-
-        $localFile = localPath($file);
-        $dir = dirname($localFile);
+        // Ensure directory exists
+        $dir = dirname($locPath);
         if (!is_dir($dir) && !mkdir($dir, 0755, true)) {
-            $failed[] = $file;
+            $failed[] = ['path' => $file, 'reason' => 'Cannot create directory'];
             continue;
         }
 
-        // Write to temp file then rename — atomic
-        $tmp = $localFile . '.tmp.' . bin2hex(random_bytes(4));
+        // Atomic write: tmp → rename
+        $tmp = $locPath . '.upd.' . bin2hex(random_bytes(4));
         if (file_put_contents($tmp, $content) === false) {
             @unlink($tmp);
-            $failed[] = $file;
+            $failed[] = ['path' => $file, 'reason' => 'Write failed'];
             continue;
         }
-        if (!rename($tmp, $localFile)) {
+        if (!rename($tmp, $locPath)) {
             @unlink($tmp);
-            $failed[] = $file;
+            $failed[] = ['path' => $file, 'reason' => 'Rename failed'];
             continue;
         }
 
-        $updated[] = $file;
+        $updated[] = [
+            'path'       => $file,
+            'fromVersion'=> $locVer,
+            'toVersion'  => $remVer ?: extractVersion($content),
+        ];
     }
 
-    $success = empty($failed);
     echo json_encode([
-        'success'   => $success,
-        'updated'   => $updated,
-        'skipped'   => $skipped,
-        'failed'    => $failed,
-        'newVersion'=> localVersion(), // re-read after update
-    ]);
+        'success'    => empty($failed),
+        'updated'    => $updated,
+        'skipped'    => $skipped,
+        'failed'     => $failed,
+        'newVersion' => localVersion('md.php'),
+    ], JSON_PRETTY_PRINT);
     exit;
 }
