@@ -1217,23 +1217,19 @@ function inlineMarkdown(
         );
     }
 
-	// --- 2a. Protect emphasis-sensitive characters inside inline-link URLs ---
-	// Underscores, asterisks and tildes inside a link target (e.g. ResearchGate
-	// publication slugs) must not be interpreted as emphasis. They are masked with
-	// \u{FFF9} sentinels BEFORE escaping/emphasis (step 3-4) and restored after the
-	// link handlers have run (step 11), so the href stays a valid URL.
-	$text = (string) preg_replace_callback(
-				'/(?<!!)(?<!\\)(\[[^\[\]()]+\]\()([^)\s]+)(\)|\s)/u',
-		static function (array $m): string {
-			$url = strtr($m[2], [
-				'_' => "\u{FFF9}U\u{FFF9}",
-				'*' => "\u{FFF9}A\u{FFF9}",
-				'~' => "\u{FFF9}T\u{FFF9}",
-			]);
-			return $m[1] . $url . $m[3];
-		},
-		$text,
-	);
+// 2a. Protect emphasis-sensitive characters inside inline-link URLs
+$text = (string) preg_replace_callback(
+    '/(?<!!)(?<!\\\\)(\[[^\[\]()]+\]\()([^)\s]+)(\)|\s)/u',
+    static function (array $m): string {
+        $url = strtr($m[2], [
+            '_' => "\u{FFF9}U\u{FFF9}",
+            '*' => "\u{FFF9}A\u{FFF9}",
+            '~' => "\u{FFF9}T\u{FFF9}",
+        ]);
+        return $m[1] . $url . $m[3];
+    },
+    $text,
+);
 
 // ── 2b. Protect inline HTML tags ─────────────────────────────────────────
 $rawHtmlSpans = [];
@@ -1276,27 +1272,27 @@ $text = (string) preg_replace_callback(
     $lc = 'text-blue-600 hover:text-blue-500 dark:text-blue-400'
         . ' dark:hover:text-blue-300 underline-offset-2 hover:underline';
 
-    // 6. Internal / anchor links  [Text](#anchor) or [Text](relative/path) 
-    $escaped = (string) preg_replace_callback(
-        		'/(?<!!)(?<!\\)\[([^\[\]()]+)\]\((#[^\s)]+|[^):\s]+(?:\/[^\s)]*)?)\)/u',
-        static function (array $m) use ($lc): string {
-            $href = trim($m[2] ?? '');
-            return $href !== ''
-                ? '<a href="' . e($href) . '" class="' . $lc . '">' . $m[1] . '</a>'
-                : $m[1];
-        },
-        $escaped,
-    );
+// 6. Internal / anchor links
+$escaped = (string) preg_replace_callback(
+    '/(?<!!)(?<!\\\\)\[([^\[\]()]+)\]\((#[^\s)]+|[^\/):\s]+(?:\/[^\s)]*)?)\)/u',
+    static function (array $m) use ($lc): string {
+        $href = trim($m[2] ?? '');
+        return $href !== ''
+            ? '<a href="' . e($href) . '" class="' . $lc . '">' . $m[1] . '</a>'
+            : $m[1];
+    },
+    $escaped,
+);
 
-    // 7. Absolute links  [Text](https://
-    $escaped = (string) preg_replace_callback(
-        		'/(?<!!)(?<!\\)\[([^\[\]()]+)\]\((https?:\/\/[^\s)]+)\)/u',
-        static function (array $m) use ($lc): string {
-            return '<a href="' . e($m[2]) . '" target="_blank" rel="noopener noreferrer"'
-                 . ' class="' . $lc . '">' . e($m[1]) . '</a>';
-        },
-        $escaped,
-    );
+// 7. Absolute links
+$escaped = (string) preg_replace_callback(
+    '/(?<!!)(?<!\\\\)\[([^\[\]()]+)\]\((https?:\/\/[^\s)]+)\)/u',
+    static function (array $m) use ($lc): string {
+        return '<a href="' . e($m[2]) . '" target="_blank" rel="noopener noreferrer"'
+             . ' class="' . $lc . '">' . e($m[1]) . '</a>';
+    },
+    $escaped,
+);
 
     // 8. Reference-style links  [Text][key]
     if (FEATURE_REF_LINKS && $refs !== []) {
