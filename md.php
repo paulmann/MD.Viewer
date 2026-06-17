@@ -94,6 +94,7 @@ const FEATURE_TASK_LISTS = true;
 const FEATURE_FOOTNOTES = true;
 const FEATURE_SUBSUP = true;
 const FEATURE_EMOJI = true;
+const SPLIT_TITLE_BY_COLON = true;
 
 const PARAGRAPH_BREAK_STYLE = 'double-br';
 
@@ -529,46 +530,175 @@ function normalizeMarkdown(string $markdown): string
     // U+FEFF BOM/ZWNBSP, U+200B zero-width space, U+200C, U+200D, U+2060.
     $markdown = (string) preg_replace('/^[\x{FEFF}\x{200B}\x{200C}\x{200D}\x{2060}]+/u', '', $markdown);
 
+	if (str_starts_with($markdown, "\xEF\xBB\xBF")) {
+	    $markdown = substr($markdown, 3);
+	}
+
     return trim($markdown);
 }
 
+/**
+ * Extract page-level metadata (title + description) from Markdown.
+ *
+ * Resolution order
+ * ──────────────────────────────────────────────────────────────────────────────
+ * TITLE  (first match wins)
+ *   1. First ATX H1 (`# …`) in the document — trailing `#` markers stripped.
+ *   2. First Setext H1 (text underlined with `===`) — fallback for files that
+ *      use the alternative H1 syntax.
+ *   3. Hard-coded default "Markdown Viewer".
+ *
+ * DESCRIPTION  (first match wins)
+ *   A. SPLIT_TITLE_BY_COLON = true AND the H1 contains a colon separator
+ *      → text before the colon becomes the title, text after becomes the
+ *        description. Accepts ASCII ":" and full-width "：".
+ *        Both sides must be non-empty for the split to fire.
+ *   B. First ATX H2 (`## …`) in the document.
+ *   C. Hard-coded default "Formatted markdown content".
+ *
+ * BOM / invisible Unicode characters are tolerated at the start of any heading
+ * line via the shared {@see EXTRACT_META_INVISIBLE} character class.
+ *
+ * The returned strings are decoded but NOT HTML-escaped; callers are responsible
+ * for escaping (e.g. {@see e()}) at output time.
+ *
+ * @param  string $markdown  Normalised Markdown (BOM already stripped).
+ * @return array{title: string, description: string}
+ *
+ * @uses   SPLIT_TITLE_BY_COLON  Feature-toggle constant (default true).
+ *
+ * @since  2.2.8  Added SPLIT_TITLE_BY_COLON support.
+ * @since  2.2.9  Full PHPDoc; explicit linear flow.
+ * @since  2.3.0  Senior refactor: Setext H1 fallback, inline-markup stripping,
+ *                whitespace collapsing, named-key return, defensive length cap.
+ */
 function extractMeta(string $markdown): array
 {
-    $title = 'Markdown Viewer';
+    /** Maximum stored length for title/description (defence against huge headings). */
+    static $maxLen = 300;
+
+    /** BOM + common zero-width / word-joiner markers that may prefix a heading. */
+    static $inv = '\x{FEFF}\x{200B}\x{200C}\x{200D}\x{2060}';
+
+    $title       = 'Markdown Viewer';
     $description = 'Formatted markdown content';
 
-    $invisible = '\x{FEFF}\x{200B}\x{200C}\x{200D}\x{2060}';
+    // ── Step 1: locate the H1 (ATX preferred, Setext as fallback) ─────────────
+    $rawH1 = extractFirstH1($markdown, $inv);
 
-    $titleMatch = [];
-    if (preg_match('/^[' . $invisible . '\h]*#\h+(.+?)\h*#*\h*$/mu', $markdown, $titleMatch) === 1) {
-        $rawTitle = trim(toStr($titleMatch[1] ?? ''));
+    if ($rawH1 !== '') {
+        // ── Step 2a: colon split ──────────────────────────────────────────────
+        //   "# Main Title: Subtitle"  →  title="Main Title", description="Subtitle"
+        if (SPLIT_TITLE_BY_COLON) {
+            $parts = preg_split('/\h*[:：]\h*/u', $rawH1, 2);
 
-        // Split H1 by the first colon only:
-        // "# Main: Subtitle" → title = "Main", description = "Subtitle".
-        // Supports both ASCII ":" and full-width "：".
-        $split = preg_split('/\h*[:：]\h*/u', $rawTitle, 2);
-
-        if (is_array($split) && count($split) === 2 && trim($split[0]) !== '' && trim($split[1]) !== '') {
-            $title = trim($split[0]);
-            $description = trim($split[1]);
-            return [$title, $description];
+            if (
+                is_array($parts)
+                && count($parts) === 2
+                && ($lead = cleanMetaText($parts[0])) !== ''
+                && ($tail = cleanMetaText($parts[1])) !== ''
+            ) {
+                return [
+                    'title'       => mb_strimwidth($lead, 0, $maxLen, '…', 'UTF-8'),
+                    'description' => mb_strimwidth($tail, 0, $maxLen, '…', 'UTF-8'),
+                ];
+            }
         }
 
-        if ($rawTitle !== '') {
-            $title = $rawTitle;
+        // ── Step 2b: H1 without an actionable colon ───────────────────────────
+        $cleanH1 = cleanMetaText($rawH1);
+        if ($cleanH1 !== '') {
+            $title = mb_strimwidth($cleanH1, 0, $maxLen, '…', 'UTF-8');
         }
     }
 
-    $descriptionMatch = [];
-    if (preg_match('/^[' . $invisible . '\h]*##\h+(.+?)\h*#*\h*$/mu', $markdown, $descriptionMatch) === 1) {
-        $rawDescription = trim(toStr($descriptionMatch[1] ?? ''));
-        if ($rawDescription !== '') {
-            $description = $rawDescription;
+    // ── Step 3: fall back to the first H2 for the description ──────────────────
+    $h2Match = [];
+    if (
+        preg_match(
+            '/^[' . $inv . '\h]*##\h+(.+?)\h*#*\h*$/mu',
+            $markdown,
+            $h2Match,
+        ) === 1
+    ) {
+        $cleanH2 = cleanMetaText(toStr($h2Match[1] ?? ''));
+        if ($cleanH2 !== '') {
+            $description = mb_strimwidth($cleanH2, 0, $maxLen, '…', 'UTF-8');
         }
     }
-error_log('MD first bytes: ' . bin2hex(substr($md, 0, 12)));
-error_log('MD first line: ' . json_encode(strtok($md, "\n"), JSON_UNESCAPED_UNICODE));
-    return [$title, $description];
+
+    return ['title' => $title, 'description' => $description];
+}
+
+/**
+ * Locate the first H1 in the document, trying ATX (`# …`) first and Setext
+ * (text underlined with `===`) as a fallback.
+ *
+ * @param  string $markdown  Normalised Markdown.
+ * @param  string $inv       Invisible-character class fragment for the regex.
+ * @return string            Raw H1 text (no markers), or '' when none found.
+ *
+ * @since  2.3.0
+ */
+function extractFirstH1(string $markdown, string $inv): string
+{
+    // ATX: optional invisible chars + space, single "#", space, text, optional "#".
+    $atx = [];
+    if (
+        preg_match(
+            '/^[' . $inv . '\h]*#\h+(.+?)\h*#*\h*$/mu',
+            $markdown,
+            $atx,
+        ) === 1
+    ) {
+        return trim(toStr($atx[1] ?? ''));
+    }
+
+    // Setext: a non-empty line immediately followed by a line of "=" only.
+    $setext = [];
+    if (
+        preg_match(
+            '/^[' . $inv . '\h]*(\S.*?)\h*\R=+\h*$/mu',
+            $markdown,
+            $setext,
+        ) === 1
+    ) {
+        return trim(toStr($setext[1] ?? ''));
+    }
+
+    return '';
+}
+
+/**
+ * Reduce a heading string to clean plain text suitable for <title> / meta tags:
+ *   - strips inline Markdown emphasis/code markers (** __ * _ ` ~~)
+ *   - removes link syntax, keeping the visible label  ([label](url) → label)
+ *   - drops any residual HTML tags
+ *   - collapses internal whitespace to single spaces
+ *
+ * @param  string $text  Raw heading text.
+ * @return string        Cleaned, single-line plain text.
+ *
+ * @since  2.3.0
+ */
+function cleanMetaText(string $text): string
+{
+    $text = trim($text);
+    if ($text === '') {
+        return '';
+    }
+
+    // [label](url) and ![alt](url) → label / alt
+    $text = (string) preg_replace('/!?\[([^\]]*)\]\([^)]*\)/u', '$1', $text);
+
+    // Strip emphasis / code / strikethrough markers.
+    $text = (string) preg_replace('/(\*\*|__|\*|_|`+|~~)/u', '', $text);
+
+    // Remove any leftover HTML tags, then collapse whitespace.
+    $text = strip_tags($text);
+    $text = (string) preg_replace('/\s+/u', ' ', $text);
+
+    return trim($text);
 }
 
 /**
@@ -2110,7 +2240,7 @@ $filesTable = '';
 
 if ($mode === 'viewer') {
     $md = normalizeMarkdown($markdown);
-    [$title, $desc] = extractMeta($md);
+    ['title' => $title, 'description' => $desc] = extractMeta($md);
     $md = (string) preg_replace(
 	    '/^[\x{FEFF}\x{200B}\x{200C}\x{200D}\x{2060}\h]*#\h+.+$/mu',
 	    '',
