@@ -13,6 +13,12 @@
  * - FEATURE: extractMeta() now supports colon-based H1 splitting using both
  *   ASCII ":" and full-width "：" separators, with non-empty validation on
  *   both sides of the split.
+ * - FIXED: Inline-link URLs containing underscores, asterisks or tildes (for
+ *   example ResearchGate publication slugs) were corrupted by the emphasis pass
+ *   in inlineMarkdown(). The em/strong/del regexes ran before the link handlers,
+ *   so "_word_" inside a target became "<em>word</em>" and leaked into the href.
+ *   Link targets are now masked with \u{FFF9} sentinels before escaping and
+ *   restored after link assembly, keeping URLs intact.
  * - FIXED: UTF-8 BOM handling in normalizeMarkdown(). Replaced the /u regex
  *   BOM removal with byte-safe str_starts_with("\\xEF\\xBB\\xBF") + substr()
  *   because the BOM bytes can make the string invalid for Unicode regex
@@ -1206,6 +1212,24 @@ function inlineMarkdown(
         );
     }
 
+	// --- 2a. Protect emphasis-sensitive characters inside inline-link URLs ---
+	// Underscores, asterisks and tildes inside a link target (e.g. ResearchGate
+	// publication slugs) must not be interpreted as emphasis. They are masked with
+	// \u{FFF9} sentinels BEFORE escaping/emphasis (step 3-4) and restored after the
+	// link handlers have run (step 11), so the href stays a valid URL.
+	$text = (string) preg_replace_callback(
+		'/(?<!!)(?<!\\\\)(\[[^\]]+\]\()([^)\s]+)(\)|\s)/u',
+		static function (array $m): string {
+			$url = strtr($m[2], [
+				'_' => "\u{FFF9}U\u{FFF9}",
+				'*' => "\u{FFF9}A\u{FFF9}",
+				'~' => "\u{FFF9}T\u{FFF9}",
+			]);
+			return $m[1] . $url . $m[3];
+		},
+		$text,
+	);
+
 // ── 2b. Protect inline HTML tags ─────────────────────────────────────────
 $rawHtmlSpans = [];
 $text = (string) preg_replace_callback(
@@ -1375,7 +1399,16 @@ if ($rawHtmlSpans !== []) {
         $escaped,
     );
 
-    return $escaped;  
+    	// --- Restore emphasis-sensitive characters inside link URLs ---
+	// Performed after every link/reference handler so masked targets become valid
+	// URLs again without ever passing through the emphasis regex (step 4).
+	$escaped = strtr($escaped, [
+		"\u{FFF9}U\u{FFF9}" => '_',
+		"\u{FFF9}A\u{FFF9}" => '*',
+		"\u{FFF9}T\u{FFF9}" => '~',
+	]);
+
+return $escaped;  
 }                     
 
 function isTableLine(string $line): bool { $t = trim($line); return $t !== '' && str_starts_with($t, '|') && str_contains($t, '|'); }
