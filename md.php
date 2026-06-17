@@ -2684,7 +2684,7 @@ if ($mode === 'viewer') {
             font-size: 0.82rem;
             line-height: 1.55;
             color: #334155;
-            pointer-events: none;
+            pointer-events: auto;
             opacity: 0;
             transform: translateY(6px);
             transition: opacity 0.18s ease, transform 0.18s ease;
@@ -2783,130 +2783,238 @@ if ($mode === 'viewer') {
     <div aria-live="polite" aria-atomic="true" class="sr-only" id="copy-status"></div>
     
     <script type="module" src="/assets/js/md.js"></script>
-    <!-- Glossary tooltip engine (v2.4.0) -->
+    <!-- Glossary tooltip engine (v2.4.2) -->
     <script>
     (function () {
-        if (!document.querySelector('.glossary-term')) return;
+        'use strict';
 
-        // Header text cache: tableSlug → [header1text, header2text, ...]
-        const hdrCache = {};
-        // Tooltip element (singleton, reused)
-        const tip = document.createElement('div');
-        tip.className = 'g-tooltip';
-        document.body.appendChild(tip);
+        function init() {
+            if (!document.querySelector('.glossary-term')) return;
 
-        let showTimer = null;
-        let activeEl  = null;
+            // ── Singleton tooltip bubble ──────────────────────────────────────
+            const tip = document.createElement('div');
+            tip.className = 'g-tooltip';
+            tip.setAttribute('role', 'tooltip');
+            document.body.appendChild(tip);
 
-        /**
-         * Collect header texts for a given table slug.
-         * Reads from <thead> of the table that owns cells with id starting "gd-{slug}-".
-         */
-        function getHeaders(slug) {
-            if (hdrCache[slug]) return hdrCache[slug];
-            // Find any cell in this table to locate its <table> ancestor
-            const firstCell = document.getElementById('gd-' + slug + '-0-1');
-            if (!firstCell) return [];
-            const tbl  = firstCell.closest('table');
-            if (!tbl) return [];
-            const ths  = tbl.querySelectorAll('thead th');
-            hdrCache[slug] = Array.from(ths).map(th => th.textContent.trim());
-            return hdrCache[slug];
-        }
+            // ── State ─────────────────────────────────────────────────────────
+            const hdrCache = {};
+            const tipCache = {};
+            let showTimer  = null;
+            let hideTimer  = null;
+            let activeEl   = null;
+            let isVisible  = false;
+            let overTip    = false;  // mouse is currently over the tooltip bubble
 
-        /**
-         * Build tooltip HTML from DOM cells. Data is read live — no duplication.
-         * data-gterm = "{slug}:{row}:{cols}"
-         */
-        function buildTip(el) {
-            const raw   = (el.dataset.gterm || '').split(':');
-            const slug  = raw[0] || '';
-            const row   = parseInt(raw[1] ?? '0', 10);
-            const cols  = parseInt(raw[2] ?? '0', 10);
-            if (!slug || cols < 2) return '';
+            const SHOW_DELAY = 100;   // ms before showing
+            const HIDE_DELAY = 2000;  // ms of grace period before hiding
 
-            const headers = getHeaders(slug);
-            let html = '';
-            for (let c = 1; c < cols; c++) {
-                const cell = document.getElementById('gd-' + slug + '-' + row + '-' + c);
-                if (!cell) continue;
-                const val = cell.innerHTML.trim();
-                if (!val) continue;
-                const label = headers[c] || ('Column ' + c);
-                html += '<div class="g-tooltip-row">'
-                      + '<div class="g-tooltip-label">' + label + '</div>'
-                      + '<div class="g-tooltip-val">'   + val   + '</div>'
-                      + '</div>';
+            // ── Helpers ───────────────────────────────────────────────────────
+
+            // Parse "tbl-3:1:3" safely from the right so slug dashes don't break split
+            function parseGterm(attr) {
+                const last2 = attr.lastIndexOf(':');
+                if (last2 < 1) return null;
+                const mid = attr.lastIndexOf(':', last2 - 1);
+                if (mid < 0) return null;
+                return {
+                    slug: attr.slice(0, mid),
+                    row:  parseInt(attr.slice(mid + 1, last2), 10),
+                    cols: parseInt(attr.slice(last2 + 1), 10),
+                };
             }
-            return html;
+
+            function getHeaders(slug) {
+                if (hdrCache[slug]) return hdrCache[slug];
+                let anchor = document.getElementById('gd-' + slug + '-0-1');
+                if (!anchor) anchor = document.querySelector('[id^="gd-' + slug + '-"]');
+                if (!anchor) return (hdrCache[slug] = []);
+                const tbl = anchor.closest('table');
+                if (!tbl) return (hdrCache[slug] = []);
+                hdrCache[slug] = Array.from(tbl.querySelectorAll('thead th'))
+                                       .map(th => th.textContent.trim());
+                return hdrCache[slug];
+            }
+
+            function buildTip(el) {
+                const attr = el.dataset.gterm || '';
+                if (tipCache[attr] !== undefined) return tipCache[attr];
+
+                const p = parseGterm(attr);
+                if (!p || p.cols < 2) return (tipCache[attr] = '');
+
+                const headers = getHeaders(p.slug);
+                let html = '';
+                for (let c = 1; c < p.cols; c++) {
+                    const cell = document.getElementById('gd-' + p.slug + '-' + p.row + '-' + c);
+                    if (!cell) continue;
+                    const val = cell.innerHTML.trim();
+                    if (!val) continue;
+                    const label = headers[c] || ('Column ' + c);
+                    html += '<div class="g-tooltip-row">'
+                          +   '<div class="g-tooltip-label">' + label + '</div>'
+                          +   '<div class="g-tooltip-val">'   + val   + '</div>'
+                          + '</div>';
+                }
+                return (tipCache[attr] = html);
+            }
+
+            // Position AFTER content is rendered (called inside rAF so sizes are real)
+            function positionTip(el) {
+                const GAP = 12;
+                const r   = el.getBoundingClientRect();
+                const tw  = tip.offsetWidth;
+                const th  = tip.offsetHeight;
+                const vw  = window.innerWidth  || document.documentElement.clientWidth;
+                const vh  = window.innerHeight || document.documentElement.clientHeight;
+
+                let top  = r.bottom + GAP;
+                if (top + th > vh - GAP) top = r.top - th - GAP;
+                if (top < GAP) top = GAP;
+
+                let left = r.left + r.width / 2 - tw / 2;
+                if (left + tw > vw - GAP) left = vw - tw - GAP;
+                if (left < GAP) left = GAP;
+
+                tip.style.left = Math.round(left) + 'px';
+                tip.style.top  = Math.round(top)  + 'px';
+            }
+
+            // ── Show / hide ───────────────────────────────────────────────────
+
+            function showTip(el) {
+                clearTimeout(hideTimer);
+                hideTimer = null;
+
+                const html = buildTip(el);
+                if (!html) return;
+
+                tip.innerHTML    = html;
+                tip.style.display = 'block';
+
+                // Double rAF: first frame allows browser to lay out content,
+                // second frame measures real dimensions before positioning
+                requestAnimationFrame(function () {
+                    requestAnimationFrame(function () {
+                        positionTip(el);
+                        tip.classList.add('visible');
+                        isVisible = true;
+                    });
+                });
+            }
+
+            function scheduleHide() {
+                clearTimeout(hideTimer);
+                hideTimer = setTimeout(function () {
+                    // Only hide if mouse is neither over a term nor over the tooltip
+                    if (!overTip && activeEl === null) {
+                        tip.classList.remove('visible');
+                        isVisible = false;
+                        clearTimeout(tip._displayTimer);
+                        tip._displayTimer = setTimeout(function () {
+                            if (!isVisible) tip.style.display = 'none';
+                        }, 220);
+                    }
+                }, HIDE_DELAY);
+            }
+
+            function cancelHide() {
+                clearTimeout(hideTimer);
+                hideTimer = null;
+            }
+
+            // ── Tooltip own mouse events (so user can hover over it) ──────────
+            tip.addEventListener('mouseenter', function () {
+                overTip = true;
+                cancelHide();
+            });
+
+            tip.addEventListener('mouseleave', function () {
+                overTip = false;
+                // If no term is active either, start the hide countdown
+                if (activeEl === null) scheduleHide();
+            });
+
+            // ── Term span events (delegated) ──────────────────────────────────
+            document.addEventListener('mouseover', function (e) {
+                const el = e.target.closest('.glossary-term');
+                if (!el) return;
+                cancelHide();
+                if (el === activeEl) return;
+                clearTimeout(showTimer);
+                activeEl  = el;
+                showTimer = setTimeout(function () { showTip(el); }, SHOW_DELAY);
+            });
+
+            document.addEventListener('mouseout', function (e) {
+                const el = e.target.closest('.glossary-term');
+                if (!el) return;
+                // Ignore if still inside the same span (moving over child node)
+                if (el.contains(e.relatedTarget)) return;
+                clearTimeout(showTimer);
+                activeEl = null;
+                // Give user HIDE_DELAY ms to move mouse to the tooltip bubble
+                scheduleHide();
+            });
+
+            // Hide on scroll / resize (immediate — tooltip position is stale)
+            window.addEventListener('scroll', function () {
+                cancelHide();
+                tip.classList.remove('visible');
+                isVisible = false;
+                tip.style.display = 'none';
+                activeEl = null;
+                overTip  = false;
+            }, { passive: true });
+
+            window.addEventListener('resize', function () {
+                if (isVisible) positionTip(activeEl || tip);
+            }, { passive: true });
+
+            // ── Touch: tap to toggle ──────────────────────────────────────────
+            document.addEventListener('touchend', function (e) {
+                const el = e.target.closest('.glossary-term');
+                if (!el) {
+                    // Tapped outside — hide immediately
+                    cancelHide();
+                    tip.classList.remove('visible');
+                    isVisible = false;
+                    tip.style.display = 'none';
+                    activeEl = null;
+                    return;
+                }
+                e.preventDefault();
+                if (el === activeEl && isVisible) {
+                    cancelHide();
+                    tip.classList.remove('visible');
+                    isVisible = false;
+                    tip.style.display = 'none';
+                    activeEl = null;
+                } else {
+                    activeEl = el;
+                    showTip(el);
+                }
+            });
+
+            // ── Keyboard: Escape to close ─────────────────────────────────────
+            document.addEventListener('keydown', function (e) {
+                if (e.key === 'Escape' && isVisible) {
+                    cancelHide();
+                    tip.classList.remove('visible');
+                    isVisible = false;
+                    tip.style.display = 'none';
+                    activeEl = null;
+                }
+            });
         }
 
-        /** Position tooltip near the target element, keeping it inside viewport. */
-        function positionTip(el) {
-            const r  = el.getBoundingClientRect();
-            const tw = tip.offsetWidth;
-            const th = tip.offsetHeight;
-            const vw = window.innerWidth;
-            const vh = window.innerHeight;
-            const GAP = 10;
-
-            let left = r.left + r.width / 2 - tw / 2;
-            let top  = r.bottom + GAP;
-
-            if (left + tw > vw - GAP) left = vw - tw - GAP;
-            if (left < GAP)           left = GAP;
-            if (top + th > vh - GAP)  top  = r.top - th - GAP;
-
-            tip.style.left = Math.round(left) + 'px';
-            tip.style.top  = Math.round(top)  + 'px';
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', init);
+        } else {
+            init();
         }
 
-        function showTip(el) {
-            const html = buildTip(el);
-            if (!html) return;
-            tip.innerHTML = html;
-            tip.style.opacity = '0';
-            tip.style.display = 'block';
-            positionTip(el);
-            // Force reflow then animate
-            tip.offsetHeight;
-            tip.classList.add('visible');
-        }
-
-        function hideTip() {
-            tip.classList.remove('visible');
-        }
-
-        // Event delegation on document
-        document.addEventListener('mouseover', function (e) {
-            const el = e.target.closest('.glossary-term');
-            if (!el || el === activeEl) return;
-            activeEl = el;
-            clearTimeout(showTimer);
-            showTimer = setTimeout(() => showTip(el), 120);
-        });
-
-        document.addEventListener('mouseout', function (e) {
-            const el = e.target.closest('.glossary-term');
-            if (!el) return;
-            clearTimeout(showTimer);
-            hideTip();
-            activeEl = null;
-        });
-
-        // Reposition on scroll/resize
-        window.addEventListener('scroll', hideTip, { passive: true });
-        window.addEventListener('resize', hideTip, { passive: true });
-
-        // Touch support: toggle on tap
-        document.addEventListener('touchstart', function (e) {
-            const el = e.target.closest('.glossary-term');
-            if (!el) { hideTip(); activeEl = null; return; }
-            if (el === activeEl) { hideTip(); activeEl = null; return; }
-            activeEl = el;
-            showTip(el);
-        }, { passive: true });
-    })();
+    }());
     </script>
 </body>
 </html>
