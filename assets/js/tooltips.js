@@ -1,6 +1,6 @@
 /**
  * Markdown Viewer — Glossary Tooltip Engine
- * Version: 2.4.2
+ * Version: 2.4.3
  * Author: Mikhail Deynekin
  * Site: https://Deynekin.com
  * Email: Mikhail@Deynekin.com
@@ -33,6 +33,8 @@
  *         mouseout child-node guard via el.contains(relatedTarget);
  *         replaced touchstart+passive with touchend for preventDefault safety;
  *         display:none deferred 220ms after CSS transition completes.
+ * v2.4.3: Tooltip header — full first-column cell (data-gc="1") rendered as
+ *         .g-tooltip-header above body rows; getTermCell() locates it via TR.
  * v2.4.2: HIDE_DELAY = 2000ms grace period before hiding; overTip flag keeps
  *         tooltip open while mouse is over it; pointer-events: auto (was none)
  *         so links and text inside tooltip are clickable/selectable;
@@ -90,6 +92,19 @@
                 return hdrCache[slug];
             }
 
+            /**
+             * Find the first-column <td data-gc="1"> for the given table row.
+             * Reads the row's TR element via any known data cell in that row.
+             */
+            function getTermCell(slug, row) {
+                // Any non-first cell gives us access to the TR
+                const ref = document.getElementById('gd-' + slug + '-' + row + '-1');
+                if (!ref) return null;
+                const tr = ref.closest('tr');
+                if (!tr) return null;
+                return tr.querySelector('[data-gc="1"]');
+            }
+
             function buildTip(el) {
                 const attr = el.dataset.gterm || '';
                 if (tipCache[attr] !== undefined) return tipCache[attr];
@@ -97,8 +112,15 @@
                 const p = parseGterm(attr);
                 if (!p || p.cols < 2) return (tipCache[attr] = '');
 
+                // ── Header: full first-column cell content ────────────────────
+                const termCell  = getTermCell(p.slug, p.row);
+                const termLabel = termCell ? termCell.innerHTML.trim() : '';
+                let html = termLabel
+                    ? '<div class="g-tooltip-header">' + termLabel + '</div>'
+                    : '';
+
+                // ── Body: remaining columns with their header labels ───────────
                 const headers = getHeaders(p.slug);
-                let html = '';
                 for (let c = 1; c < p.cols; c++) {
                     const cell = document.getElementById('gd-' + p.slug + '-' + p.row + '-' + c);
                     if (!cell) continue;
