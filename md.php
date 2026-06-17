@@ -1,7 +1,7 @@
 <?php
 /**
  * Markdown Viewer
- * Version: 2.2.9
+ * Version: 2.3.0
  * Author: Mikhail Deynekin
  * Site: https://Deynekin.com
  * Email: Mikhail@Deynekin.com
@@ -519,21 +519,55 @@ function toStr(mixed $value): string
 
 function normalizeMarkdown(string $markdown): string
 {
-    return trim(str_replace(["\r\n", "\r"], "\n", $markdown));
+    // Normalize line endings first.
+    $markdown = str_replace(["\r\n", "\r"], "\n", $markdown);
+
+    // Remove UTF-8 BOM at the very beginning of the file.
+    $markdown = (string) preg_replace('/^\xEF\xBB\xBF/u', '', $markdown);
+
+    // Remove common invisible Unicode markers at the very beginning:
+    // U+FEFF BOM/ZWNBSP, U+200B zero-width space, U+200C, U+200D, U+2060.
+    $markdown = (string) preg_replace('/^[\x{FEFF}\x{200B}\x{200C}\x{200D}\x{2060}]+/u', '', $markdown);
+
+    return trim($markdown);
 }
 
 function extractMeta(string $markdown): array
 {
     $title = 'Markdown Viewer';
     $description = 'Formatted markdown content';
+
+    $invisible = '\x{FEFF}\x{200B}\x{200C}\x{200D}\x{2060}';
+
     $titleMatch = [];
-    if (preg_match('/^#\s+(.+)$/mu', $markdown, $titleMatch) === 1) {
-        $title = trim(toStr($titleMatch[1] ?? ''));
+    if (preg_match('/^[' . $invisible . '\h]*#\h+(.+?)\h*#*\h*$/mu', $markdown, $titleMatch) === 1) {
+        $rawTitle = trim(toStr($titleMatch[1] ?? ''));
+
+        // Split H1 by the first colon only:
+        // "# Main: Subtitle" → title = "Main", description = "Subtitle".
+        // Supports both ASCII ":" and full-width "：".
+        $split = preg_split('/\h*[:：]\h*/u', $rawTitle, 2);
+
+        if (is_array($split) && count($split) === 2 && trim($split[0]) !== '' && trim($split[1]) !== '') {
+            $title = trim($split[0]);
+            $description = trim($split[1]);
+            return [$title, $description];
+        }
+
+        if ($rawTitle !== '') {
+            $title = $rawTitle;
+        }
     }
+
     $descriptionMatch = [];
-    if (preg_match('/^##\s+(.+)$/mu', $markdown, $descriptionMatch) === 1) {
-        $description = trim(toStr($descriptionMatch[1] ?? ''));
+    if (preg_match('/^[' . $invisible . '\h]*##\h+(.+?)\h*#*\h*$/mu', $markdown, $descriptionMatch) === 1) {
+        $rawDescription = trim(toStr($descriptionMatch[1] ?? ''));
+        if ($rawDescription !== '') {
+            $description = $rawDescription;
+        }
     }
+error_log('MD first bytes: ' . bin2hex(substr($md, 0, 12)));
+error_log('MD first line: ' . json_encode(strtok($md, "\n"), JSON_UNESCAPED_UNICODE));
     return [$title, $description];
 }
 
@@ -2077,7 +2111,12 @@ $filesTable = '';
 if ($mode === 'viewer') {
     $md = normalizeMarkdown($markdown);
     [$title, $desc] = extractMeta($md);
-    $md = (string) preg_replace('/^#\s+.+$/mu', '', $md, 1);
+    $md = (string) preg_replace(
+	    '/^[\x{FEFF}\x{200B}\x{200C}\x{200D}\x{2060}\h]*#\h+.+$/mu',
+	    '',
+	    $md,
+	    1
+    );
     $src = parseSources($md);
     $md = removeSourcesSection($md);
     $head = collectHeadings($md);
