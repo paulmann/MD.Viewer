@@ -40,6 +40,7 @@
   - [7.10 Dark Mode](#710-dark-mode)
   - [7.11 Adaptive Content Width](#711-adaptive-content-width)
   - [7.12 Universal Inline Patterns](#712-universal-inline-patterns)
+  - [7.13 Title Splitting by Colon](#713-title-splitting-by-colon)
 - [8. Configuration](#8-configuration)
   - [8.1 Feature Toggles](#81-feature-toggles)
   - [8.2 Security Limits](#82-security-limits)
@@ -370,6 +371,34 @@ Requires both `UNIVERSAL_PATTERNS = true` and `CYPHER_PATTERNS = true`.
 
 ---
 
+### 7.13 Title Splitting by Colon
+
+MD.Viewer can split the first `#` heading into a page title and a subtitle / meta description when the heading contains a colon separator. Both the ASCII colon (`:`) and the full-width colon (`：`) are recognized.
+
+```markdown
+# Main Title: Subtitle or short description
+```
+
+With `SPLIT_TITLE_BY_COLON = true`, the heading above is interpreted as:
+
+| Part | Extracted value |
+|---|---|
+| Page title | `Main Title` |
+| Subtitle / meta description | `Subtitle or short description` |
+
+The split is intentionally conservative:
+
+- Only the **first** colon is used as the separator.
+- Both sides must be **non-empty**, otherwise the full heading is kept as the title.
+- When the H1 contains no valid separator, the entire H1 remains the page title and the first `##` heading is used as the description fallback.
+- Setting the constant to `false` disables the behavior entirely.
+
+```php
+const SPLIT_TITLE_BY_COLON = true; // Set to false to keep the full H1 as the title
+```
+
+> **Use case:** documents whose visible heading carries both a strong title and a concise explanatory subtitle, e.g. `# From Passive Receiver to Active Orchestrator: A practical guide to self-regulation`.
+
 ## 8. Configuration
 
 All configuration constants are declared near the top of `index.php` in the **Feature toggles** block. No separate configuration file is needed.
@@ -389,6 +418,7 @@ const FEATURE_TASK_LISTS    = true;  // GFM task list checkboxes
 const FEATURE_FOOTNOTES     = true;  // Footnote syntax: [^id]
 const FEATURE_SUB_SUP       = true;  // Subscript ~text~ and superscript ^text^
 const FEATURE_EMOJI         = true;  // Emoji shortcode substitution
+const SPLIT_TITLE_BY_COLON = true;  // Split H1 "Title: Subtitle" into title + description
 ```
 
 ### 8.2 Security Limits
@@ -631,6 +661,17 @@ For air-gapped environments, replace these CDN references with locally hosted co
 ---
 
 ## 14. Changelog
+
+### v2.3.0
+
+- **FEATURE:** Added `SPLIT_TITLE_BY_COLON` toggle for metadata extraction. When enabled, an H1 such as `# Main Title: Subtitle` is rendered with page title "Main Title" and subtitle/description "Subtitle". Both ASCII `:` and full-width `：` separators are supported, and both sides of the split must be non-empty.
+- **FIXED:** UTF-8 BOM handling in `normalizeMarkdown()`. BOM is now removed with byte-safe `str_starts_with("\xEF\xBB\xBF")` + `substr()` before Unicode regex processing, because the BOM bytes can invalidate UTF-8 matching prior to cleanup.
+- **FIXED:** H1 metadata extraction no longer falls back to the default title when a Markdown file starts with a BOM or common invisible Unicode markers (U+FEFF, U+200B, U+200C, U+200D, U+2060).
+- **FIXED:** Removed temporary debug `error_log()` calls from `extractMeta()`.
+- **IMPROVED:** Refactored `extractMeta()` with an explicit resolution order — H1 title first, optional colon split for the description, then the first `##` heading as a fallback description.
+- **IMPROVED:** Added defensive matching for invisible Unicode markers before H1/H2 metadata headings.
+- **IMPROVED:** Added PHPDoc for `normalizeMarkdown()` and `extractMeta()`, documenting BOM cleanup order, invisible-marker handling, `SPLIT_TITLE_BY_COLON` behaviour, return shape, and metadata extraction precedence.
+- **UI:** Removed the narrow `max-w-3xl` constraint from the header description so the subtitle uses the same available width as the H1 in Wide mode.
 
 ### v2.2.5
 
