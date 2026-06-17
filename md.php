@@ -3051,8 +3051,10 @@ if ($mode === 'viewer') {
         padding: 4px 8px; border-radius: 6px; background: #f8fafc;
     }
     html[class~="dark"] .sp-file-row { background: #1e293b; }
-    .sp-file-name { color: #475569; font-family: monospace; }
+    .sp-file-name { color: #475569; font-family: monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 55%; }
     html[class~="dark"] .sp-file-name { color: #94a3b8; }
+    .sp-file-ver { font-size: .65rem; color: #94a3b8; white-space: nowrap; font-variant-numeric: tabular-nums; }
+    html[class~="dark"] .sp-file-ver { color: #64748b; }
     .sp-file-pill {
         font-size: .65rem; font-weight: 700; border-radius: 99px; padding: 1px 7px;
     }
@@ -3444,9 +3446,7 @@ if ($mode === 'viewer') {
         }, { passive: true });
 
         // ── Updates ───────────────────────────────────────────────────────────
-        const UPDATER_URL   = '/updater.php';
-        const UPDATER_TOKEN = 'mdv-update-2025';
-        const updHeaders    = { 'X-Updater-Token': UPDATER_TOKEN };
+        const UPDATER_URL = '/updater.php';
 
         const elCheckBtn    = document.getElementById('sp-check-updates');
         const elApplyBtn    = document.getElementById('sp-apply-updates');
@@ -3465,18 +3465,28 @@ if ($mode === 'viewer') {
         function renderFileList(files) {
             if (!files || !files.length) { elFileList.style.display = 'none'; return; }
             const labels = {
-                'up-to-date': 'Up to date',
-                'outdated':   'Update available',
-                'missing':    'Missing locally',
-                'local-only': 'Local only',
-                'error':      'Error',
+                'up-to-date':  'Up to date',
+                'outdated':    'Update available',
+                'missing':     'Missing',
+                'local-only':  'Local only',
+                'newer-local': 'Ahead of remote',
+                'no-version':  'No version tag',
+                'error':       'Error',
             };
             elFileList.innerHTML = files.map(function (f) {
                 const pill  = f.status || (f.hasUpdate ? 'outdated' : 'up-to-date');
                 const label = labels[pill] || pill;
+                // Show version info: "v1.2 → v1.3" or just "v1.2"
+                let verStr = '';
+                if (f.localVersion)  verStr = 'v' + f.localVersion;
+                if (f.remoteVersion && f.remoteVersion !== f.localVersion)
+                    verStr += ' → v' + f.remoteVersion;
                 return '<div class="sp-file-row">'
                      +   '<span class="sp-file-name">' + f.path + '</span>'
-                     +   '<span class="sp-file-pill ' + pill + '">' + label + '</span>'
+                     +   '<span style="display:flex;align-items:center;gap:5px;flex-shrink:0">'
+                     +     (verStr ? '<span class="sp-file-ver">' + verStr + '</span>' : '')
+                     +     '<span class="sp-file-pill ' + pill + '">' + label + '</span>'
+                     +   '</span>'
                      + '</div>';
             }).join('');
             elFileList.style.display = '';
@@ -3485,7 +3495,7 @@ if ($mode === 'viewer') {
         // Load local version badge on panel open
         function loadVersionBadge() {
             if (!elVerBadge || elVerBadge.dataset.loaded) return;
-            fetch(UPDATER_URL + '?action=version', { headers: updHeaders })
+            fetch(UPDATER_URL + '?action=version')
                 .then(function (r) { return r.json(); })
                 .then(function (d) {
                     if (d.version) {
@@ -3509,7 +3519,7 @@ if ($mode === 'viewer') {
             setStatus('Contacting GitHub…', 'info');
             elFileList.style.display = 'none';
 
-            fetch(UPDATER_URL + '?action=check', { headers: updHeaders })
+            fetch(UPDATER_URL + '?action=check')
                 .then(function (r) {
                     if (!r.ok) throw new Error('HTTP ' + r.status);
                     return r.json();
@@ -3553,7 +3563,7 @@ if ($mode === 'viewer') {
             setStatus(force ? 'Reinstalling all files…' : 'Downloading updates…', 'info');
 
             const url = UPDATER_URL + '?action=apply' + (force ? '&force=1' : '');
-            fetch(url, { headers: updHeaders })
+            fetch(url, { method: 'POST' })
                 .then(function (r) {
                     if (!r.ok) throw new Error('HTTP ' + r.status);
                     return r.json();
@@ -3563,12 +3573,18 @@ if ($mode === 'viewer') {
 
                     if (d.success) {
                         const lines = [];
-                        if (d.updated.length)
-                            lines.push('✓ Updated: ' + d.updated.join(', '));
-                        if (d.skipped.length)
-                            lines.push('· Skipped (already current): ' + d.skipped.join(', '));
+                        if (d.updated && d.updated.length) {
+                            d.updated.forEach(function (u) {
+                                const arrow = (u.fromVersion && u.toVersion && u.fromVersion !== u.toVersion)
+                                    ? ' <small>v' + u.fromVersion + ' → v' + u.toVersion + '</small>'
+                                    : (u.toVersion ? ' <small>v' + u.toVersion + '</small>' : '');
+                                lines.push('✓ ' + u.path + arrow);
+                            });
+                        }
+                        if (d.skipped && d.skipped.length)
+                            lines.push('· Already current: ' + d.skipped.join(', '));
                         if (d.newVersion)
-                            lines.push('New version: <strong>v' + d.newVersion + '</strong>');
+                            lines.push('<strong>Now at v' + d.newVersion + '</strong>');
                         setStatus(lines.join('<br>'), 'ok');
                         elApplyBtn.style.display    = 'none';
                         elReinstall.style.display   = 'none';
