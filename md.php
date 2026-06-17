@@ -1,7 +1,7 @@
 <?php
 /**
  * Markdown Viewer
- * Version: 2.5.0
+ * Version: 2.5.1
  * Author: Mikhail Deynekin
  * Site: https://Deynekin.com
  * Email: Mikhail@Deynekin.com
@@ -2870,6 +2870,24 @@ if ($mode === 'viewer') {
                 </div>
             </section>
 
+            <!-- Backup & Restore -->
+            <section class="settings-section" id="sp-backup-section" style="display:none">
+                <div class="settings-section-title">Backup &amp; Restore</div>
+                <div class="sp-backup-meta" id="sp-backup-meta"></div>
+                <div class="sp-backup-row">
+                    <select id="sp-backup-select" class="sp-backup-select">
+                        <option value="">— select backup version —</option>
+                    </select>
+                    <button type="button" id="sp-restore-btn" class="settings-restore-btn" disabled>
+                        ↩ Restore
+                    </button>
+                </div>
+                <div id="sp-restore-status" class="sp-update-status" style="display:none"></div>
+                <button type="button" id="sp-reload-after-restore" class="settings-apply-btn" style="display:none;margin-top:6px">
+                    ↺ Reload Page
+                </button>
+            </section>
+
         </div>
     </aside>
 
@@ -3095,6 +3113,35 @@ if ($mode === 'viewer') {
     .settings-reinstall-btn:hover { color: #334155; background: #f8fafc; }
     html[class~="dark"] .settings-reinstall-btn { border-color: #334155; }
     html[class~="dark"] .settings-reinstall-btn:hover { color: #e2e8f0; background: #1e293b; }
+
+    /* ── Backup & Restore ───────────────────────────────────────────────────── */
+    .sp-backup-meta {
+        font-size: .74rem; color: #94a3b8; margin-bottom: 8px; line-height: 1.5;
+    }
+    .sp-backup-row {
+        display: flex; gap: 7px; align-items: center; margin-bottom: 8px;
+    }
+    .sp-backup-select {
+        flex: 1; min-width: 0; padding: 8px 10px; font-size: .8rem;
+        border: 1px solid #e2e8f0; border-radius: 8px; background: #f8fafc;
+        color: #334155; cursor: pointer; appearance: auto;
+        transition: border-color .15s;
+    }
+    .sp-backup-select:focus { outline: none; border-color: #3b82f6; }
+    html[class~="dark"] .sp-backup-select {
+        background: #1e293b; border-color: #334155; color: #cbd5e1;
+        color-scheme: dark;
+    }
+    .settings-restore-btn {
+        flex-shrink: 0; padding: 8px 14px; font-size: .82rem; font-weight: 700;
+        background: #f59e0b; color: #fff; border: none; border-radius: 8px;
+        cursor: pointer; transition: background .15s, transform .1s, opacity .15s;
+    }
+    .settings-restore-btn:hover:not(:disabled)  { background: #d97706; }
+    .settings-restore-btn:active:not(:disabled) { transform: scale(.97); }
+    .settings-restore-btn:disabled { opacity: .4; cursor: not-allowed; }
+    html[class~="dark"] .settings-restore-btn { background: #b45309; }
+    html[class~="dark"] .settings-restore-btn:hover:not(:disabled) { background: #92400e; }
     </style>
 
     <script>
@@ -3429,6 +3476,120 @@ if ($mode === 'viewer') {
         updateFSLabel();
         updateLHLabel();
 
+
+        // ── Backup & Restore ──────────────────────────────────────────────────
+        const elBackupSection    = document.getElementById('sp-backup-section');
+        const elBackupSelect     = document.getElementById('sp-backup-select');
+        const elRestoreBtn       = document.getElementById('sp-restore-btn');
+        const elRestoreStatus    = document.getElementById('sp-restore-status');
+        const elReloadAfterRestore = document.getElementById('sp-reload-after-restore');
+        const elBackupMeta       = document.getElementById('sp-backup-meta');
+
+        function loadBackups() {
+            fetch(UPDATER_URL + '?action=backups')
+                .then(function (r) { return r.json(); })
+                .then(function (d) {
+                    const backups = d.backups || [];
+                    if (!backups.length) {
+                        if (elBackupSection) elBackupSection.style.display = 'none';
+                        return;
+                    }
+                    // Populate select
+                    while (elBackupSelect.options.length > 1) elBackupSelect.remove(1);
+                    backups.forEach(function (b) {
+                        const opt = document.createElement('option');
+                        opt.value       = b.version;
+                        opt.textContent = 'v' + b.version + '  (' + b.date + ', '
+                                        + b.files.length + ' file' + (b.files.length !== 1 ? 's' : '') + ')';
+                        elBackupSelect.appendChild(opt);
+                    });
+                    if (elBackupMeta) {
+                        elBackupMeta.textContent = backups.length + ' backup'
+                            + (backups.length !== 1 ? 's' : '') + ' available';
+                    }
+                    if (elBackupSection) elBackupSection.style.display = '';
+                })
+                .catch(function () { /* silent — updater.php may not exist yet */ });
+        }
+
+        if (elBackupSelect) {
+            elBackupSelect.addEventListener('change', function () {
+                if (elRestoreBtn) elRestoreBtn.disabled = this.value === '';
+            });
+        }
+
+        if (elRestoreBtn) {
+            elRestoreBtn.addEventListener('click', function () {
+                const ver = elBackupSelect ? elBackupSelect.value : '';
+                if (!ver) return;
+                if (!confirm(
+                    'Restore from backup v' + ver + '?\n\n'
+                  + 'Current files will be backed up first, then replaced with the v'
+                  + ver + ' backup.\n\nContinue?'
+                )) return;
+
+                elRestoreBtn.disabled    = true;
+                elRestoreBtn.textContent = '⟳ Restoring…';
+                elRestoreStatus.style.display = 'none';
+                elReloadAfterRestore.style.display = 'none';
+
+                const body = new URLSearchParams({ version: ver });
+                fetch(UPDATER_URL + '?action=restore', { method: 'POST', body: body })
+                    .then(function (r) {
+                        if (!r.ok) throw new Error('HTTP ' + r.status);
+                        return r.json();
+                    })
+                    .then(function (d) {
+                        elRestoreStatus.style.display = '';
+                        if (d.error) {
+                            elRestoreStatus.className = 'sp-update-status error';
+                            elRestoreStatus.textContent = '⚠ ' + d.error;
+                            return;
+                        }
+                        if (d.success) {
+                            const lines = [];
+                            if (d.backedUpCurrent)
+                                lines.push('Current v' + d.backedUpCurrent + ' backed up.');
+                            if (d.restored && d.restored.length) {
+                                d.restored.forEach(function (f) {
+                                    lines.push('✓ ' + f.path
+                                        + (f.toVersion ? '  → v' + f.toVersion : ''));
+                                });
+                            }
+                            if (d.skipped && d.skipped.length)
+                                lines.push('· Not in backup: ' + d.skipped.join(', '));
+                            if (d.newVersion)
+                                lines.push('<strong>Restored to v' + d.newVersion + '</strong>');
+                            elRestoreStatus.className = 'sp-update-status ok';
+                            elRestoreStatus.innerHTML = lines.join('<br>');
+                            elReloadAfterRestore.style.display = '';
+                            // Refresh backup list
+                            loadBackups();
+                        } else {
+                            const msg = d.failed && d.failed.length
+                                ? d.failed.map(function (f) { return f.path + ': ' + f.reason; }).join('<br>')
+                                : 'Restore failed';
+                            elRestoreStatus.className = 'sp-update-status error';
+                            elRestoreStatus.innerHTML = '⚠ ' + msg;
+                        }
+                    })
+                    .catch(function (err) {
+                        elRestoreStatus.style.display = '';
+                        elRestoreStatus.className = 'sp-update-status error';
+                        elRestoreStatus.textContent = '⚠ ' + err.message;
+                    })
+                    .finally(function () {
+                        elRestoreBtn.disabled    = false;
+                        elRestoreBtn.textContent = '↩ Restore';
+                    });
+            });
+        }
+
+        if (elReloadAfterRestore) {
+            elReloadAfterRestore.addEventListener('click', function () { location.reload(); });
+        }
+
+
         // Resize debounce for mobile/desktop switch
         let resizeTimer;
         window.addEventListener('resize', function () {
@@ -3506,9 +3667,11 @@ if ($mode === 'viewer') {
                 .catch(function () { /* silent */ });
         }
 
-        // Patch openPanel to also load version badge
-        const _origOpen = openPanel;
-        openPanel = function () { _origOpen(); loadVersionBadge(); };
+        // Patch openPanel to load version badge on first open
+        (function () {
+            const _orig = openPanel;
+            openPanel = function () { _orig(); loadVersionBadge(); loadBackups(); };
+        }());
 
         if (elCheckBtn) elCheckBtn.addEventListener('click', function () {
             elCheckBtn.disabled = true;
