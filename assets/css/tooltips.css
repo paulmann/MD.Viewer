@@ -1,5 +1,5 @@
 /* Markdown Viewer — Tooltip Styles
- * Version: 2.4.4
+ * Version: 2.4.5
  * Author: Mikhail Deynekin
  * Site: https://Deynekin.com
  * Email: Mikhail@Deynekin.com
@@ -55,7 +55,7 @@
         /* Floating tooltip bubble */
         .g-tooltip {
             position: fixed;
-            z-index: 9999;
+            z-index: 10100;
             max-width: min(420px, calc(100vw - 24px));
             background: #fff;
             border: 1px solid #e2e8f0;
