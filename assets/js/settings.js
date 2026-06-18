@@ -603,7 +603,8 @@
         }, { passive: true });
 
         // ── Updates ───────────────────────────────────────────────────────────
-        const UPDATER_URL = (window.MDV_CONFIG || {}).updaterUrl || '/updater.php';
+        const UPDATER_URL  = (window.MDV_CONFIG || {}).updaterUrl || '/updater.php';
+        const ALLOW_UPDATE = !!(window.MDV_CONFIG || {}).allowUpdate;
 
         const elCheckBtn    = document.getElementById('sp-check-updates');
         const elApplyBtn    = document.getElementById('sp-apply-updates');
@@ -678,7 +679,19 @@
             };
         }());
 
+        // Disable update UI entirely if ALLOW_UPDATE=false in .md.ini
+        if (!ALLOW_UPDATE) {
+            if (elCheckBtn)  { elCheckBtn.disabled = true; elCheckBtn.title = 'Updates disabled (ALLOW_UPDATE=false in .md.ini)'; }
+            if (elApplyBtn)  { elApplyBtn.style.display = 'none'; }
+            if (elReinstall) { elReinstall.style.display = 'none'; }
+            if (elStatus)    { elStatus.className = 'sp-update-status warn';
+                               elStatus.innerHTML = 'Updates are disabled. Set <code>ALLOW_UPDATE = true</code> in <code>.md.ini</code> to enable.';
+                               elStatus.style.display = ''; }
+        }
+
         if (elCheckBtn) elCheckBtn.addEventListener('click', function () {
+            if (!ALLOW_UPDATE) return;
+
             elCheckBtn.disabled = true;
             elCheckBtn.textContent = '⟳ Checking…';
             elApplyBtn.style.display  = 'none';
@@ -734,6 +747,7 @@
             elFileList.style.display = 'none';
             setStatus(force ? 'Reinstalling all files…' : 'Downloading updates…', 'info');
 
+            if (!ALLOW_UPDATE) { setStatus('Updates disabled (ALLOW_UPDATE=false in .md.ini)', 'error'); return; }
             const url = UPDATER_URL + '?action=apply' + (force ? '&force=1' : '');
             fetch(url, { method: 'POST' })
                 .then(function (r) {
