@@ -1,7 +1,7 @@
 <?php
 /**
  * Markdown Viewer — Self-Updater
- * Version: 3.2.1
+ * Version: 3.3.0
  * Author: Mikhail Deynekin
  * Site: https://Deynekin.com
  * Email: Mikhail@Deynekin.com
@@ -37,6 +37,7 @@
  *
  * v2.0.0: Raw Range requests, no API/tokens.
  * v2.1.0: Backup-before-replace, restore-from-backup.
+ * v3.3.0: save_clipboard action; uploads.md/ directory for both upload and save.
  * v3.2.1: upload_md checks DISABLE_UPLOAD from .md.ini.
  * v3.2.0: upload_md action — .md file upload with filename sanitization.
  * v3.1.1: index_create refuses (409) if regular index.php exists.
@@ -452,7 +453,7 @@ if ($reqOrigin !== '') {
 
 $action = $_REQUEST['action'] ?? 'check';
 $method = $_SERVER['REQUEST_METHOD'];
-if (in_array($action, ['apply', 'restore', 'index_create', 'index_remove', 'upload_md'], true) && $method !== 'POST') {
+if (in_array($action, ['apply', 'restore', 'index_create', 'index_remove', 'upload_md', 'save_clipboard'], true) && $method !== 'POST') {
     http_response_code(405);
     echo json_encode(['error' => 'POST required for ' . $action]);
     exit;
@@ -467,8 +468,9 @@ match ($action) {
     'index_status' => doIndexStatus(),
     'index_create' => doIndexCreate(),
     'index_remove' => doIndexRemove(),
-    'upload_md'    => doUploadMd(),
-    default        => jsonError(400, 'Unknown action'),
+    'upload_md'       => doUploadMd(),
+    'save_clipboard'  => doSaveClipboard(),
+    default           => jsonError(400, 'Unknown action'),
 };
 
 // ── Actions ───────────────────────────────────────────────────────────────────
@@ -798,8 +800,16 @@ function doUploadMd(): never
         jsonError(400, 'File too large (max 2 MB).');
     }
 
-    // ── 4. Destination path ───────────────────────────────────────────────────
-    $dest = dirname(localPath('md.php')) . '/' . $name;
+    // ── 4. Ensure uploads.md/ directory exists ──────────────────────────────
+    $uploadsDir = dirname(localPath('md.php')) . '/uploads.md';
+    if (!is_dir($uploadsDir)) {
+        if (!@mkdir($uploadsDir, 0755, true)) {
+            jsonError(500, 'Could not create uploads.md/ directory. Check permissions.');
+        }
+    }
+
+    // ── 5. Destination path ───────────────────────────────────────────────────
+    $dest = $uploadsDir . '/' . $name;
 
     if (is_file($dest)) {
         // Keep a backup of existing file
@@ -811,8 +821,70 @@ function doUploadMd(): never
         jsonError(500, 'Could not save the file. Check directory permissions.');
     }
 
-    echo json_encode(['success' => true, 'filename' => $name]);
+    echo json_encode(['success' => true, 'filename' => $name, 'path' => 'uploads.md/' . $name]);
     exit;
 }
+
+// ── Clipboard → File Save ─────────────────────────────────────────────────────
+
+function doSaveClipboard(): never
+{
+    // ── 0. Check server-side disable flag ────────────────────────────────────
+    $iniPath = dirname(localPath('md.php')) . '/.md.ini';
+    $ini     = is_file($iniPath) ? (@parse_ini_file($iniPath, false, INI_SCANNER_TYPED) ?: []) : [];
+    if ((bool)($ini['DISABLE_SAVE_CLIPBOARD_TO_FILE'] ?? true)) {
+        jsonError(403, 'Save to File is disabled by server configuration (DISABLE_SAVE_CLIPBOARD_TO_FILE=true in .md.ini).');
+    }
+
+    // ── 1. Read and validate content ─────────────────────────────────────────
+    $content = $_POST['content'] ?? '';
+    if (!is_string($content) || trim($content) === '') {
+        jsonError(400, 'Empty content.');
+    }
+    if (strlen($content) > 2 * 1024 * 1024) {
+        jsonError(400, 'Content too large (max 2 MB).');
+    }
+
+    // ── 2. Validate filename ──────────────────────────────────────────────────
+    $rawName = $_POST['filename'] ?? '';
+    $rawName = basename((string) $rawName);
+
+    if (!preg_match('/\.md$/i', $rawName)) {
+        jsonError(400, 'Only .md filenames are allowed.');
+    }
+    if (
+        str_contains($rawName, '/') ||
+        str_contains($rawName, '\\') ||
+        str_contains($rawName, '..') ||
+        str_contains($rawName, "\x00") ||
+        preg_match('/[\x00-\x1f<>:"|?*]/', $rawName) ||
+        preg_match('/^\./', $rawName)
+    ) {
+        jsonError(400, 'Filename contains forbidden characters.');
+    }
+    if (strlen($rawName) > 200) {
+        jsonError(400, 'Filename too long (max 200 chars).');
+    }
+    $name = preg_replace('/\.md$/i', '.md', $rawName);
+
+    // ── 3. Ensure uploads.md/ directory exists ───────────────────────────────
+    $uploadsDir = dirname(localPath('md.php')) . '/uploads.md';
+    if (!is_dir($uploadsDir)) {
+        if (!@mkdir($uploadsDir, 0755, true)) {
+            jsonError(500, 'Could not create uploads.md/ directory. Check permissions.');
+        }
+    }
+
+    $dest = $uploadsDir . '/' . $name;
+
+    // ── 4. Write file ─────────────────────────────────────────────────────────
+    if (file_put_contents($dest, $content, LOCK_EX) === false) {
+        jsonError(500, 'Could not write file. Check directory permissions.');
+    }
+
+    echo json_encode(['success' => true, 'filename' => $name, 'path' => 'uploads.md/' . $name]);
+    exit;
+}
+
 
 
