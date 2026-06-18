@@ -1,6 +1,6 @@
 /**
  * MD.Viewer — Settings Panel Engine
- * Version: 2.8.0
+ * Version: 2.8.1
  * Auto-extracted from md.php inline <script> block.
  * Requires window.MDV_CONFIG to be set before this script loads.
  */
@@ -340,6 +340,11 @@
 
 
         // ── index.php hard link management ───────────────────────────────────
+        if (window.MDV_CONFIG && window.MDV_CONFIG.allowCreateIndexPhpLink === false) {
+            // Feature disabled in .md.ini — hide the section entirely
+            var elIdxSec = document.getElementById('sp-index-section');
+            if (elIdxSec) elIdxSec.style.display = 'none';
+        } else {
         const elIndexStatus = document.getElementById('sp-index-status');
         const elIndexCreate = document.getElementById('sp-index-create');
         const elIndexRemove = document.getElementById('sp-index-remove');
@@ -405,6 +410,7 @@
                 indexAction('index_remove', this);
             });
         }
+        } // end allowCreateIndexPhpLink
 
         // ── Backup & Restore ──────────────────────────────────────────────────
         const elBackupSection    = document.getElementById('sp-backup-section');
