@@ -1,7 +1,7 @@
 <?php
 /**
  * Markdown Viewer
- * Version: 2.5.5
+ * Version: 2.6.0
  * Author: Mikhail Deynekin
  * Site: https://Deynekin.com
  * Email: Mikhail@Deynekin.com
@@ -534,12 +534,25 @@ function renderFilesTable(array $files, ?string $errorMessage = null): string
     $html = '<section class="files-browser my-8 rounded-3xl border border-slate-200/80 bg-white/80 shadow-[0_20px_60px_rgba(15,23,42,0.08)] dark:border-slate-700/70 dark:bg-slate-900/75 overflow-hidden">';
     
     $html .= '<div class="border-b border-slate-200/80 px-6 py-5 dark:border-slate-700/70">';
+    $html .= '<div class="flex flex-wrap items-start justify-between gap-3">';
+    $html .= '<div>';
     $html .= '<h2 class="font-display text-2xl font-semibold tracking-tight text-slate-900 dark:text-white">Markdown Files Browser</h2>';
     if ($errorMessage !== null) {
         $html .= '<p class="mt-2 text-sm text-red-600 dark:text-red-400">' . e($errorMessage) . '</p>';
     } else {
-        $html .= '<p class="mt-2 text-sm text-slate-600 dark:text-slate-300">Click any row to open the file in a new tab.</p>';
+        $html .= '<p class="mt-1 text-sm text-slate-600 dark:text-slate-300">Click any row to open the file in a new tab.</p>';
     }
+    $html .= '</div>';
+    $html .= '<div class="flex flex-wrap gap-2 shrink-0 pt-1">';
+    $html .= '<button type="button" id="btn-upload-md" class="browser-action-btn browser-action-btn--upload" title="Upload a .md file to this directory">';
+    $html .= '<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>';
+    $html .= '&ensp;Upload .md</button>';
+    $html .= '<button type="button" id="btn-clipboard-preview" class="browser-action-btn browser-action-btn--clipboard" title="Render Markdown from clipboard in a new tab">';
+    $html .= '<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2" width="6" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/></svg>';
+    $html .= '&ensp;Preview Clipboard</button>';
+    $html .= '<input type="file" id="upload-md-input" accept=".md" style="display:none">';
+    $html .= '</div>';
+    $html .= '</div>';
     $html .= '</div>';
     
     // Search bar
@@ -2573,6 +2586,39 @@ function removeSourcesSection(string $md): string
 // MAIN: File resolution with security validation
 // ============================================================
 
+// ── Clipboard / POST preview ──────────────────────────────────────────────────
+// A POST request with md_preview=1 renders the supplied 'content' as a full
+// viewer page and exits — no file is written to disk.
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($_POST['md_preview'])) {
+    $raw = $_POST['content'] ?? '';
+    if (!is_string($raw) || trim($raw) === '') {
+        http_response_code(400);
+        exit('Empty content.');
+    }
+    $raw     = substr($raw, 0, 2 * 1024 * 1024); // max 2 MB
+    $md      = $raw;
+    $src     = parseSources($md);
+    $glossary = GLOSSARY_TOOLTIPS ? parseGlossaryTables($md) : [];
+    $md      = removeSourcesSection($md);
+    $head    = collectHeadings($md);
+    if (AUTO_NUMBERING) $head = assignHeadingNumbers($head);
+    $toc     = AUTO_TOC ? renderTOC($head) : '';
+    $rend    = renderMarkdown($md, $src, $head);
+    $rend    = applyGlossaryTooltipsToHtml($rend, $glossary);
+    $srcList = AUTO_FOOTNOTES_LINKS ? renderSourcesList($src) : '';
+
+    // Derive title from first heading
+    $title = 'Clipboard Preview';
+    if (preg_match('/^#{1,6}\s+(.+)$/m', $raw, $m)) {
+        $title = trim(strip_tags($m[1])) . ' — Preview';
+    }
+    $desc = 'Clipboard Markdown preview';
+    $mode = 'viewer';
+    $currentFilePath = null;
+    // Fall through to the HTML template
+    goto render_page;
+}
+
 $mode = 'browser'; // 'viewer' | 'browser'
 $errorMessage = null;
 $currentFilePath = null;
@@ -2649,6 +2695,7 @@ if ($mode === 'viewer') {
     $files = scanMarkdownFiles($baseDir);
     $filesTable = renderFilesTable($files, $errorMessage);
 }
+render_page:
 ?>
 <!DOCTYPE html>
 <html lang="ru">
@@ -3162,6 +3209,44 @@ if ($mode === 'viewer') {
     .settings-reinstall-btn:hover { color: #334155; background: #f8fafc; }
     html[class~="dark"] .settings-reinstall-btn { border-color: #334155; }
     html[class~="dark"] .settings-reinstall-btn:hover { color: #e2e8f0; background: #1e293b; }
+
+    /* ── Browser toolbar buttons ────────────────────────────────────────────── */
+    .browser-action-btn {
+        display: inline-flex; align-items: center; gap: 5px;
+        padding: 7px 14px; font-size: .8rem; font-weight: 600;
+        border-radius: 10px; border: 1.5px solid transparent;
+        cursor: pointer; transition: background .15s, border-color .15s, transform .1s;
+        white-space: nowrap;
+    }
+    .browser-action-btn:active { transform: scale(.97); }
+    .browser-action-btn--upload {
+        background: #3b82f6; color: #fff; border-color: #3b82f6;
+    }
+    .browser-action-btn--upload:hover { background: #2563eb; border-color: #2563eb; }
+    html[class~="dark"] .browser-action-btn--upload { background: #1d4ed8; border-color: #1d4ed8; }
+    html[class~="dark"] .browser-action-btn--upload:hover { background: #1e40af; }
+    .browser-action-btn--clipboard {
+        background: transparent; color: #0f172a;
+        border-color: #cbd5e1;
+    }
+    .browser-action-btn--clipboard:hover { background: #f1f5f9; border-color: #94a3b8; }
+    html[class~="dark"] .browser-action-btn--clipboard { color: #e2e8f0; border-color: #334155; }
+    html[class~="dark"] .browser-action-btn--clipboard:hover { background: #1e293b; border-color: #475569; }
+
+    /* Upload/clipboard toast */
+    #browser-toast {
+        position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%) translateY(120%);
+        z-index: 9999; padding: 10px 20px; border-radius: 12px; font-size: .85rem; font-weight: 600;
+        color: #fff; box-shadow: 0 8px 32px rgba(0,0,0,.18);
+        transition: transform .3s cubic-bezier(.34,1.56,.64,1), opacity .3s;
+        pointer-events: none; opacity: 0; max-width: 90vw; text-align: center;
+    }
+    #browser-toast.show {
+        transform: translateX(-50%) translateY(0); opacity: 1;
+    }
+    #browser-toast.toast-ok  { background: #16a34a; }
+    #browser-toast.toast-err { background: #dc2626; }
+    #browser-toast.toast-inf { background: #3b82f6; }
 
     /* ── Index file (hard link) ─────────────────────────────────────────────── */
     .sp-index-status {
@@ -4006,9 +4091,130 @@ if ($mode === 'viewer') {
 
 
     }());
+
+        // ── Browser: Upload .md + Clipboard Preview ──────────────────────────────
+        (function () {
+            const btnUpload   = document.getElementById('btn-upload-md');
+            const inputUpload = document.getElementById('upload-md-input');
+            const btnClip     = document.getElementById('btn-clipboard-preview');
+            if (!btnUpload && !btnClip) return; // not in browser mode
+
+            // ── Toast helper ───────────────────────────────────────────────────
+            const toast = document.getElementById('browser-toast');
+            let toastTimer;
+            function showToast(msg, type, ms) {
+                if (!toast) return;
+                clearTimeout(toastTimer);
+                toast.textContent = msg;
+                toast.className = 'show toast-' + (type || 'inf');
+                toastTimer = setTimeout(function () {
+                    toast.className = '';
+                }, ms || 3000);
+            }
+
+            // ── Filename sanitizer (client-side pre-check) ─────────────────────
+            function isSafeFilename(name) {
+                if (!name) return false;
+                if (!/\.md$/i.test(name)) return false;          // must end in .md
+                if (/[/\\]/.test(name)) return false;             // no slashes
+                if (/\.\./.test(name)) return false;              // no traversal
+                if (/[<>:"|?*\x00-\x1f]/.test(name)) return false; // no control/shell chars
+                if (name.length > 200) return false;
+                return true;
+            }
+
+            // ── Upload ─────────────────────────────────────────────────────────
+            if (btnUpload && inputUpload) {
+                btnUpload.addEventListener('click', function () {
+                    inputUpload.value = '';
+                    inputUpload.click();
+                });
+
+                inputUpload.addEventListener('change', function () {
+                    const file = this.files && this.files[0];
+                    if (!file) return;
+
+                    // Client-side validation
+                    if (!isSafeFilename(file.name)) {
+                        showToast('Invalid filename. Only .md files without path separators or special characters are allowed.', 'err', 5000);
+                        this.value = '';
+                        return;
+                    }
+                    if (file.size > 2 * 1024 * 1024) {
+                        showToast('File too large (max 2 MB).', 'err', 4000);
+                        this.value = '';
+                        return;
+                    }
+
+                    btnUpload.disabled = true;
+                    showToast('Uploading…', 'inf', 30000);
+
+                    const fd = new FormData();
+                    fd.append('md_file', file, file.name);
+
+                    fetch(UPDATER_URL + '?action=upload_md', { method: 'POST', body: fd })
+                        .then(function (r) { return r.json(); })
+                        .then(function (d) {
+                            if (d.error) {
+                                showToast('⚠ ' + d.error, 'err', 6000);
+                            } else {
+                                showToast('✓ Uploaded: ' + d.filename, 'ok', 4000);
+                                setTimeout(function () { location.reload(); }, 1200);
+                            }
+                        })
+                        .catch(function (e) { showToast('⚠ ' + e.message, 'err', 5000); })
+                        .finally(function () { btnUpload.disabled = false; });
+                });
+            }
+
+            // ── Clipboard Preview ──────────────────────────────────────────────
+            if (btnClip) {
+                btnClip.addEventListener('click', function () {
+                    if (!navigator.clipboard || !navigator.clipboard.readText) {
+                        showToast('Clipboard API not available in this browser or context.', 'err', 5000);
+                        return;
+                    }
+                    navigator.clipboard.readText()
+                        .then(function (text) {
+                            if (!text || !text.trim()) {
+                                showToast('Clipboard is empty.', 'err', 3000);
+                                return;
+                            }
+                            // POST to md.php itself — the preview handler runs and returns a full page
+                            const form = document.createElement('form');
+                            form.method = 'POST';
+                            form.action = window.location.pathname;
+                            form.target = '_blank';
+                            form.style.display = 'none';
+
+                            const f1 = document.createElement('input');
+                            f1.type  = 'hidden';
+                            f1.name  = 'md_preview';
+                            f1.value = '1';
+
+                            const f2 = document.createElement('input');
+                            f2.type  = 'hidden';
+                            f2.name  = 'content';
+                            f2.value = text;
+
+                            form.appendChild(f1);
+                            form.appendChild(f2);
+                            document.body.appendChild(form);
+                            form.submit();
+                            document.body.removeChild(form);
+                        })
+                        .catch(function (e) {
+                            showToast('Cannot read clipboard: ' + e.message, 'err', 5000);
+                        });
+                });
+            }
+        }());
+
+
     </script>
 
     <script src="/assets/js/tooltips.js" defer></script>
     <script type="module" src="/assets/js/md.js"></script>
+<div id="browser-toast"></div>
 </body>
 </html>
