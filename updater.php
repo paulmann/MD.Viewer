@@ -1,7 +1,7 @@
 <?php
 /**
  * Markdown Viewer — Self-Updater
- * Version: 3.3.0
+ * Version: 3.4.0
  * Author: Mikhail Deynekin
  * Site: https://Deynekin.com
  * Email: Mikhail@Deynekin.com
@@ -37,6 +37,7 @@
  *
  * v2.0.0: Raw Range requests, no API/tokens.
  * v2.1.0: Backup-before-replace, restore-from-backup.
+ * v3.4.0: ALLOW_UPDATE flag; direct ?update=true mode with two-phase self-update.
  * v3.3.0: save_clipboard action; uploads.md/ directory for both upload and save.
  * v3.2.1: upload_md checks DISABLE_UPLOAD from .md.ini.
  * v3.2.0: upload_md action — .md file upload with filename sanitization.
@@ -345,6 +346,32 @@ function docRoot(): string
     return rtrim($_SERVER['DOCUMENT_ROOT'] ?: dirname(__FILE__), '/\\');
 }
 
+function readIni(): array
+{
+    static $cache = null;
+    if ($cache !== null) return $cache;
+    $path  = docRoot() . '/.md.ini';
+    $cache = is_file($path) ? (@parse_ini_file($path, false, INI_SCANNER_TYPED) ?: []) : [];
+
+    // Auto-append ALLOW_UPDATE if the file exists but is missing the key
+    if (is_file($path) && !array_key_exists('ALLOW_UPDATE', $cache)) {
+        $append  = "\n; Allow updating files via updater.php?update=true or the Settings panel\n";
+        $append .= "ALLOW_UPDATE = false\n";
+        @file_put_contents($path, $append, FILE_APPEND | LOCK_EX);
+        $cache['ALLOW_UPDATE'] = false;
+    }
+
+    return $cache;
+}
+
+function requireAllowUpdate(): void
+{
+    $ini = readIni();
+    if (!(bool)($ini['ALLOW_UPDATE'] ?? false)) {
+        jsonError(403, 'Updates are disabled. Set ALLOW_UPDATE = true in .md.ini to enable.');
+    }
+}
+
 function localPath(string $file): string
 {
     return docRoot() . '/' . ltrim($file, '/\\');
@@ -435,6 +462,185 @@ function jsonError(int $code, string $msg): never
 }
 
 // ── Bootstrap ─────────────────────────────────────────────────────────────────
+
+
+// ── Direct-access update mode ─────────────────────────────────────────────────
+// Triggered by opening updater.php?update=true directly in a browser.
+// Two-phase bootstrap:
+//   Phase 1 (?_phase absent or 1): update updater.php itself first.
+//             If updater.php changed → redirect to ?update=true&_phase=2
+//             so the NEW version of updater.php handles phase 2.
+//   Phase 2 (?_phase=2)           : run full apply on all TRACKED_FILES,
+//             output human-readable HTML result page.
+//
+// Requires ALLOW_UPDATE = true in .md.ini.
+
+if (isset($_GET['update']) && $_GET['update'] === 'true') {
+
+    $ini = @parse_ini_file(docRoot() . '/.md.ini', false, INI_SCANNER_TYPED) ?: [];
+    if (!(bool)($ini['ALLOW_UPDATE'] ?? false)) {
+        http_response_code(403);
+        outputUpdatePage('Access denied', [[
+            'type'    => 'error',
+            'message' => 'Updates are disabled. Set <code>ALLOW_UPDATE = true</code> in <code>.md.ini</code> to enable.',
+        ]]);
+        exit;
+    }
+
+    $phase = (int)($_GET['_phase'] ?? 1);
+
+    if ($phase === 1) {
+        // ── Phase 1: self-update updater.php ──────────────────────────────────
+        $selfUpdater = makeUpdater('updater.php');
+        $result      = $selfUpdater->apply(backupVersion: localVersion('updater.php'));
+
+        if ($result['status'] === 'error') {
+            outputUpdatePage('Self-update failed', [[
+                'type'    => 'error',
+                'message' => 'Could not update updater.php: ' . htmlspecialchars($result['error'] ?? 'unknown error'),
+            ]]);
+            exit;
+        }
+
+        if ($result['status'] === 'updated' || $result['status'] === 'created') {
+            // New updater.php written — redirect so the new version handles phase 2
+            $redirectUrl = strtok($_SERVER['REQUEST_URI'], '?') . '?update=true&_phase=2';
+            header('Location: ' . $redirectUrl);
+            exit;
+        }
+
+        // updater.php was already current — fall through to phase 2 directly
+        $phase = 2;
+    }
+
+    if ($phase === 2) {
+        // ── Phase 2: update all tracked files ─────────────────────────────────
+        $backupVer = localVersion('md.php');
+        $rows      = [];
+
+        foreach (TRACKED_FILES as $file) {
+            if ($file === 'updater.php') {
+                // Already handled in phase 1 — report current status
+                $rows[] = ['file' => $file, 'status' => 'current (updated in phase 1)'];
+                continue;
+            }
+            $verBefore = localVersion($file);
+            $updater   = makeUpdater($file);
+            $res       = $updater->apply(backupVersion: $backupVer);
+            $rows[]    = [
+                'file'    => $file,
+                'status'  => $res['status'],
+                'from'    => $verBefore,
+                'to'      => ($res['status'] === 'updated' || $res['status'] === 'created')
+                             ? localVersion($file) : null,
+                'error'   => $res['error'] ?? null,
+            ];
+        }
+
+        outputUpdatePage('Update complete', $rows);
+        exit;
+    }
+
+    // Unknown phase
+    http_response_code(400);
+    outputUpdatePage('Bad request', [['type' => 'error', 'message' => 'Unknown phase.']]);
+    exit;
+}
+
+/**
+ * Output a simple standalone HTML page with update results.
+ *
+ * @param string $title   Page/heading title
+ * @param array  $rows    Each row: ['file'=>string, 'status'=>string, 'from'=>?string,
+ *                                   'to'=>?string, 'error'=>?string, 'message'=>?string, 'type'=>?string]
+ */
+function outputUpdatePage(string $title, array $rows): void
+{
+    $cssClass = static fn(string $s): string => match(true) {
+        str_starts_with($s, 'updated'), str_starts_with($s, 'created') => 'ok',
+        str_starts_with($s, 'current') => 'skip',
+        str_starts_with($s, 'error')   => 'err',
+        default                         => 'info',
+    };
+
+    echo '<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8">';
+    echo '<meta name="viewport" content="width=device-width,initial-scale=1">';
+    echo '<title>MD.Viewer Updater</title>';
+    echo '<style>
+        *{box-sizing:border-box;margin:0;padding:0}
+        body{font-family:system-ui,sans-serif;background:#f8fafc;color:#0f172a;padding:2rem 1rem;min-height:100vh}
+        .card{max-width:700px;margin:0 auto;background:#fff;border-radius:16px;
+              box-shadow:0 4px 32px rgba(0,0,0,.10);overflow:hidden}
+        .card-head{background:#1e293b;color:#f8fafc;padding:1.25rem 1.5rem}
+        .card-head h1{font-size:1.25rem;font-weight:700}
+        .card-head p{font-size:.8rem;opacity:.6;margin-top:.25rem}
+        .rows{padding:.5rem 0}
+        .row{display:flex;align-items:baseline;gap:.75rem;padding:.65rem 1.5rem;border-bottom:1px solid #f1f5f9}
+        .row:last-child{border:none}
+        .badge{display:inline-block;padding:2px 9px;border-radius:20px;font-size:.72rem;font-weight:700;white-space:nowrap}
+        .ok   .badge{background:#dcfce7;color:#166534}
+        .skip .badge{background:#f1f5f9;color:#475569}
+        .err  .badge{background:#fee2e2;color:#991b1b}
+        .info .badge{background:#dbeafe;color:#1e40af}
+        .file{font-family:monospace;font-size:.85rem;flex:1;word-break:break-all}
+        .ver {font-size:.75rem;color:#64748b}
+        .footer{padding:1rem 1.5rem;text-align:right;background:#f8fafc;border-top:1px solid #e2e8f0}
+        .btn{display:inline-block;padding:.55rem 1.25rem;background:#1e293b;color:#f8fafc;
+             border-radius:8px;text-decoration:none;font-size:.85rem;font-weight:600}
+        .btn:hover{background:#334155}
+        code{background:#f1f5f9;padding:1px 5px;border-radius:4px;font-size:.85em}
+        @media(prefers-color-scheme:dark){
+            body{background:#0f172a;color:#e2e8f0}
+            .card{background:#1e293b;box-shadow:0 4px 32px rgba(0,0,0,.4)}
+            .row{border-color:#334155}
+            .footer{background:#0f172a;border-color:#334155}
+            .btn{background:#3b82f6;color:#fff}
+            .ok   .badge{background:#14532d;color:#bbf7d0}
+            .skip .badge{background:#1e293b;color:#94a3b8}
+            .err  .badge{background:#450a0a;color:#fca5a5}
+            .info .badge{background:#1e3a5f;color:#93c5fd}
+            code{background:#334155}
+        }
+    </style></head><body>';
+    echo '<div class="card">';
+    echo '<div class="card-head"><h1>' . htmlspecialchars($title) . '</h1>';
+    echo '<p>MD.Viewer · ' . htmlspecialchars(localVersion('md.php')) . '</p></div>';
+    echo '<div class="rows">';
+
+    foreach ($rows as $row) {
+        if (isset($row['message'])) {
+            // generic message row
+            $cls = $row['type'] ?? 'info';
+            echo '<div class="row ' . htmlspecialchars($cls) . '">';
+            echo '<span class="badge">' . htmlspecialchars($cls) . '</span>';
+            echo '<span class="file">' . $row['message'] . '</span>';
+            echo '</div>';
+            continue;
+        }
+        $status = $row['status'] ?? 'info';
+        $cls    = $cssClass($status);
+        echo '<div class="row ' . $cls . '">';
+        echo '<span class="badge">' . htmlspecialchars($status) . '</span>';
+        echo '<span class="file">' . htmlspecialchars($row['file'] ?? '') . '</span>';
+        if (!empty($row['from']) || !empty($row['to'])) {
+            echo '<span class="ver">';
+            if ($row['from']) echo htmlspecialchars($row['from']);
+            if ($row['from'] && $row['to']) echo ' → ';
+            if ($row['to'])   echo htmlspecialchars($row['to']);
+            echo '</span>';
+        }
+        if (!empty($row['error'])) {
+            echo '<span class="ver" style="color:#dc2626">' . htmlspecialchars($row['error']) . '</span>';
+        }
+        echo '</div>';
+    }
+
+    echo '</div>';
+    echo '<div class="footer"><a class="btn" href="/">← Back</a></div>';
+    echo '</div></body></html>';
+}
+
+// ── JSON API ──────────────────────────────────────────────────────────────────
 
 header('Content-Type: application/json; charset=utf-8');
 header('X-Content-Type-Options: nosniff');
@@ -569,6 +775,7 @@ function doCheck(): never
 
 function doApply(): never
 {
+    requireAllowUpdate();
     $updated   = [];
     $skipped   = [];
     $failed    = [];
