@@ -1,6 +1,6 @@
 /**
  * MD.Viewer — Settings Panel Engine
- * Version: 2.8.3
+ * Version: 2.8.4
  * Auto-extracted from md.php inline <script> block.
  * Requires window.MDV_CONFIG to be set before this script loads.
  */
@@ -18,9 +18,14 @@
     (function () {
         'use strict';
 
-        const CFG    = window.MDV_CONFIG || {};
-        const PREFIX = 'mdv_';
-        const FEAT   = 'mdv_feat_';
+        const CFG          = window.MDV_CONFIG || {};
+        const PREFIX       = 'mdv_';
+        const FEAT         = 'mdv_feat_';
+        // ── Global flags (needed before sub-sections init) ────────────────────
+        const UPDATER_URL   = CFG.updaterUrl || '/updater.php';
+        const ALLOW_UPDATE  = !!CFG.allowUpdate;
+        const ALLOW_RESTORE = !!CFG.allowRestore;
+        const ALLOW_INDEX   = CFG.allowCreateIndexPhpLink !== false;
 
         // ── Storage ───────────────────────────────────────────────────────────
         function cookiesAllowed() {
@@ -355,7 +360,7 @@
 
 
         // ── index.php hard link management ───────────────────────────────────
-        if (window.MDV_CONFIG && window.MDV_CONFIG.allowCreateIndexPhpLink === false) {
+        if (!ALLOW_INDEX) {
             // Feature disabled in .md.ini — hide the section entirely
             var elIdxSec = document.getElementById('sp-index-section');
             if (elIdxSec) elIdxSec.style.display = 'none';
@@ -629,9 +634,6 @@
         }, { passive: true });
 
         // ── Updates ───────────────────────────────────────────────────────────
-        const UPDATER_URL  = (window.MDV_CONFIG || {}).updaterUrl || '/updater.php';
-        const ALLOW_UPDATE  = !!(window.MDV_CONFIG || {}).allowUpdate;
-        const ALLOW_RESTORE = !!(window.MDV_CONFIG || {}).allowRestore;
 
         const elCheckBtn    = document.getElementById('sp-check-updates');
         const elApplyBtn    = document.getElementById('sp-apply-updates');
