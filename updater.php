@@ -1,7 +1,7 @@
 <?php
 /**
  * Markdown Viewer — Self-Updater
- * Version: 3.7.0
+ * Version: 3.8.0
  * Author: Mikhail Deynekin
  * Site: https://Deynekin.com
  * Email: Mikhail@Deynekin.com
@@ -37,6 +37,7 @@
  *
  * v2.0.0: Raw Range requests, no API/tokens.
  * v2.1.0: Backup-before-replace, restore-from-backup.
+ * v3.8.0: one-file install; readIni() creates .md.ini; landing page; full auto-append.
  * v3.7.0: &force=true; fix version display for all files; file links in HTML output.
  * v3.6.0: ALLOW_RESTORE flag; direct ?restore=latest|[version] browser mode.
  * v3.5.0: TRACKED_FILES expanded — settings.js, settings.css, upload.js, README.md, LICENSE.
@@ -362,20 +363,55 @@ function readIni(): array
 {
     static $cache = null;
     if ($cache !== null) return $cache;
-    $path  = docRoot() . '/.md.ini';
-    $cache = is_file($path) ? (@parse_ini_file($path, false, INI_SCANNER_TYPED) ?: []) : [];
+    $path = docRoot() . '/.md.ini';
 
-    // Auto-append missing keys if the file exists
+    // Create .md.ini with safe defaults if it doesn't exist yet
+    // (supports one-file install where only updater.php is present)
+    if (!is_file($path)) {
+        $default  = "; MD.Viewer server-side configuration\n";
+        $default .= "; Generated automatically. Edit on the server to change settings.\n\n";
+        $default .= "; Disable the Upload .md button in the file browser\n";
+        $default .= "DISABLE_UPLOAD    = true\n\n";
+        $default .= "; Disable the Clipboard Preview button\n";
+        $default .= "DISABLE_CLIPBOARD = false\n\n";
+        $default .= "; Disable the Save to File button in clipboard preview\n";
+        $default .= "DISABLE_SAVE_CLIPBOARD_TO_FILE = true\n\n";
+        $default .= "; Allow updating files via updater.php?update=true or the Settings panel\n";
+        $default .= "; Set to true only on servers you control\n";
+        $default .= "ALLOW_UPDATE = false\n\n";
+        $default .= "; Allow restoring a backup via updater.php?restore=latest or ?restore=[version]\n";
+        $default .= "ALLOW_RESTORE = false\n";
+        @file_put_contents($path, $default, LOCK_EX);
+    }
+
+    $cache = @parse_ini_file($path, false, INI_SCANNER_TYPED) ?: [];
+
+    // Auto-append any keys missing from older .md.ini files
     $appendIni = '';
-    if (is_file($path) && !array_key_exists('ALLOW_UPDATE', $cache)) {
+    if (!array_key_exists('ALLOW_UPDATE', $cache)) {
         $appendIni .= "\n; Allow updating files via updater.php?update=true or the Settings panel\n";
         $appendIni .= "ALLOW_UPDATE = false\n";
         $cache['ALLOW_UPDATE'] = false;
     }
-    if (is_file($path) && !array_key_exists('ALLOW_RESTORE', $cache)) {
+    if (!array_key_exists('ALLOW_RESTORE', $cache)) {
         $appendIni .= "\n; Allow restoring a backup via updater.php?restore=latest or ?restore=[version]\n";
         $appendIni .= "ALLOW_RESTORE = false\n";
         $cache['ALLOW_RESTORE'] = false;
+    }
+    if (!array_key_exists('DISABLE_UPLOAD', $cache)) {
+        $appendIni .= "\n; Disable the Upload .md button in the file browser\n";
+        $appendIni .= "DISABLE_UPLOAD = true\n";
+        $cache['DISABLE_UPLOAD'] = true;
+    }
+    if (!array_key_exists('DISABLE_CLIPBOARD', $cache)) {
+        $appendIni .= "\n; Disable the Clipboard Preview button\n";
+        $appendIni .= "DISABLE_CLIPBOARD = false\n";
+        $cache['DISABLE_CLIPBOARD'] = false;
+    }
+    if (!array_key_exists('DISABLE_SAVE_CLIPBOARD_TO_FILE', $cache)) {
+        $appendIni .= "\n; Disable the Save to File button in clipboard preview\n";
+        $appendIni .= "DISABLE_SAVE_CLIPBOARD_TO_FILE = true\n";
+        $cache['DISABLE_SAVE_CLIPBOARD_TO_FILE'] = true;
     }
     if ($appendIni !== '') {
         @file_put_contents($path, $appendIni, FILE_APPEND | LOCK_EX);
@@ -1275,5 +1311,123 @@ function doSaveClipboard(): never
     exit;
 }
 
+// ── Default landing page ──────────────────────────────────────────────────────
+// Shown when updater.php is opened with no recognised action parameter.
+// Provides one-file install instructions and a link to run the update.
 
+$ini          = readIni();
+$allowUpdate  = (bool)($ini['ALLOW_UPDATE']  ?? false);
+$allowRestore = (bool)($ini['ALLOW_RESTORE'] ?? false);
+$mdExists     = is_file(docRoot() . '/md.php');
+$iniPath      = docRoot() . '/.md.ini';
+
+$statusRows = [];
+foreach (TRACKED_FILES as $f) {
+    $exists = is_file(localPath($f));
+    $ver    = $exists ? localVersion($f) : null;
+    $statusRows[] = ['file' => $f, 'exists' => $exists, 'version' => $ver];
+}
+
+http_response_code(200);
+header('Content-Type: text/html; charset=UTF-8');
+echo '<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8">';
+echo '<meta name="viewport" content="width=device-width,initial-scale=1">';
+echo '<title>MD.Viewer Updater</title>';
+echo '<style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:system-ui,sans-serif;background:#f8fafc;color:#0f172a;padding:2rem 1rem;min-height:100vh}
+    .card{max-width:700px;margin:0 auto;background:#fff;border-radius:16px;
+          box-shadow:0 4px 32px rgba(0,0,0,.10);overflow:hidden}
+    .card-head{background:#1e293b;color:#f8fafc;padding:1.25rem 1.5rem}
+    .card-head h1{font-size:1.25rem;font-weight:700}
+    .card-head p{font-size:.8rem;opacity:.6;margin-top:.25rem}
+    .section{padding:1.25rem 1.5rem;border-bottom:1px solid #f1f5f9}
+    .section:last-child{border:none}
+    .section h2{font-size:.95rem;font-weight:700;margin-bottom:.75rem;color:#1e293b}
+    .rows{padding:.25rem 0}
+    .row{display:flex;align-items:baseline;gap:.75rem;padding:.5rem 1.5rem;border-bottom:1px solid #f1f5f9}
+    .row:last-child{border:none}
+    .badge{display:inline-block;padding:2px 9px;border-radius:20px;font-size:.72rem;font-weight:700;white-space:nowrap}
+    .ok   .badge{background:#dcfce7;color:#166534}
+    .miss .badge{background:#fee2e2;color:#991b1b}
+    .file{font-family:monospace;font-size:.85rem;flex:1;word-break:break-all;color:inherit;text-decoration:none}
+    .file:hover{text-decoration:underline}
+    .ver{font-size:.75rem;color:#64748b}
+    .actions{padding:1.25rem 1.5rem;display:flex;flex-wrap:wrap;gap:.75rem;background:#f8fafc;border-top:1px solid #e2e8f0}
+    .btn{display:inline-block;padding:.55rem 1.25rem;background:#1e293b;color:#f8fafc;
+         border-radius:8px;text-decoration:none;font-size:.85rem;font-weight:600}
+    .btn:hover{background:#334155}
+    .btn-green{background:#15803d}.btn-green:hover{background:#166534}
+    .btn-amber{background:#b45309}.btn-amber:hover{background:#92400e}
+    .btn-blue{background:#1d4ed8}.btn-blue:hover{background:#1e40af}
+    .notice{background:#fef9c3;border:1px solid #fde047;border-radius:8px;padding:.75rem 1rem;font-size:.85rem;margin:.5rem 0;color:#713f12}
+    .notice code{background:#fef08a;padding:1px 4px;border-radius:3px}
+    code{background:#f1f5f9;padding:1px 5px;border-radius:4px;font-size:.85em}
+    @media(prefers-color-scheme:dark){
+        body{background:#0f172a;color:#e2e8f0}
+        .card{background:#1e293b;box-shadow:0 4px 32px rgba(0,0,0,.4)}
+        .row,.section{border-color:#334155}
+        .actions{background:#0f172a;border-color:#334155}
+        .ok   .badge{background:#14532d;color:#bbf7d0}
+        .miss .badge{background:#450a0a;color:#fca5a5}
+        code{background:#334155}
+        .notice{background:#422006;border-color:#92400e;color:#fde68a}
+        .notice code{background:#78350f}
+    }
+</style></head><body>';
+
+echo '<div class="card">';
+echo '<div class="card-head"><h1>MD.Viewer Updater</h1>';
+echo '<p>v' . htmlspecialchars(RAW_BASE !== '' ? (localVersion('updater.php') ?: '—') : '—') . ' · ' . htmlspecialchars(realpath(docRoot())) . '</p>';
+echo '</div>';
+
+// ── File status table ─────────────────────────────────────────────────────────
+echo '<div class="section"><h2>File status</h2></div>';
+echo '<div class="rows">';
+$rawBase = RAW_BASE;
+foreach ($statusRows as $r) {
+    $cls = $r['exists'] ? 'ok' : 'miss';
+    $badge = $r['exists'] ? 'present' : 'missing';
+    $fileUrl = $rawBase . '/' . ltrim($r['file'], '/');
+    echo '<div class="row ' . $cls . '">';
+    echo '<span class="badge">' . $badge . '</span>';
+    echo '<a class="file" href="' . htmlspecialchars($fileUrl) . '" target="_blank" rel="noopener">'
+       . htmlspecialchars($r['file']) . '</a>';
+    if ($r['version']) {
+        echo '<span class="ver">v' . htmlspecialchars($r['version']) . '</span>';
+    }
+    echo '</div>';
+}
+echo '</div>';
+
+// ── .md.ini status ────────────────────────────────────────────────────────────
+echo '<div class="section"><h2>.md.ini</h2>';
+if ($allowUpdate) {
+    echo '<p style="font-size:.85rem;color:#15803d">✓ ALLOW_UPDATE = true — update system enabled</p>';
+} else {
+    echo '<div class="notice">⚠ <strong>ALLOW_UPDATE = false</strong> in <code>.md.ini</code>. ';
+    echo 'To enable updates, edit <code>' . htmlspecialchars($iniPath) . '</code> and set <code>ALLOW_UPDATE = true</code>.</div>';
+}
+if ($allowRestore) {
+    echo '<p style="font-size:.85rem;color:#15803d;margin-top:.5rem">✓ ALLOW_RESTORE = true — restore system enabled</p>';
+}
+echo '</div>';
+
+// ── Actions ───────────────────────────────────────────────────────────────────
+echo '<div class="actions">';
+if ($allowUpdate) {
+    echo '<a class="btn btn-green" href="?update=true">↓ Check &amp; Apply Updates</a>';
+    echo '<a class="btn btn-amber" href="?update=true&force=true">↺ Force Reinstall All</a>';
+}
+if ($allowRestore) {
+    echo '<a class="btn btn-blue" href="?restore=latest">⟲ Restore Latest Backup</a>';
+}
+if (!$allowUpdate && !$allowRestore) {
+    echo '<span style="font-size:.85rem;color:#64748b">Enable <code>ALLOW_UPDATE</code> or <code>ALLOW_RESTORE</code> in <code>.md.ini</code> to see actions here.</span>';
+}
+echo '<a class="btn" href="/">← Back</a>';
+echo '</div>';
+
+echo '</div></body></html>';
+exit;
 
