@@ -162,6 +162,9 @@ DISABLE_SAVE_CLIPBOARD_TO_FILE = true
 ; Allow updating files via updater.php?update=true or the Settings panel
 ; Set to true only on servers you control; false by default for safety
 ALLOW_UPDATE = false
+
+; Allow restoring a backup via updater.php?restore=latest or ?restore=[version]
+ALLOW_RESTORE = false
 ```
 
 | Key | Default | Effect |
@@ -170,6 +173,7 @@ ALLOW_UPDATE = false
 | `DISABLE_CLIPBOARD` | `false` | Hides and disables the Clipboard Preview button |
 | `DISABLE_SAVE_CLIPBOARD_TO_FILE` | `true` | Hides Save to File in clipboard preview |
 | `ALLOW_UPDATE` | `false` | Enables update system (Settings panel + `?update=true`) |
+| `ALLOW_RESTORE` | `false` | Enables direct rollback via `?restore=latest` or `?restore=X.Y.Z` |
 
 Missing keys are automatically appended to the file with their default values on next load.
 
@@ -282,6 +286,14 @@ The Settings panel (opened from the header gear icon) includes:
   - **Phase 1**: updates `updater.php` itself first. If changed, HTTP-redirects to `?_phase=2` so the **new** updater handles the rest.
   - **Phase 2**: updates all remaining tracked files.
 - Outputs a standalone styled HTML result page with per-file status badges, version deltas, and a Back button.
+
+**3. Direct browser rollback** (`/updater.php?restore=latest` or `?restore=X.Y.Z`):
+- Requires `ALLOW_RESTORE = true` in `.md.ini`.
+- `?restore=latest` — finds the most recent backup version automatically.
+- `?restore=X.Y.Z` — restores the exact named backup version.
+- Before restoring, saves the current files as `[version]-pre-restore` backup.
+- Invalidates ETag cache so the next update check starts fresh.
+- Outputs a standalone HTML result page with per-file restored/skipped/error status.
 
 Tracked files:
 
