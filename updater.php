@@ -1,7 +1,7 @@
 <?php
 /**
  * Markdown Viewer — Self-Updater
- * Version: 3.5.0
+ * Version: 3.6.0
  * Author: Mikhail Deynekin
  * Site: https://Deynekin.com
  * Email: Mikhail@Deynekin.com
@@ -37,6 +37,7 @@
  *
  * v2.0.0: Raw Range requests, no API/tokens.
  * v2.1.0: Backup-before-replace, restore-from-backup.
+ * v3.6.0: ALLOW_RESTORE flag; direct ?restore=latest|[version] browser mode.
  * v3.5.0: TRACKED_FILES expanded — settings.js, settings.css, upload.js, README.md, LICENSE.
  * v3.4.0: ALLOW_UPDATE flag; direct ?update=true mode with two-phase self-update.
  * v3.3.0: save_clipboard action; uploads.md/ directory for both upload and save.
@@ -363,12 +364,20 @@ function readIni(): array
     $path  = docRoot() . '/.md.ini';
     $cache = is_file($path) ? (@parse_ini_file($path, false, INI_SCANNER_TYPED) ?: []) : [];
 
-    // Auto-append ALLOW_UPDATE if the file exists but is missing the key
+    // Auto-append missing keys if the file exists
+    $appendIni = '';
     if (is_file($path) && !array_key_exists('ALLOW_UPDATE', $cache)) {
-        $append  = "\n; Allow updating files via updater.php?update=true or the Settings panel\n";
-        $append .= "ALLOW_UPDATE = false\n";
-        @file_put_contents($path, $append, FILE_APPEND | LOCK_EX);
+        $appendIni .= "\n; Allow updating files via updater.php?update=true or the Settings panel\n";
+        $appendIni .= "ALLOW_UPDATE = false\n";
         $cache['ALLOW_UPDATE'] = false;
+    }
+    if (is_file($path) && !array_key_exists('ALLOW_RESTORE', $cache)) {
+        $appendIni .= "\n; Allow restoring a backup via updater.php?restore=latest or ?restore=[version]\n";
+        $appendIni .= "ALLOW_RESTORE = false\n";
+        $cache['ALLOW_RESTORE'] = false;
+    }
+    if ($appendIni !== '') {
+        @file_put_contents($path, $appendIni, FILE_APPEND | LOCK_EX);
     }
 
     return $cache;
@@ -379,6 +388,14 @@ function requireAllowUpdate(): void
     $ini = readIni();
     if (!(bool)($ini['ALLOW_UPDATE'] ?? false)) {
         jsonError(403, 'Updates are disabled. Set ALLOW_UPDATE = true in .md.ini to enable.');
+    }
+}
+
+function requireAllowRestore(): void
+{
+    $ini = readIni();
+    if (!(bool)($ini['ALLOW_RESTORE'] ?? false)) {
+        jsonError(403, 'Restore is disabled. Set ALLOW_RESTORE = true in .md.ini to enable.');
     }
 }
 
@@ -559,6 +576,127 @@ if (isset($_GET['update']) && $_GET['update'] === 'true') {
     outputUpdatePage('Bad request', [['type' => 'error', 'message' => 'Unknown phase.']]);
     exit;
 }
+// ── Direct-access restore mode ────────────────────────────────────────────────
+// Triggered by opening updater.php?restore=latest OR ?restore=[version] in a browser.
+// Requires ALLOW_RESTORE = true in .md.ini.
+//
+// ?restore=latest  → finds the most recent backup version and restores it.
+// ?restore=X.Y.Z   → restores the specified backup version.
+//
+// Outputs a standalone HTML result page.
+
+if (isset($_GET['restore'])) {
+
+    $ini = readIni();
+    if (!(bool)($ini['ALLOW_RESTORE'] ?? false)) {
+        http_response_code(403);
+        outputUpdatePage('Access denied', [[
+            'type'    => 'error',
+            'message' => 'Restore is disabled. Set <code>ALLOW_RESTORE = true</code> in <code>.md.ini</code> to enable.',
+        ]]);
+        exit;
+    }
+
+    // ── Resolve version ───────────────────────────────────────────────────────
+    $reqRestore = trim((string)$_GET['restore']);
+    $backupRoot = backupRoot();
+
+    if ($reqRestore === 'latest') {
+        // Find the highest versioned backup directory that contains at least one tracked file
+        $available = [];
+        if (is_dir($backupRoot)) {
+            foreach (scandir($backupRoot) as $entry) {
+                if ($entry === '.' || $entry === '..' || $entry === '.state') continue;
+                $dir = $backupRoot . '/' . $entry;
+                if (!is_dir($dir)) continue;
+                foreach (TRACKED_FILES as $f) {
+                    if (is_file($dir . '/' . $f)) { $available[] = $entry; break; }
+                }
+            }
+        }
+        if (empty($available)) {
+            outputUpdatePage('No backups found', [[
+                'type'    => 'error',
+                'message' => 'No backup versions found in <code>md.backup/</code>. Run an update first to create a backup.',
+            ]]);
+            exit;
+        }
+        usort($available, fn($a, $b) => version_compare($b, $a));
+        $resolvedVersion = $available[0];
+    } else {
+        // Validate the version string (only alphanumeric, dots, dashes)
+        if (!preg_match('/^[a-zA-Z0-9.\-]+$/', $reqRestore)) {
+            http_response_code(400);
+            outputUpdatePage('Invalid version', [[
+                'type'    => 'error',
+                'message' => 'Version string contains invalid characters: ' . htmlspecialchars($reqRestore),
+            ]]);
+            exit;
+        }
+        $resolvedVersion = $reqRestore;
+    }
+
+    // ── Check backup dir exists ───────────────────────────────────────────────
+    $restoreDir = backupDir($resolvedVersion);
+    if (!is_dir($restoreDir)) {
+        http_response_code(404);
+        outputUpdatePage('Backup not found', [[
+            'type'    => 'error',
+            'message' => 'No backup directory found for version <strong>' . htmlspecialchars($resolvedVersion) . '</strong>. '
+                        . 'Available backups are in <code>md.backup/</code>.',
+        ]]);
+        exit;
+    }
+
+    // ── Perform restore ───────────────────────────────────────────────────────
+    $currentVer = localVersion('md.php');
+    $rows       = [];
+
+    foreach (TRACKED_FILES as $file) {
+        $backupSrc = $restoreDir . '/' . $file;
+
+        if (!is_file($backupSrc)) {
+            $rows[] = ['file' => $file, 'status' => 'skipped (not in backup)'];
+            continue;
+        }
+
+        $locPath = localPath($file);
+        $verBefore = localVersion($file);
+
+        // Backup current file before overwriting
+        if (is_file($locPath) && $currentVer !== '') {
+            backupFile($file, $currentVer . '-pre-restore');
+        }
+
+        $content = file_get_contents($backupSrc);
+        if ($content === false) {
+            $rows[] = ['file' => $file, 'status' => 'error', 'error' => 'Cannot read backup file'];
+            continue;
+        }
+
+        if (!atomicWrite($locPath, $content)) {
+            $rows[] = ['file' => $file, 'status' => 'error', 'error' => 'Write failed — check permissions'];
+            continue;
+        }
+
+        // Invalidate ETag state so next update check does a full fetch
+        $sf = stateFile($file);
+        if (is_file($sf)) @unlink($sf);
+
+        $rows[] = [
+            'file'   => $file,
+            'status' => 'restored',
+            'from'   => $verBefore,
+            'to'     => extractVersion(substr($content, 0, 1000)),
+        ];
+    }
+
+    $title = 'Restored from v' . htmlspecialchars($resolvedVersion);
+    outputUpdatePage($title, $rows);
+    exit;
+}
+
+
 
 /**
  * Output a simple standalone HTML page with update results.
@@ -828,6 +966,7 @@ function doApply(): never
 
 function doRestore(): never
 {
+    requireAllowRestore();
     $reqVersion = trim($_POST['version'] ?? ($_GET['version'] ?? ''));
     if ($reqVersion === '') jsonError(400, 'version parameter required');
 
