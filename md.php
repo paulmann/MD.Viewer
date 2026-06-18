@@ -1,7 +1,7 @@
 <?php
 /**
  * Markdown Viewer
- * Version: 2.8.2
+ * Version: 2.8.3
  * Author: Mikhail Deynekin
  * Site: https://Deynekin.com
  * Email: Mikhail@Deynekin.com
@@ -2865,9 +2865,8 @@ render_page:
                     <button type="button" data-width="wide" class="width-switch rounded-full px-4 py-2 text-sm font-medium text-slate-600 transition hover:text-slate-950 dark:text-slate-300 dark:hover:text-white">Wide</button>
                 </div>
                 <!-- Font-size controls: mobile only -->
-                <div id="fontsize-controls" data-toolbar="font" class="items-center rounded-full border border-slate-200 bg-white/80 p-1 shadow-soft dark:border-slate-700 dark:bg-slate-900/80">
+                <div id="fontsize-controls" data-toolbar="font" class="flex items-center gap-0 rounded-full border border-slate-200 bg-white/80 p-1 shadow-soft dark:border-slate-700 dark:bg-slate-900/80">
                     <button type="button" id="fs-decrease" aria-label="Decrease font size" class="rounded-full w-9 h-9 flex items-center justify-center text-lg font-bold text-slate-600 transition hover:text-slate-950 dark:text-slate-300 dark:hover:text-white">−</button>
-                    <span id="fs-label" class="px-2 text-xs font-medium text-slate-500 dark:text-slate-400 tabular-nums w-10 text-center"></span>
                     <button type="button" id="fs-increase" aria-label="Increase font size" class="rounded-full w-9 h-9 flex items-center justify-center text-lg font-bold text-slate-600 transition hover:text-slate-950 dark:text-slate-300 dark:hover:text-white">+</button>
                 </div>
                 <?php endif; ?>
