@@ -1,7 +1,7 @@
 <?php
 /**
  * Markdown Viewer
- * Version: 2.5.4
+ * Version: 2.5.5
  * Author: Mikhail Deynekin
  * Site: https://Deynekin.com
  * Email: Mikhail@Deynekin.com
@@ -3576,17 +3576,25 @@ if ($mode === 'viewer') {
                 .then(function (d) {
                     if (d.error) { indexSetStatus('⚠ ' + d.error, 'err'); return; }
                     if (d.linked) {
+                        // index.php is a hard link to md.php
                         indexSetStatus('✓ <strong>index.php</strong> → <strong>md.php</strong>'
                             + (d.inode ? '&ensp;<small>inode ' + d.inode + '</small>' : ''), 'ok');
-                        if (elIndexCreate) elIndexCreate.style.display = 'none';
-                        if (elIndexRemove) elIndexRemove.style.display = '';
+                        if (elIndexCreate) { elIndexCreate.style.display = 'none'; elIndexCreate.disabled = false; }
+                        if (elIndexRemove) { elIndexRemove.style.display = ''; elIndexRemove.disabled = false; }
+                    } else if (d.exists) {
+                        // index.php exists as a regular file — block all actions
+                        indexSetStatus(
+                            '⚠ <strong>index.php</strong> already exists as a regular file.<br>'
+                          + '<small>Remove or rename it manually before using this feature.</small>',
+                            'warn'
+                        );
+                        if (elIndexCreate) { elIndexCreate.style.display = ''; elIndexCreate.disabled = true; }
+                        if (elIndexRemove) { elIndexRemove.style.display = 'none'; elIndexRemove.disabled = true; }
                     } else {
-                        const note = d.exists
-                            ? '⚠ <strong>index.php</strong> exists but is <em>not</em> a hard link to md.php'
-                            : 'No <strong>index.php</strong> in this directory.';
-                        indexSetStatus(note, d.exists ? 'warn' : '');
-                        if (elIndexCreate) elIndexCreate.style.display = '';
-                        if (elIndexRemove) elIndexRemove.style.display = d.exists ? '' : 'none';
+                        // index.php does not exist — ready to create
+                        indexSetStatus('No <strong>index.php</strong> in this directory.', '');
+                        if (elIndexCreate) { elIndexCreate.style.display = ''; elIndexCreate.disabled = false; }
+                        if (elIndexRemove) { elIndexRemove.style.display = 'none'; elIndexRemove.disabled = true; }
                     }
                 })
                 .catch(function (e) { indexSetStatus('⚠ ' + e.message, 'err'); });
