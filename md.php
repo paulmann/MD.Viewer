@@ -1,7 +1,7 @@
 <?php
 /**
  * Markdown Viewer
- * Version: 2.5.1
+ * Version: 2.5.2
  * Author: Mikhail Deynekin
  * Site: https://Deynekin.com
  * Email: Mikhail@Deynekin.com
@@ -3628,11 +3628,12 @@ if ($mode === 'viewer') {
             const labels = {
                 'up-to-date':  'Up to date',
                 'outdated':    'Update available',
-                'missing':     'Missing',
+                'missing':     'Missing locally',
                 'local-only':  'Local only',
                 'newer-local': 'Ahead of remote',
                 'no-version':  'No version tag',
                 'error':       'Error',
+                'current':     'Up to date',    // alias from RawFileUpdater
             };
             elFileList.innerHTML = files.map(function (f) {
                 const pill  = f.status || (f.hasUpdate ? 'outdated' : 'up-to-date');
@@ -3642,11 +3643,13 @@ if ($mode === 'viewer') {
                 if (f.localVersion)  verStr = 'v' + f.localVersion;
                 if (f.remoteVersion && f.remoteVersion !== f.localVersion)
                     verStr += ' → v' + f.remoteVersion;
+                const errTitle = (f.error && pill === 'error')
+                    ? ' title="' + f.error.replace(/"/g, '&quot;') + '"' : '';
                 return '<div class="sp-file-row">'
                      +   '<span class="sp-file-name">' + f.path + '</span>'
                      +   '<span style="display:flex;align-items:center;gap:5px;flex-shrink:0">'
                      +     (verStr ? '<span class="sp-file-ver">' + verStr + '</span>' : '')
-                     +     '<span class="sp-file-pill ' + pill + '">' + label + '</span>'
+                     +     '<span class="sp-file-pill ' + pill + '"' + errTitle + '>' + label + '</span>'
                      +   '</span>'
                      + '</div>';
             }).join('');
@@ -3696,15 +3699,19 @@ if ($mode === 'viewer') {
 
                     renderFileList(d.files);
 
+                    // Count how many files used 304 (no re-download)
+                    const cached304 = (d.files || []).filter(function (f) { return f.httpStatus === 304; }).length;
+                    const cacheNote = cached304 > 0 ? ' <small>(' + cached304 + ' via ETag cache)</small>' : '';
+
                     if (d.hasUpdates) {
                         const verInfo = sameVer
                             ? ''
                             : ' <strong>' + d.localVersion + '</strong> → <strong>' + d.remoteVersion + '</strong>';
-                        setStatus('Updates available' + verInfo, 'warn');
+                        setStatus('Updates available' + verInfo + cacheNote, 'warn');
                         elApplyBtn.style.display  = '';
                         elReinstall.style.display = 'none';
                     } else {
-                        setStatus('✓ All files are up to date (v' + d.localVersion + ')', 'ok');
+                        setStatus('✓ All files are up to date (v' + d.localVersion + ')' + cacheNote, 'ok');
                         elApplyBtn.style.display  = 'none';
                         elReinstall.style.display = '';
                     }
