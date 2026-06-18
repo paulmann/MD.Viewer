@@ -1,7 +1,7 @@
 <?php
 /**
  * Markdown Viewer
- * Version: 2.8.1
+ * Version: 2.8.2
  * Author: Mikhail Deynekin
  * Site: https://Deynekin.com
  * Email: Mikhail@Deynekin.com
@@ -186,6 +186,9 @@ ALLOW_UPDATE = false
 
 ; Allow restoring a backup via updater.php?restore=latest or ?restore=[version]
 ALLOW_RESTORE = false
+
+; Allow creating/removing the index.php hard link from the Settings panel
+ALLOW_CREATE_INDEX_PHP_LINK = true
 INI;
         @file_put_contents($iniPath, $default);
     }
@@ -208,6 +211,11 @@ INI;
         $missingEntries .= "\n; Allow restoring a backup via updater.php?restore=latest or ?restore=[version]\n"
                          . "ALLOW_RESTORE = false\n";
         $ini['ALLOW_RESTORE'] = false;
+    }
+    if (!array_key_exists('ALLOW_CREATE_INDEX_PHP_LINK', $ini)) {
+        $missingEntries .= "\n; Allow creating/removing the index.php hard link from the Settings panel\n"
+                         . "ALLOW_CREATE_INDEX_PHP_LINK = true\n";
+        $ini['ALLOW_CREATE_INDEX_PHP_LINK'] = true;
     }
     if ($missingEntries !== '') {
         @file_put_contents($iniPath, $missingEntries, FILE_APPEND | LOCK_EX);
@@ -234,7 +242,8 @@ INI;
     define('DISABLE_CLIPBOARD', (bool)($ini['DISABLE_CLIPBOARD'] ?? false));
     define('DISABLE_SAVE_CLIPBOARD_TO_FILE', (bool)($ini['DISABLE_SAVE_CLIPBOARD_TO_FILE'] ?? true));
     define('ALLOW_UPDATE',      (bool)($ini['ALLOW_UPDATE']      ?? false));
-    define('ALLOW_RESTORE',     (bool)($ini['ALLOW_RESTORE']     ?? false));
+    define('ALLOW_RESTORE',              (bool)($ini['ALLOW_RESTORE']              ?? false));
+    define('ALLOW_CREATE_INDEX_PHP_LINK',(bool)($ini['ALLOW_CREATE_INDEX_PHP_LINK'] ?? true));
 })();
 
 // ── Feature toggle resolver (v2.5.1) ────────────────────────────────────────
@@ -2838,6 +2847,7 @@ render_page:
             'disableSaveClipboardToFile' => DISABLE_SAVE_CLIPBOARD_TO_FILE,
             'allowUpdate'                => ALLOW_UPDATE,
             'allowRestore'               => ALLOW_RESTORE,
+            'allowCreateIndexPhpLink'    => ALLOW_CREATE_INDEX_PHP_LINK,
             'updaterUrl'                 => '/updater.php',
         ], JSON_THROW_ON_ERROR); ?>;
     </script>
@@ -3045,6 +3055,7 @@ render_page:
             </section>
 
             <!-- index.php hard link -->
+            <?php if (ALLOW_CREATE_INDEX_PHP_LINK): ?>
             <section class="settings-section" id="sp-index-section">
                 <div class="settings-section-title">Index File</div>
                 <div id="sp-index-status" class="sp-index-status"></div>
@@ -3057,6 +3068,7 @@ render_page:
                     </button>
                 </div>
             </section>
+            <?php endif; ?>
 
             <!-- Apply and Reload (shown when PHP-side features changed) -->
             <section class="settings-section settings-section-apply" id="sp-apply-section" style="display:none">
