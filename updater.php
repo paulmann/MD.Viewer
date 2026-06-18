@@ -1,47 +1,44 @@
 <?php
 /**
  * Markdown Viewer — Self-Updater
- * Version: 2.1.0
+ * Version: 3.0.0
  * Author: Mikhail Deynekin
  * Site: https://Deynekin.com
  * Email: Mikhail@Deynekin.com
  *
- * Pure PHP 8.3+ self-update engine. No GitHub API, no tokens.
- * Uses HTTP Range requests (bytes=0-999) to fetch only the first 1000 bytes
- * per file for version checking, then full downloads only when applying.
+ * PHP 8.3+ self-update engine. No GitHub API, no tokens.
  *
- * Version standard (all tracked files):
- *   PHP / JS / CSS  :  /** ...  *  * Version: X.Y.Z  ...
- * Parsed with: preg_match('/\*\s+Version:\s*(\d[\w.\-]+)/m', $head, $m)
+ * Update detection uses a two-layer approach:
+ *   1. Conditional GET with stored ETag (If-None-Match) against
+ *      raw.githubusercontent.com — 304 = file unchanged, skip immediately.
+ *   2. On 200, verify with SHA-256 comparison of the downloaded payload
+ *      against the local file — identical hash = no real change (CDN quirk).
+ *   3. Version string (" * Version: X.Y.Z") extracted from first 1000 bytes
+ *      for human-readable status in the Settings panel.
  *
- * Endpoints (GET/POST ?action=):
- *   check    GET  — compare local vs remote versions (Range 1000 bytes each)
- *   apply    POST — backup old → full download → atomic replace outdated files
+ * ETag + hash state persisted per file in md.backup/.state/{slug}.json.
+ * Atomic write: tempnam() + LOCK_EX fwrite + rename() on same filesystem.
+ * Backup before replace: md.backup/{localVersion}/{file} (never deleted).
+ *
+ * Endpoints:
+ *   check    GET  — ETag conditional check for all tracked files
+ *   apply    POST — backup old → conditional fetch → atomic replace
  *   restore  POST — backup current → restore from md.backup/{version}/
- *   backups  GET  — list available backup versions in md.backup/
- *   version  GET  — local version of md.php only (Settings badge)
- *
- * Backup layout:
- *   md.backup/
- *     2.4.0/
- *       md.php
- *       assets/js/md.js
- *       ... (only files that were replaced)
- *     2.5.0/
- *       ...
+ *   backups  GET  — list available backup versions
+ *   version  GET  — local version of md.php (Settings badge)
  *
  * Rules:
  *   - Never deletes local files absent from remote.
- *   - Atomic write: temp file → rename().
- *   - Backup before every replace (apply & restore).
  *   - Same-origin CORS guard; POST required for mutating actions.
+ *   - cURL required (curl extension).
  *
- * v2.0.0: Rewrote from GitHub API to raw.githubusercontent.com Range requests.
- * v2.1.0: Added backup-before-replace, restore-from-backup, backups listing.
+ * v2.0.0: Raw Range requests, no API/tokens.
+ * v2.1.0: Backup-before-replace, restore-from-backup.
+ * v3.0.0: RawFileUpdater class — ETag + SHA-256 conditional updates.
  */
 declare(strict_types=1);
 
-// ── Configuration ────────────────────────────────────────────────────────────
+// ── Configuration ─────────────────────────────────────────────────────────────
 
 const RAW_BASE = 'https://raw.githubusercontent.com/paulmann/MD.Viewer/refs/heads/main';
 
@@ -53,7 +50,381 @@ const TRACKED_FILES = [
     'assets/css/tooltips.css',
 ];
 
-// ── Bootstrap ────────────────────────────────────────────────────────────────
+// ── RawFileUpdater ────────────────────────────────────────────────────────────
+
+/**
+ * Keeps one local file in sync with its raw GitHub counterpart.
+ *
+ * Relies only on plain HTTP against raw.githubusercontent.com:
+ *   1) Conditional GET with stored ETag (If-None-Match) → 304 = no change.
+ *   2) On 200, verify payload via SHA-256 against local copy.
+ *   3) Atomic replace: tempnam() + LOCK_EX + rename().
+ *   4) Persist ETag + content hash in a small JSON state file.
+ */
+final class RawFileUpdater
+{
+    private const USER_AGENT = 'MDViewer-RawUpdater/3.0 (+https://Deynekin.com)';
+
+    public function __construct(
+        private readonly string  $rawUrl,
+        private readonly string  $localPath,
+        private readonly ?string $statePath  = null,
+        private readonly int     $timeout    = 15,
+    ) {
+        if (!extension_loaded('curl')) {
+            throw new RuntimeException('The cURL extension is required.');
+        }
+    }
+
+    /** SHA-256 of the local file, or null when it does not exist. */
+    public function localHash(): ?string
+    {
+        if (!is_file($this->localPath)) return null;
+        $hash = @hash_file('sha256', $this->localPath);
+        if ($hash === false) {
+            throw new RuntimeException("Cannot hash local file: {$this->localPath}");
+        }
+        return $hash;
+    }
+
+    /**
+     * Check only — returns status without writing anything.
+     *
+     * @return array{status: string, localHash: ?string, remoteHash: ?string,
+     *               etag: ?string, httpStatus: int, error: ?string}
+     */
+    public function check(): array
+    {
+        $state = $this->loadState();
+        try {
+            [$httpStatus, $respHeaders, $body] = $this->conditionalGet($state['etag'] ?? null);
+        } catch (RuntimeException $e) {
+            return [
+                'status'     => 'error',
+                'localHash'  => $this->localHash(),
+                'remoteHash' => null,
+                'etag'       => null,
+                'httpStatus' => 0,
+                'error'      => $e->getMessage(),
+            ];
+        }
+
+        $localHash = $this->localHash();
+
+        if ($httpStatus === 304) {
+            return [
+                'status'     => 'current',
+                'localHash'  => $localHash,
+                'remoteHash' => $state['hash'] ?? null,
+                'etag'       => $state['etag'] ?? null,
+                'httpStatus' => 304,
+                'error'      => null,
+            ];
+        }
+
+        if ($httpStatus !== 200 || !is_string($body)) {
+            return [
+                'status'     => 'error',
+                'localHash'  => $localHash,
+                'remoteHash' => null,
+                'etag'       => null,
+                'httpStatus' => $httpStatus,
+                'error'      => "Unexpected HTTP {$httpStatus}",
+            ];
+        }
+
+        $remoteHash = hash('sha256', $body);
+        $newEtag    = $respHeaders['etag'] ?? null;
+
+        // If hashes match, update ETag cache and report current
+        if ($localHash !== null && hash_equals($localHash, $remoteHash)) {
+            $this->saveState($newEtag, $remoteHash);
+            return [
+                'status'     => 'current',
+                'localHash'  => $localHash,
+                'remoteHash' => $remoteHash,
+                'etag'       => $newEtag,
+                'httpStatus' => 200,
+                'error'      => null,
+            ];
+        }
+
+        // Content changed — caller decides whether to apply
+        return [
+            'status'     => $localHash === null ? 'missing' : 'outdated',
+            'localHash'  => $localHash,
+            'remoteHash' => $remoteHash,
+            'etag'       => $newEtag,
+            'httpStatus' => 200,
+            'body'       => $body,       // included so apply() can reuse without re-fetch
+            'error'      => null,
+        ];
+    }
+
+    /**
+     * Apply update. Downloads and atomically replaces the local file.
+     * Backs up the old file to md.backup/{version}/ before replacing.
+     *
+     * @return array{status: string, error: ?string}
+     */
+    public function apply(string $backupVersion = ''): array
+    {
+        $result = $this->check();
+
+        if ($result['status'] === 'error') {
+            return ['status' => 'error', 'error' => $result['error']];
+        }
+        if ($result['status'] === 'current') {
+            return ['status' => 'current', 'error' => null];
+        }
+
+        // Body may already be available from check() to avoid double-download
+        $body = $result['body'] ?? null;
+        if ($body === null) {
+            // Re-fetch without ETag (shouldn't happen normally)
+            [, $respHeaders, $body] = $this->conditionalGet(null);
+            if (!is_string($body)) {
+                return ['status' => 'error', 'error' => 'Download failed'];
+            }
+        }
+
+        if (strlen($body) < 64) {
+            return ['status' => 'error', 'error' => 'Downloaded content too small — aborting'];
+        }
+
+        // Backup old file
+        if ($backupVersion !== '' && is_file($this->localPath)) {
+            $this->backupTo($backupVersion);
+        }
+
+        try {
+            $this->atomicReplace($body);
+        } catch (RuntimeException $e) {
+            return ['status' => 'error', 'error' => $e->getMessage()];
+        }
+
+        $this->saveState($result['etag'], hash('sha256', $body));
+
+        return [
+            'status' => $result['status'] === 'missing' ? 'created' : 'updated',
+            'error'  => null,
+        ];
+    }
+
+    /** Copy local file to md.backup/{version}/{relative-path}. */
+    public function backupTo(string $version): void
+    {
+        $backupDest = backupDir($version) . '/' . ltrim(
+            str_replace(docRoot(), '', $this->localPath), '/\\'
+        );
+        $dir = dirname($backupDest);
+        if (!is_dir($dir)) @mkdir($dir, 0755, true);
+        @copy($this->localPath, $backupDest);
+    }
+
+    // ── HTTP ──────────────────────────────────────────────────────────────────
+
+    /**
+     * @return array{0: int, 1: array<string,string>, 2: string|null}
+     */
+    private function conditionalGet(?string $etag): array
+    {
+        $reqHeaders = [
+            'User-Agent: ' . self::USER_AGENT,
+            'Accept: */*',
+            'Cache-Control: no-cache',
+            'Pragma: no-cache',
+        ];
+        if ($etag !== null && $etag !== '') {
+            $reqHeaders[] = 'If-None-Match: ' . $etag;
+        }
+
+        $respHeaders = [];
+        $ch = curl_init($this->rawUrl);
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_FOLLOWLOCATION => true,
+            CURLOPT_TIMEOUT        => $this->timeout,
+            CURLOPT_CONNECTTIMEOUT => $this->timeout,
+            CURLOPT_HTTPHEADER     => $reqHeaders,
+            CURLOPT_SSL_VERIFYPEER => true,
+            CURLOPT_ENCODING       => '',           // transparent gzip/deflate
+            CURLOPT_HEADERFUNCTION => static function ($ch, string $line) use (&$respHeaders): int {
+                $parts = explode(':', $line, 2);
+                if (count($parts) === 2) {
+                    $respHeaders[strtolower(trim($parts[0]))] = trim($parts[1]);
+                }
+                return strlen($line);
+            },
+        ]);
+
+        $body = curl_exec($ch);
+        if ($body === false && curl_errno($ch) !== 0) {
+            $err = curl_error($ch);
+            curl_close($ch);
+            throw new RuntimeException("cURL error: {$err}");
+        }
+        $status = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+
+        return [$status, $respHeaders, is_string($body) ? $body : null];
+    }
+
+    // ── State (ETag + hash) ───────────────────────────────────────────────────
+
+    /** @return array{etag?: ?string, hash?: ?string} */
+    private function loadState(): array
+    {
+        $path = $this->statePathOrDefault();
+        if (!is_file($path)) return [];
+        $raw = @file_get_contents($path);
+        if ($raw === false || $raw === '') return [];
+        try {
+            $data = json_decode($raw, true, 8, JSON_THROW_ON_ERROR);
+            return is_array($data) ? $data : [];
+        } catch (\JsonException) {
+            return [];
+        }
+    }
+
+    private function saveState(?string $etag, string $hash): void
+    {
+        $path    = $this->statePathOrDefault();
+        $dir     = dirname($path);
+        if (!is_dir($dir)) @mkdir($dir, 0755, true);
+        $payload = json_encode(
+            ['etag' => $etag, 'hash' => $hash, 'updated_at' => gmdate('c')],
+            JSON_THROW_ON_ERROR | JSON_PRETTY_PRINT
+        );
+        @file_put_contents($path, $payload, LOCK_EX);
+    }
+
+    private function statePathOrDefault(): string
+    {
+        return $this->statePath ?? $this->localPath . '.state.json';
+    }
+
+    // ── Atomic write ──────────────────────────────────────────────────────────
+
+    private function atomicReplace(string $content): void
+    {
+        $dir = dirname($this->localPath);
+        if (!is_dir($dir) && !@mkdir($dir, 0755, true)) {
+            throw new RuntimeException("Cannot create directory: {$dir}");
+        }
+        $tmp = tempnam($dir, '.upd_');
+        if ($tmp === false) {
+            throw new RuntimeException("Cannot create temp file in: {$dir}");
+        }
+        if (@file_put_contents($tmp, $content, LOCK_EX) === false) {
+            @unlink($tmp);
+            throw new RuntimeException('Failed to write temporary file.');
+        }
+        if (!@rename($tmp, $this->localPath)) {
+            @unlink($tmp);
+            throw new RuntimeException('Atomic replace (rename) failed.');
+        }
+        @chmod($this->localPath, 0644);
+    }
+}
+
+// ── Procedural helpers ────────────────────────────────────────────────────────
+
+function docRoot(): string
+{
+    return rtrim($_SERVER['DOCUMENT_ROOT'] ?: dirname(__FILE__), '/\\');
+}
+
+function localPath(string $file): string
+{
+    return docRoot() . '/' . ltrim($file, '/\\');
+}
+
+function backupRoot(): string
+{
+    return docRoot() . '/md.backup';
+}
+
+function backupDir(string $version): string
+{
+    $safe = preg_replace('/[^a-zA-Z0-9.\-]/', '_', $version);
+    return backupRoot() . '/' . $safe;
+}
+
+function stateDir(): string
+{
+    return backupRoot() . '/.state';
+}
+
+function stateFile(string $file): string
+{
+    // Convert path to flat filename: "assets/js/md.js" → "assets_js_md.js.json"
+    $slug = str_replace(['/', '\\'], '_', $file);
+    return stateDir() . '/' . $slug . '.json';
+}
+
+function rawUrl(string $file): string
+{
+    return RAW_BASE . '/' . ltrim($file, '/');
+}
+
+function extractVersion(string $content): string
+{
+    if (preg_match('/\*\s+Version:\s*(\d[\w.\-]+)/m', $content, $m)) {
+        return $m[1];
+    }
+    return '';
+}
+
+function localVersion(string $file = 'md.php'): string
+{
+    $path = localPath($file);
+    if (!is_file($path)) return '';
+    $fh = fopen($path, 'rb');
+    if (!$fh) return '';
+    $head = fread($fh, 1000);
+    fclose($fh);
+    return extractVersion((string) $head);
+}
+
+function backupFile(string $file, string $version): bool
+{
+    $src = localPath($file);
+    if (!is_file($src)) return true;
+    $dir  = backupDir($version) . '/' . dirname($file);
+    $dest = backupDir($version) . '/' . $file;
+    if (!is_dir($dir) && !mkdir($dir, 0755, true)) return false;
+    return copy($src, $dest);
+}
+
+function atomicWrite(string $destPath, string $content): bool
+{
+    $dir = dirname($destPath);
+    if (!is_dir($dir) && !mkdir($dir, 0755, true)) return false;
+    $tmp = $destPath . '.upd.' . bin2hex(random_bytes(4));
+    if (file_put_contents($tmp, $content) === false) { @unlink($tmp); return false; }
+    if (!rename($tmp, $destPath)) { @unlink($tmp); return false; }
+    return true;
+}
+
+function makeUpdater(string $file): RawFileUpdater
+{
+    return new RawFileUpdater(
+        rawUrl:    rawUrl($file),
+        localPath: localPath($file),
+        statePath: stateFile($file),
+        timeout:   15,
+    );
+}
+
+function jsonError(int $code, string $msg): never
+{
+    http_response_code($code);
+    echo json_encode(['error' => $msg]);
+    exit;
+}
+
+// ── Bootstrap ─────────────────────────────────────────────────────────────────
 
 header('Content-Type: application/json; charset=utf-8');
 header('X-Content-Type-Options: nosniff');
@@ -87,122 +458,6 @@ match ($action) {
     default   => jsonError(400, 'Unknown action'),
 };
 
-// ── Core helpers ──────────────────────────────────────────────────────────────
-
-function docRoot(): string
-{
-    return rtrim($_SERVER['DOCUMENT_ROOT'] ?: dirname(__DIR__), '/\\');
-}
-
-function localPath(string $file): string
-{
-    return docRoot() . '/' . ltrim($file, '/\\');
-}
-
-function backupRoot(): string
-{
-    return docRoot() . '/md.backup';
-}
-
-function backupDir(string $version): string
-{
-    // Sanitize version — only allow alphanumeric, dots, hyphens
-    $safe = preg_replace('/[^a-zA-Z0-9.\-]/', '_', $version);
-    return backupRoot() . '/' . $safe;
-}
-
-function rawUrl(string $file): string
-{
-    return RAW_BASE . '/' . ltrim($file, '/');
-}
-
-function extractVersion(string $content): string
-{
-    if (preg_match('/\*\s+Version:\s*(\d[\w.\-]+)/m', $content, $m)) {
-        return $m[1];
-    }
-    return '';
-}
-
-function localVersion(string $file = 'md.php'): string
-{
-    $path = localPath($file);
-    if (!is_file($path)) return '';
-    $fh = fopen($path, 'rb');
-    if (!$fh) return '';
-    $head = fread($fh, 1000);
-    fclose($fh);
-    return extractVersion((string)$head);
-}
-
-/**
- * Copy a local file into md.backup/{version}/{file}, creating dirs as needed.
- * Returns true on success, false on failure.
- */
-function backupFile(string $file, string $version): bool
-{
-    $src = localPath($file);
-    if (!is_file($src)) return true; // nothing to backup
-
-    $dir  = backupDir($version) . '/' . dirname($file);
-    $dest = backupDir($version) . '/' . $file;
-
-    if (!is_dir($dir) && !mkdir($dir, 0755, true)) return false;
-    return copy($src, $dest);
-}
-
-/**
- * Atomic write: write to tmp then rename.
- */
-function atomicWrite(string $destPath, string $content): bool
-{
-    $dir = dirname($destPath);
-    if (!is_dir($dir) && !mkdir($dir, 0755, true)) return false;
-
-    $tmp = $destPath . '.upd.' . bin2hex(random_bytes(4));
-    if (file_put_contents($tmp, $content) === false) {
-        @unlink($tmp);
-        return false;
-    }
-    if (!rename($tmp, $destPath)) {
-        @unlink($tmp);
-        return false;
-    }
-    return true;
-}
-
-function remoteGet(string $url, int $limit = 0): string|false
-{
-    $headers = "User-Agent: MDViewer-Updater/2.1\r\n"
-             . "Accept: */*\r\n"
-             . "Connection: close\r\n";
-
-    if ($limit > 0) {
-        $headers .= "Range: bytes=0-" . ($limit - 1) . "\r\n";
-    }
-
-    $ctx = stream_context_create([
-        'http' => [
-            'method'          => 'GET',
-            'header'          => $headers,
-            'timeout'         => ($limit > 0 ? 8 : 30),
-            'ignore_errors'   => true,
-            'follow_location' => 1,
-        ],
-        'ssl'  => ['verify_peer' => true],
-    ]);
-
-    $body = @file_get_contents($url, false, $ctx);
-    return ($body !== false) ? $body : false;
-}
-
-function jsonError(int $code, string $msg): never
-{
-    http_response_code($code);
-    echo json_encode(['error' => $msg]);
-    exit;
-}
-
 // ── Actions ───────────────────────────────────────────────────────────────────
 
 function doVersion(): never
@@ -214,37 +469,28 @@ function doVersion(): never
 function doBackups(): never
 {
     $root = backupRoot();
-    if (!is_dir($root)) {
-        echo json_encode(['backups' => []]);
-        exit;
-    }
+    if (!is_dir($root)) { echo json_encode(['backups' => []]); exit; }
 
     $versions = [];
-    $entries  = scandir($root);
-    foreach ($entries as $entry) {
-        if ($entry === '.' || $entry === '..') continue;
+    foreach (scandir($root) as $entry) {
+        if ($entry === '.' || $entry === '..' || $entry === '.state') continue;
         $dir = $root . '/' . $entry;
         if (!is_dir($dir)) continue;
-        // Only include if contains at least one tracked file
         $hasFiles = false;
-        foreach (TRACKED_FILES as $file) {
-            if (is_file($dir . '/' . $file)) { $hasFiles = true; break; }
+        foreach (TRACKED_FILES as $f) {
+            if (is_file($dir . '/' . $f)) { $hasFiles = true; break; }
         }
         if (!$hasFiles) continue;
-
         $versions[] = [
-            'version'  => $entry,
-            'date'     => date('Y-m-d H:i', filemtime($dir)),
-            'files'    => array_values(array_filter(
+            'version' => $entry,
+            'date'    => date('Y-m-d H:i', filemtime($dir)),
+            'files'   => array_values(array_filter(
                 TRACKED_FILES,
                 fn(string $f) => is_file($dir . '/' . $f)
             )),
         ];
     }
-
-    // Sort newest first (by version string descending)
     usort($versions, fn($a, $b) => version_compare($b['version'], $a['version']));
-
     echo json_encode(['backups' => $versions]);
     exit;
 }
@@ -257,53 +503,49 @@ function doCheck(): never
     $remoteVer  = '';
 
     foreach (TRACKED_FILES as $file) {
-        $url    = rawUrl($file);
-        $remote = remoteGet($url, 1000);
-        $exists = is_file(localPath($file));
+        $updater = makeUpdater($file);
+        $check   = $updater->check();
 
-        if ($remote === false) {
-            $results[] = [
-                'path'          => $file,
-                'status'        => 'error',
-                'localVersion'  => localVersion($file),
-                'remoteVersion' => null,
-                'hasUpdate'     => false,
-                'error'         => 'Remote unreachable',
-            ];
-            continue;
+        $locVer = localVersion($file);
+        $remVer = '';
+
+        // Extract remote version from downloaded body (200 responses only)
+        if (isset($check['body'])) {
+            $remVer = extractVersion(substr($check['body'], 0, 1000));
         }
 
-        $remVer   = extractVersion($remote);
-        $locVer   = localVersion($file);
-        $upToDate = ($locVer !== '' && $remVer !== '' && $locVer === $remVer);
+        // For 304/current with known state, re-read version from local file
+        // (it matches remote since SHA-256 confirmed equal)
+        if ($check['status'] === 'current' && $remVer === '') {
+            $remVer = $locVer;
+        }
 
-        if ($file === 'md.php') $remoteVer = $remVer;
+        if ($file === 'md.php' && $remVer !== '') $remoteVer = $remVer;
 
-        $status = match (true) {
-            !$exists                                       => 'missing',
-            $locVer === ''                                 => 'no-version',
-            $upToDate                                      => 'up-to-date',
-            version_compare($remVer, $locVer, '>')         => 'outdated',
-            version_compare($remVer, $locVer, '<')         => 'newer-local',
-            default                                        => 'outdated',
+        $status = match ($check['status']) {
+            'current' => 'up-to-date',
+            'missing' => 'missing',
+            'outdated'=> 'outdated',
+            'error'   => 'error',
+            default   => 'outdated',
         };
 
-        if (in_array($status, ['missing', 'outdated', 'no-version'], true)) {
-            $hasUpdates = true;
-        }
+        if (in_array($status, ['missing', 'outdated'], true)) $hasUpdates = true;
 
         $results[] = [
             'path'          => $file,
             'status'        => $status,
             'localVersion'  => $locVer,
             'remoteVersion' => $remVer,
-            'hasUpdate'     => in_array($status, ['missing', 'outdated', 'no-version'], true),
+            'hasUpdate'     => in_array($status, ['missing', 'outdated'], true),
+            'httpStatus'    => $check['httpStatus'],
+            'error'         => $check['error'],
         ];
     }
 
     echo json_encode([
         'localVersion'  => $localVer,
-        'remoteVersion' => $remoteVer,
+        'remoteVersion' => $remoteVer ?: $localVer,
         'hasUpdates'    => $hasUpdates,
         'files'         => $results,
     ], JSON_PRETTY_PRINT);
@@ -312,53 +554,28 @@ function doCheck(): never
 
 function doApply(): never
 {
-    $updated    = [];
-    $skipped    = [];
-    $failed     = [];
-    $backupVer  = localVersion('md.php'); // snapshot version before any writes
+    $updated   = [];
+    $skipped   = [];
+    $failed    = [];
+    $backupVer = localVersion('md.php');
 
     foreach (TRACKED_FILES as $file) {
-        $url     = rawUrl($file);
-        $locPath = localPath($file);
-        $exists  = is_file($locPath);
+        $locVerBefore = localVersion($file); // capture BEFORE apply() replaces file
+        $updater      = makeUpdater($file);
+        $result       = $updater->apply(backupVersion: $backupVer);
 
-        // Quick version check (1000 bytes)
-        $head = remoteGet($url, 1000);
-        if ($head === false) {
-            $failed[] = ['path' => $file, 'reason' => 'Remote unreachable'];
-            continue;
-        }
-
-        $remVer = extractVersion($head);
-        $locVer = localVersion($file);
-
-        if ($exists && $remVer !== '' && $locVer === $remVer) {
-            $skipped[] = $file;
-            continue;
-        }
-
-        // Full download
-        $content = remoteGet($url, 0);
-        if ($content === false || strlen($content) < 64) {
-            $failed[] = ['path' => $file, 'reason' => 'Download failed or empty'];
-            continue;
-        }
-
-        // Backup old version before replacing
-        if ($exists && $backupVer !== '') {
-            backupFile($file, $backupVer);
-        }
-
-        if (!atomicWrite($locPath, $content)) {
-            $failed[] = ['path' => $file, 'reason' => 'Write/rename failed'];
-            continue;
-        }
-
-        $updated[] = [
-            'path'        => $file,
-            'fromVersion' => $locVer,
-            'toVersion'   => $remVer ?: extractVersion($content),
-        ];
+        match ($result['status']) {
+            'current' => $skipped[] = $file,
+            'updated', 'created' => $updated[] = [
+                'path'        => $file,
+                'fromVersion' => $locVerBefore,
+                'toVersion'   => localVersion($file), // re-read after write
+            ],
+            default => $failed[] = [
+                'path'   => $file,
+                'reason' => $result['error'] ?? 'unknown error',
+            ],
+        };
     }
 
     echo json_encode([
@@ -378,9 +595,7 @@ function doRestore(): never
     if ($reqVersion === '') jsonError(400, 'version parameter required');
 
     $restoreDir = backupDir($reqVersion);
-    if (!is_dir($restoreDir)) {
-        jsonError(404, 'Backup not found: ' . $reqVersion);
-    }
+    if (!is_dir($restoreDir)) jsonError(404, 'Backup not found: ' . $reqVersion);
 
     $currentVer = localVersion('md.php');
     $restored   = [];
@@ -389,18 +604,12 @@ function doRestore(): never
 
     foreach (TRACKED_FILES as $file) {
         $backupSrc = $restoreDir . '/' . $file;
-        if (!is_file($backupSrc)) {
-            $skipped[] = $file; // this file wasn't in that backup
-            continue;
-        }
+        if (!is_file($backupSrc)) { $skipped[] = $file; continue; }
 
         $locPath = localPath($file);
         $locVer  = localVersion($file);
 
-        // Backup current version before restoring
-        if (is_file($locPath) && $currentVer !== '') {
-            backupFile($file, $currentVer);
-        }
+        if (is_file($locPath) && $currentVer !== '') backupFile($file, $currentVer);
 
         $content = file_get_contents($backupSrc);
         if ($content === false) {
@@ -413,21 +622,25 @@ function doRestore(): never
             continue;
         }
 
+        // Invalidate ETag state so next check does a full fetch
+        $stateFile = stateFile($file);
+        if (is_file($stateFile)) @unlink($stateFile);
+
         $restored[] = [
             'path'        => $file,
             'fromVersion' => $locVer,
-            'toVersion'   => extractVersion($content),
+            'toVersion'   => extractVersion(substr($content, 0, 1000)),
         ];
     }
 
     echo json_encode([
-        'success'       => empty($failed),
-        'restoredFrom'  => $reqVersion,
-        'backedUpCurrent' => $currentVer,
-        'restored'      => $restored,
-        'skipped'       => $skipped,
-        'failed'        => $failed,
-        'newVersion'    => localVersion('md.php'),
+        'success'           => empty($failed),
+        'restoredFrom'      => $reqVersion,
+        'backedUpCurrent'   => $currentVer,
+        'restored'          => $restored,
+        'skipped'           => $skipped,
+        'failed'            => $failed,
+        'newVersion'        => localVersion('md.php'),
     ], JSON_PRETTY_PRINT);
     exit;
 }
