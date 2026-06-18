@@ -1,7 +1,7 @@
 <?php
 /**
  * Markdown Viewer — Self-Updater
- * Version: 3.4.0
+ * Version: 3.5.0
  * Author: Mikhail Deynekin
  * Site: https://Deynekin.com
  * Email: Mikhail@Deynekin.com
@@ -37,6 +37,7 @@
  *
  * v2.0.0: Raw Range requests, no API/tokens.
  * v2.1.0: Backup-before-replace, restore-from-backup.
+ * v3.5.0: TRACKED_FILES expanded — settings.js, settings.css, upload.js, README.md, LICENSE.
  * v3.4.0: ALLOW_UPDATE flag; direct ?update=true mode with two-phase self-update.
  * v3.3.0: save_clipboard action; uploads.md/ directory for both upload and save.
  * v3.2.1: upload_md checks DISABLE_UPLOAD from .md.ini.
@@ -53,12 +54,21 @@ declare(strict_types=1);
 const RAW_BASE = 'https://raw.githubusercontent.com/paulmann/MD.Viewer/refs/heads/main';
 
 const TRACKED_FILES = [
+    // Core PHP scripts
     'md.php',
     'updater.php',
+    // JavaScript
     'assets/js/md.js',
+    'assets/js/settings.js',
     'assets/js/tooltips.js',
+    'assets/js/upload.js',
+    // CSS
     'assets/css/md.css',
+    'assets/css/settings.css',
     'assets/css/tooltips.css',
+    // Docs (read-only: never backed up, never force-replaced if local edits exist)
+    'README.md',
+    'LICENSE',
 ];
 
 // ── RawFileUpdater ────────────────────────────────────────────────────────────
@@ -518,20 +528,23 @@ if (isset($_GET['update']) && $_GET['update'] === 'true') {
         $backupVer = localVersion('md.php');
         $rows      = [];
 
+        $docsFiles = ['README.md', 'LICENSE']; // no version strings, no backup needed
         foreach (TRACKED_FILES as $file) {
             if ($file === 'updater.php') {
                 // Already handled in phase 1 — report current status
                 $rows[] = ['file' => $file, 'status' => 'current (updated in phase 1)'];
                 continue;
             }
-            $verBefore = localVersion($file);
+            $isDoc     = in_array($file, $docsFiles, true);
+            $verBefore = $isDoc ? null : localVersion($file);
             $updater   = makeUpdater($file);
-            $res       = $updater->apply(backupVersion: $backupVer);
+            // Docs: no backup (pass empty string); code files: backup to versioned dir
+            $res       = $updater->apply(backupVersion: $isDoc ? '' : $backupVer);
             $rows[]    = [
                 'file'    => $file,
                 'status'  => $res['status'],
                 'from'    => $verBefore,
-                'to'      => ($res['status'] === 'updated' || $res['status'] === 'created')
+                'to'      => (!$isDoc && ($res['status'] === 'updated' || $res['status'] === 'created'))
                              ? localVersion($file) : null,
                 'error'   => $res['error'] ?? null,
             ];
@@ -781,17 +794,19 @@ function doApply(): never
     $failed    = [];
     $backupVer = localVersion('md.php');
 
+    $docsFiles = ['README.md', 'LICENSE'];
     foreach (TRACKED_FILES as $file) {
-        $locVerBefore = localVersion($file); // capture BEFORE apply() replaces file
+        $isDoc        = in_array($file, $docsFiles, true);
+        $locVerBefore = $isDoc ? null : localVersion($file); // capture BEFORE apply()
         $updater      = makeUpdater($file);
-        $result       = $updater->apply(backupVersion: $backupVer);
+        $result       = $updater->apply(backupVersion: $isDoc ? '' : $backupVer);
 
         match ($result['status']) {
             'current' => $skipped[] = $file,
             'updated', 'created' => $updated[] = [
                 'path'        => $file,
                 'fromVersion' => $locVerBefore,
-                'toVersion'   => localVersion($file), // re-read after write
+                'toVersion'   => $isDoc ? null : localVersion($file),
             ],
             default => $failed[] = [
                 'path'   => $file,
