@@ -1,11 +1,16 @@
+<!--
+ * MD.Viewer — Documentation
+ * Version: 2.8.0
+-->
+
 # MD.Viewer
 
-> A secure, self-hosted PHP Markdown viewer and browser that turns plain `.md` files into polished documentation pages with a searchable file browser, auto-generated table of contents, heading numbering, Mermaid diagrams, glossary tooltips, responsive reading controls, dark mode, and a built-in self-updater. No build step. No database. No framework.
+> A secure, self-hosted PHP Markdown viewer and browser that turns plain `.md` files into polished documentation pages with a searchable file browser, auto-generated table of contents, heading numbering, Mermaid diagrams, glossary tooltips, responsive reading controls, dark mode, a built-in self-updater, file upload, clipboard preview, and server-side configuration. No build step. No database. No framework.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://github.com/paulmann/MD.Viewer/blob/main/LICENSE)
 [![PHP](https://img.shields.io/badge/PHP-8.3%2B-777BB4?logo=php&logoColor=white)](https://php.net)
-[![md.php](https://img.shields.io/badge/md.php-v2.5.5-success)](https://github.com/paulmann/MD.Viewer)
-[![updater.php](https://img.shields.io/badge/updater.php-v3.1.1-4f46e5)](https://github.com/paulmann/MD.Viewer)
+[![md.php](https://img.shields.io/badge/md.php-v2.8.0-success)](https://github.com/paulmann/MD.Viewer)
+[![updater.php](https://img.shields.io/badge/updater.php-v3.5.0-4f46e5)](https://github.com/paulmann/MD.Viewer)
 
 ---
 
@@ -15,7 +20,9 @@ MD.Viewer is built around **`md.php`**, a single PHP entry point that renders a 
 
 The viewer focuses on self-hosted documentation without a toolchain. It supports readable typography, heading numbering, automatic table of contents generation, Mermaid rendering, code-copy buttons, glossary tooltips, dark mode, mobile-friendly controls, and a Settings panel that stores viewer preferences locally.
 
-Recent versions also add a built-in updater in **`updater.php`**. It checks GitHub raw files using **ETag** and **SHA-256**, creates versioned backups before replacement, restores previous versions from the Settings panel, and can manage an optional `index.php` hard link to `md.php`.
+**`updater.php`** is a companion self-update engine. It checks GitHub raw files using ETag and SHA-256, creates versioned backups before replacement, restores previous versions from the Settings panel, manages an optional `index.php` hard link, handles `.md` file uploads, and supports direct browser-based updates via `?update=true`.
+
+Server-side behavior is controlled through a **`.md.ini`** configuration file placed next to `md.php`. This file hard-locks feature flags that cannot be overridden from the browser or Settings panel.
 
 ---
 
@@ -26,9 +33,7 @@ Recent versions also add a built-in updater in **`updater.php`**. It checks GitH
 git clone https://github.com/paulmann/MD.Viewer.git /var/www/html/docs
 
 # Create a Markdown file that matches the script name
-echo "# Hello, World
-
-This is my documentation." > /var/www/html/docs/md.md
+echo "# Hello, World\n\nThis is my documentation." > /var/www/html/docs/md.md
 
 # Open in a browser
 # https://your-domain.com/docs/md.php
@@ -36,23 +41,24 @@ This is my documentation." > /var/www/html/docs/md.md
 
 Minimal setup:
 
-- Place **`md.php`** next to **`md.md`**.
+- Place **`md.php`** (and the `assets/` folder) next to **`md.md`**.
 - Open **`md.php`** in a browser.
 - The script automatically looks for a Markdown file with the same base name, so `md.php` renders `md.md`, `guide.php` renders `guide.md`, and so on.
 
 Optional:
 
-- Add **`updater.php`** to enable in-app update checks, apply updates, backups, restore, and `index.php` link management.
-- If you want your directory root to open MD.Viewer automatically, create `index.php` as a hard link to `md.php` from the Settings panel, or create it manually.
+- Add **`updater.php`** to enable in-app update checks, apply updates, backups, restore, file uploads, and `index.php` link management.
+- Set **`ALLOW_UPDATE = true`** in `.md.ini` to enable the update system (disabled by default).
+- If you want your directory root to open MD.Viewer automatically, create `index.php` as a hard link to `md.php` from the Settings panel.
 
 ---
 
 ## Requirements
 
 - PHP **8.3+**.
-- PHP extensions: `mbstring` and `curl` for the updater.
+- PHP extensions: `mbstring` and `curl` (required for updater and clipboard).
 - A web server such as Apache, Nginx, Caddy, or the PHP built-in server.
-- Browser-side internet access for CDN assets used by the UI, Mermaid, and syntax highlighting, unless you replace them with local copies.
+- Browser-side internet access for CDN assets (Mermaid, syntax highlighting, Tailwind) unless replaced with local copies.
 
 ---
 
@@ -68,9 +74,9 @@ cd MD.Viewer
 ### Manual install
 
 1. Download the repository or release archive.
-2. Copy `md.php`, `assets/`, and optionally `updater.php` into your target directory.
+2. Copy `md.php`, `updater.php`, `assets/`, and optionally `README.md` into your target directory.
 3. Add your Markdown files in the same directory tree.
-4. Open `md.php` in a browser.
+4. Open `md.php` in a browser. `.md.ini` is created automatically on first load.
 
 ### PHP built-in server
 
@@ -104,18 +110,23 @@ server {
 ```text
 MD.Viewer/
 ├── md.php                     # Main viewer / browser script
-├── updater.php                # Optional self-updater and backup manager
+├── updater.php                # Self-updater, backup manager, upload handler
+├── .md.ini                    # Server-side config (auto-created on first run)
 ├── md.md                      # Default Markdown file for md.php
+├── uploads.md/                # Created automatically for uploaded/saved files
 ├── md.backup/                 # Created automatically when updates/restores run
-│   ├── 2.5.0/
+│   ├── 2.8.0/
 │   └── .state/
 ├── assets/
 │   ├── css/
 │   │   ├── md.css
+│   │   ├── settings.css       # Settings panel and upload UI styles
 │   │   └── tooltips.css
 │   └── js/
 │       ├── md.js
-│       └── tooltips.js
+│       ├── settings.js        # Settings panel engine
+│       ├── tooltips.js
+│       └── upload.js          # Upload and clipboard preview logic
 ├── LICENSE
 └── README.md
 ```
@@ -130,25 +141,59 @@ That means you can keep multiple independent viewer instances in one directory t
 
 ---
 
+## Server-side configuration — `.md.ini`
+
+On first request, `md.php` creates a `.md.ini` file in the same directory. This file hard-locks feature flags so they **cannot** be changed from the browser or Settings panel. Edit this file directly on the server.
+
+```ini
+; MD.Viewer server-side configuration
+; Edit this file to hard-override settings.
+; Changes here cannot be undone from the Settings panel.
+
+; Disable the "Upload .md" button in the file browser (recommended: true)
+DISABLE_UPLOAD    = true
+
+; Disable the "Preview Clipboard" button in the file browser
+DISABLE_CLIPBOARD = false
+
+; Disable the "Save to File" button in clipboard preview (saves to uploads.md/)
+DISABLE_SAVE_CLIPBOARD_TO_FILE = true
+
+; Allow updating files via updater.php?update=true or the Settings panel
+; Set to true only on servers you control; false by default for safety
+ALLOW_UPDATE = false
+```
+
+| Key | Default | Effect |
+|---|---|---|
+| `DISABLE_UPLOAD` | `true` | Hides and disables the Upload button |
+| `DISABLE_CLIPBOARD` | `false` | Hides and disables the Clipboard Preview button |
+| `DISABLE_SAVE_CLIPBOARD_TO_FILE` | `true` | Hides Save to File in clipboard preview |
+| `ALLOW_UPDATE` | `false` | Enables update system (Settings panel + `?update=true`) |
+
+Missing keys are automatically appended to the file with their default values on next load.
+
+---
+
 ## Usage modes
 
 ### Viewer mode
 
-When a matching Markdown file exists, MD.Viewer renders it as a styled document page.
-
-It derives the page title from the first top-level heading, builds a description from the first paragraph, renders a table of contents, styles headings and code blocks, and applies local viewer preferences such as theme, width, font size, and line spacing.
+When a matching Markdown file exists, MD.Viewer renders it as a styled document page. It derives the page title from the first top-level heading, builds a description from the first paragraph, renders a table of contents, and applies local viewer preferences.
 
 ### File browser mode
 
-When no matching Markdown file exists, MD.Viewer switches to a recursive Markdown browser.
+When no matching Markdown file exists, MD.Viewer switches to a recursive Markdown browser. The browser scans the current directory tree, lists Markdown files in a searchable table, and opens the selected file with `?file=relative/path.md`.
 
-The browser scans the current directory tree, lists Markdown files in a searchable table, and opens the selected file with `?file=relative/path.md`. This is useful for wiki-style repositories, notes collections, documentation folders, and READMEs spread across subdirectories.
+### Clipboard preview mode
 
-### URL parameter
+The file browser includes a **Clipboard Preview** button. Paste any Markdown text into the textarea and click Preview — the content is rendered in viewer mode in the same tab. If `DISABLE_SAVE_CLIPBOARD_TO_FILE = false` in `.md.ini`, a **Save to File** bar appears at the top of the preview with a filename input and a Save button that writes the content to `uploads.md/`.
+
+### URL parameters
 
 | Parameter | Meaning | Example |
 |---|---|---|
-| `?file=path/to/doc.md` | Render a specific Markdown file inside the allowed tree | `md.php?file=docs/api.md` |
+| `?file=path/to/doc.md` | Render a specific Markdown file | `md.php?file=docs/api.md` |
 
 Only relative paths inside the viewer root are accepted. Path traversal, absolute paths, null bytes, and control characters are rejected.
 
@@ -158,203 +203,120 @@ Only relative paths inside the viewer root are accepted. Path traversal, absolut
 
 ### Markdown rendering
 
-MD.Viewer supports the core Markdown features expected for technical documents:
-
-- Headings, paragraphs, emphasis, strong text, inline code, blockquotes, horizontal rules, and fenced code blocks.
+- Headings, paragraphs, emphasis, strong text, inline code, blockquotes, horizontal rules, fenced code blocks.
 - Ordered and unordered lists, including nested lists.
 - Tables with styled output.
-- Task lists.
-- Footnotes and source-style references.
-- Reference-style links.
+- Task lists, footnotes, reference-style links.
 - Images and standard links.
+- Emoji shortcode support.
+- Universal inline patterns for polished document formatting.
 
 ### Navigation and structure
 
-The viewer improves raw Markdown readability with structural features:
-
 - Auto-generated table of contents.
 - Optional automatic heading numbering.
-- Title splitting by colon or full-width colon for cleaner hero titles.
-- Searchable file browser mode when no matching Markdown file is found.
+- Title splitting by colon for cleaner hero titles.
+- Searchable file browser mode.
 
 ### Code, diagrams, and rich content
 
-MD.Viewer includes presentation features useful for developer-facing documentation:
-
-- Syntax-highlighted fenced code blocks.
-- Copy button for code blocks.
+- Syntax-highlighted fenced code blocks with copy button.
 - Mermaid diagrams.
-- Emoji shortcode support.
-- Universal inline patterns used for polished document formatting.
+- Superscript/subscript support.
 
 ### Glossary tooltips
 
-The current versions include inline glossary tooltips backed by `assets/js/tooltips.js` and `assets/css/tooltips.css`.
-
-Terms can show a tooltip on hover, and the tooltip engine resolves supported glossary syntax variants to the same term. This is useful for documentation with abbreviations, domain-specific terms, or inline explanations.
+Inline glossary tooltips via `assets/js/tooltips.js` and `assets/css/tooltips.css`. Terms show a tooltip on hover; the engine resolves variant spellings to the same definition.
 
 ### Appearance and reading controls
 
-The viewer includes a modern Settings panel and header controls for reading comfort:
-
 - Dark mode.
-- Adjustable page width.
-- Adjustable font size.
-- Adjustable line height.
-- Header toolbar visibility settings.
-- Mobile-aware behavior for width and font controls.
-- Persistent preferences stored locally in the browser.
+- Adjustable page width, font size, and line height.
+- Header toolbar visibility settings (desktop/mobile independently).
+- Persistent preferences stored in browser cookies.
 
-The latest version adds dedicated Settings toggles for:
+### File upload
 
-- Showing or hiding the width switcher in the header.
-- Showing the width switcher on mobile.
-- Showing font and line controls in the header.
-- Showing font and line controls on mobile.
+If `DISABLE_UPLOAD = false` in `.md.ini`, the file browser shows an **Upload .md** button. Uploaded files are saved to `uploads.md/` next to `md.php`. The directory is created automatically if it does not exist. Uploads are validated server-side: only `.md` files are accepted, filenames are sanitised, and the `uploads.md/` directory is created if missing.
 
-These defaults preserve the current UI behavior: width controls shown on desktop but hidden on phones, font controls hidden on desktop but shown on phones.
+Upload protection is three-layered:
+
+1. UI: button is disabled/hidden when `DISABLE_UPLOAD = true`.
+2. JS click handler: early return if `MDV_CONFIG.disableUpload` is true (prevents DevTools bypass).
+3. PHP `updater.php`: reads `.md.ini` independently, returns `403` if `DISABLE_UPLOAD = true`.
+
+### Clipboard preview and Save to File
+
+The Clipboard Preview feature lets you paste Markdown text and render it instantly without saving a file. If `DISABLE_SAVE_CLIPBOARD_TO_FILE = false`, a Save to File bar appears in the preview with:
+
+- A filename input (pre-filled with `clipboard-YYYYMMDD-HHiiss.md`).
+- A **Save** button that POSTs the content to `updater.php?action=save_clipboard`.
+- Inline status feedback: Saving… / ✓ path / ⚠ error.
+
+The source text is stored in `sessionStorage` when the preview opens, so the Save button does not need to re-fetch the content.
 
 ### Settings panel
 
-The Settings panel is now a major part of the application rather than a small theme toggle. It includes:
+The Settings panel (opened from the header gear icon) includes:
 
-- Font size controls.
-- Line height controls.
-- Page width controls.
-- Header toolbar visibility controls.
-- PHP-side feature toggles that require reload.
-- Paragraph break style settings.
-- Cookie-consent behavior.
-- Update check and apply controls.
-- Backup and restore controls.
-- `index.php` link management.
+- Viewer preference toggles (theme, width, font, line height, TOC, numbering, etc.).
+- Header toolbar visibility controls per device type.
+- PHP-side feature toggles (applied on next page load via cookies).
+- Update check and apply controls (visible only when `ALLOW_UPDATE = true`).
+- Backup list and restore controls.
+- `index.php` hard-link management.
 
 ### Built-in updater
 
-If `updater.php` is present, the Settings panel can check for updates and apply them without using the GitHub API.
+`updater.php` provides two ways to update:
 
-Current updater behavior:
+**1. Settings panel** (AJAX, stays on the page):
+- Check for updates across all tracked files.
+- Apply updates with per-file status feedback.
+- Force reinstall all files.
+- View and restore backup versions.
 
-- Checks **all tracked files**, including `md.php`, `updater.php`, `assets/js/md.js`, `assets/js/tooltips.js`, `assets/css/md.css`, and `assets/css/tooltips.css`.
-- Uses conditional GET with stored **ETag** values against `raw.githubusercontent.com`.
-- Treats **HTTP 304** as unchanged, avoiding unnecessary downloads.
-- On **HTTP 200**, verifies the remote payload by comparing **SHA-256** with the local file.
-- Stores per-file ETag and SHA-256 state under `md.backup/.state/`.
-- Applies updates with atomic replacement.
-- Allows `updater.php` to update **itself** safely; the new version is used from the next request.
+**2. Direct browser access** (`/updater.php?update=true`):
+- Requires `ALLOW_UPDATE = true` in `.md.ini`.
+- Two-phase bootstrap:
+  - **Phase 1**: updates `updater.php` itself first. If changed, HTTP-redirects to `?_phase=2` so the **new** updater handles the rest.
+  - **Phase 2**: updates all remaining tracked files.
+- Outputs a standalone styled HTML result page with per-file status badges, version deltas, and a Back button.
+
+Tracked files:
+
+```
+md.php           updater.php
+assets/js/md.js          assets/js/settings.js
+assets/js/tooltips.js    assets/js/upload.js
+assets/css/md.css        assets/css/settings.css
+assets/css/tooltips.css
+README.md        LICENSE
+```
+
+Update detection uses a two-layer approach:
+
+1. Conditional GET with stored **ETag** (`If-None-Match`) → HTTP 304 means unchanged, no download.
+2. On HTTP 200, **SHA-256** comparison with local file — identical hash means no real change (CDN quirk).
 
 ### Backups and restore
 
-The updater now creates versioned backups automatically before replacing files.
-
-Backup behavior:
-
-- Before each replacement, the current local file is copied into `md.backup/[version]/...`.
-- Backup folders contain only the files that actually changed.
-- The Settings panel lists backup versions, dates, and file counts.
-- Restore first backs up the current version, then writes the selected old files back into place.
-- Restoring invalidates cached updater state so the next update check starts fresh.
-
-This makes updates reversible from the UI without Git, SSH, or manual file copying.
+Before each file replacement, the current local file is copied to `md.backup/[version]/`. The Settings panel lists backup versions, dates, and file counts. Restoring first backs up the current version, then writes the selected files back.
 
 ### `index.php` hard-link management
 
-The latest version adds Settings controls for managing an optional `index.php` entry point.
-
-Behavior:
-
-- The panel can detect whether `index.php` is a hard link to `md.php` by comparing inode numbers.
-- If no `index.php` exists, the panel can create a hard link.
-- If the host does not allow `link()`, the updater falls back to a tiny wrapper file that includes `md.php`.
-- If `index.php` is already a regular file and not a hard link, the feature is blocked and the UI explains that you must remove or rename the file manually first.
-- If `index.php` is a hard link, the panel can remove it safely without affecting `md.php`.
+The Settings panel can create or remove `index.php` as a hard link to `md.php` (or a tiny wrapper include when `link()` is unavailable), making `md.php` accessible as the directory root.
 
 ---
 
-## Configuration
+## Security notes
 
-### Feature toggles
-
-MD.Viewer includes PHP-side feature toggles for behavior that affects rendering and may require a reload. These are available in the script and surfaced in the Settings panel where applicable.
-
-Examples include:
-
-- Auto numbering.
-- Automatic table of contents.
-- Glossary tooltip support.
-- Update UI.
-- Cookie-consent behavior.
-
-### Paragraph break style
-
-The Settings panel lets the user choose how paragraph breaks are rendered in the viewer. This is useful for different reading preferences and different Markdown authoring styles.
-
-### Cookie consent
-
-The current versions include a Settings option that controls cookie persistence behavior, such as session-only vs persistent storage when cookie-backed settings are used.
-
----
-
-## Security
-
-MD.Viewer is designed to be safe for self-hosted documentation browsing.
-
-Security-related behavior includes:
-
-- Restricting `?file=` to files inside the allowed directory tree.
-- Rejecting traversal attempts and malformed paths.
-- Same-origin protection for updater actions.
-- Requiring POST for mutating updater operations.
-- Using atomic file replacement for updates and restore.
-- Avoiding the GitHub REST API and access tokens for normal update checks.
-- Keeping update state locally instead of depending on external storage.
-
-As always, you should still deploy it behind normal web-server best practices and ensure file permissions are appropriate for your host.
-
----
-
-## Recent additions
-
-The current public repository version includes the following newer capabilities beyond the older README snapshot:
-
-- Built-in updater with raw GitHub checks via ETag and SHA-256.
-- Self-updating `updater.php`.
-- Automatic per-version backups in `md.backup/`.
-- Restore-from-backup UI in Settings.
-- Header toolbar visibility settings for desktop and mobile.
-- `index.php` hard-link management from Settings.
-- Safer `index.php` handling when a regular file already exists.
-- Updated terminology and file naming centered on **`md.php`** instead of the old `index.php` wording.
-
----
-
-## Troubleshooting
-
-### The page opens in browser mode instead of showing my document
-
-Make sure the Markdown filename matches the PHP filename, or pass the file explicitly with `?file=`.
-
-Examples:
-
-- `md.php` expects `md.md`.
-- `guide.php` expects `guide.md`.
-- `docs.php?file=manual/install.md` opens a specific file.
-
-### Update controls are not visible
-
-The update and backup UI depends on `updater.php` being present and reachable from the same directory. The server must also allow PHP to write the tracked files and the `md.backup/` directory.
-
-### `index.php` link controls are disabled
-
-If `index.php` already exists as a normal file, MD.Viewer will not overwrite it. Remove or rename that file manually, then reopen Settings.
-
-### Restore does not show any backups
-
-Backups appear only after at least one update or restore operation has created `md.backup/[version]/` folders containing tracked files.
-
-### Hard link creation falls back to a wrapper
-
-Some shared hosts or filesystems do not allow `link()`. In that case MD.Viewer creates a tiny `index.php` wrapper that includes `md.php`, which provides the same entry-point behavior even though it is not a true hard link.
+- **`.md.ini`** hard-locks all feature flags. The browser cannot override them regardless of cookie values.
+- **Path traversal** is prevented in all file-serving, upload, and save operations.
+- **Upload** and **Save to File** validate filenames server-side (`.md` extension only, no slashes, no null bytes, no control characters).
+- **CORS guard** in `updater.php` rejects cross-origin requests.
+- **ALLOW_UPDATE defaults to `false`** — the update system is completely disabled until explicitly enabled in `.md.ini`.
+- All mutating `updater.php` actions require `POST`.
 
 ---
 
