@@ -1,5 +1,5 @@
 /* Markdown Viewer — Tooltip Styles
- * Version: 2.4.3
+ * Version: 2.4.4
  * Author: Mikhail Deynekin
  * Site: https://Deynekin.com
  * Email: Mikhail@Deynekin.com
@@ -40,14 +40,17 @@
 	.markdown-body { line-height: 1.1; max-width: none; width: 100%; }
 	.toc ul { line-height: 1; max-width: none;  }
         /* ── Glossary tooltip (v2.4.0) ── */
-        .glossary-term {
+        .glossary-term,
+        [data-sp-tip] {
             border-bottom: 1.5px dashed #60a5fa;
             cursor: help;
             position: relative;
             transition: border-color 0.15s;
         }
-        html[data-theme="dark"] .glossary-term { border-color: #3b82f6; }
-        .glossary-term:hover { border-color: #2563eb; }
+        html[data-theme="dark"] .glossary-term,
+        html[data-theme="dark"] [data-sp-tip] { border-color: #3b82f6; }
+        .glossary-term:hover,
+        [data-sp-tip]:hover { border-color: #2563eb; }
 
         /* Floating tooltip bubble */
         .g-tooltip {
