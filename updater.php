@@ -1,7 +1,7 @@
 <?php
 /**
  * Markdown Viewer — Self-Updater
- * Version: 3.2.0
+ * Version: 3.2.1
  * Author: Mikhail Deynekin
  * Site: https://Deynekin.com
  * Email: Mikhail@Deynekin.com
@@ -37,6 +37,7 @@
  *
  * v2.0.0: Raw Range requests, no API/tokens.
  * v2.1.0: Backup-before-replace, restore-from-backup.
+ * v3.2.1: upload_md checks DISABLE_UPLOAD from .md.ini.
  * v3.2.0: upload_md action — .md file upload with filename sanitization.
  * v3.1.1: index_create refuses (409) if regular index.php exists.
  * v3.1.0: index.php hard-link management (index_status/create/remove).
@@ -734,6 +735,13 @@ function doIndexRemove(): never
 
 function doUploadMd(): never
 {
+    // ── 0. Check server-side disable flag from .md.ini ───────────────────────
+    $iniPath = dirname(localPath('md.php')) . '/.md.ini';
+    $ini     = is_file($iniPath) ? (@parse_ini_file($iniPath, false, INI_SCANNER_TYPED) ?: []) : [];
+    if ((bool)($ini['DISABLE_UPLOAD'] ?? true)) {
+        jsonError(403, 'File upload is disabled by server configuration (DISABLE_UPLOAD=true in .md.ini).');
+    }
+
     // ── 1. Check upload was received ─────────────────────────────────────────
     if (empty($_FILES['md_file'])) {
         jsonError(400, 'No file received.');
