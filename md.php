@@ -1,7 +1,7 @@
 <?php
 /**
  * Markdown Viewer
- * Version: 2.7.0
+ * Version: 2.7.1
  * Author: Mikhail Deynekin
  * Site: https://Deynekin.com
  * Email: Mikhail@Deynekin.com
@@ -161,7 +161,7 @@ declare(strict_types=1);
 //   AUTO_NUMBERING    = true|false   — override rendering feature
 //   AUTO_TOC          = true|false
 //   ... (any key matching a feature constant above)
-(function () {
+(static function () {
     $iniPath = __DIR__ . '/.md.ini';
 
     // Create default .md.ini if absent
@@ -176,11 +176,25 @@ DISABLE_UPLOAD    = true
 
 ; Disable the "Preview Clipboard" button in the file browser
 DISABLE_CLIPBOARD = false
+
+; Disable the "Save to File" button in clipboard preview (saves to uploads.md/)
+DISABLE_SAVE_CLIPBOARD_TO_FILE = true
 INI;
         @file_put_contents($iniPath, $default);
     }
 
     $ini = @parse_ini_file($iniPath, false, INI_SCANNER_TYPED) ?: [];
+
+    // Append any missing keys to the existing .md.ini
+    $missingEntries = '';
+    if (!array_key_exists('DISABLE_SAVE_CLIPBOARD_TO_FILE', $ini)) {
+        $missingEntries .= "\n; Disable the \"Save to File\" button in clipboard preview\n"
+                         . "DISABLE_SAVE_CLIPBOARD_TO_FILE = true\n";
+        $ini['DISABLE_SAVE_CLIPBOARD_TO_FILE'] = true;
+    }
+    if ($missingEntries !== '') {
+        @file_put_contents($iniPath, $missingEntries, FILE_APPEND | LOCK_EX);
+    }
 
     // Apply any feature-toggle overrides (these beat cookie values)
     $featureKeys = [
@@ -201,7 +215,8 @@ INI;
     // DISABLE_* flags — simple bool constants
     define('DISABLE_UPLOAD',    (bool)($ini['DISABLE_UPLOAD']    ?? true));
     define('DISABLE_CLIPBOARD', (bool)($ini['DISABLE_CLIPBOARD'] ?? false));
-}());
+    define('DISABLE_SAVE_CLIPBOARD_TO_FILE', (bool)($ini['DISABLE_SAVE_CLIPBOARD_TO_FILE'] ?? true));
+})();
 
 // ── Feature toggle resolver (v2.5.1) ────────────────────────────────────────
 // Reads user override from cookie (mdv_feat_{NAME}), falls back to $default.
@@ -2680,10 +2695,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($_POST['md_preview'])) {
     $desc = 'Clipboard Markdown preview';
     $mode = 'viewer';
     $currentFilePath = null;
+    $isClipboardPreview = true;
     // Fall through to the HTML template
     goto render_page;
 }
 
+$isClipboardPreview = false;
 $mode = 'browser'; // 'viewer' | 'browser'
 $errorMessage = null;
 $currentFilePath = null;
@@ -2797,9 +2814,10 @@ render_page:
             'splitTitleByColon' => SPLIT_TITLE_BY_COLON,
             'glossaryTooltips'  => GLOSSARY_TOOLTIPS,
             'paragraphBreak'    => PARAGRAPH_BREAK_STYLE,
-            'disableUpload'     => DISABLE_UPLOAD,
-            'disableClipboard'  => DISABLE_CLIPBOARD,
-            'updaterUrl'        => '/updater.php',
+            'disableUpload'              => DISABLE_UPLOAD,
+            'disableClipboard'           => DISABLE_CLIPBOARD,
+            'disableSaveClipboardToFile' => DISABLE_SAVE_CLIPBOARD_TO_FILE,
+            'updaterUrl'                 => '/updater.php',
         ], JSON_THROW_ON_ERROR); ?>;
     </script>
 </head>
@@ -2839,6 +2857,22 @@ render_page:
     <main class="px-4 py-8 sm:px-6 lg:px-8">
         <?php if ($mode === 'viewer'): ?>
         <section id="viewer" data-width-target class="content-shell mx-auto rounded-[2rem] px-6 py-8 shadow-soft transition-[max-width] duration-300 ease-out sm:px-8 lg:px-10 lg:py-10">
+            <?php if ($isClipboardPreview && !DISABLE_SAVE_CLIPBOARD_TO_FILE): ?>
+            <div id="clipboard-save-bar" class="clipboard-save-bar">
+                <span class="clipboard-save-bar__label">Clipboard Preview</span>
+                <div class="clipboard-save-bar__actions">
+                    <input type="text" id="clipboard-save-name" class="clipboard-save-bar__input"
+                           placeholder="filename.md" value="clipboard-<?= date('Ymd-His') ?>.md">
+                    <button type="button" id="btn-save-to-file" class="clipboard-save-bar__btn">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+                        Save to File
+                    </button>
+                    <span id="clipboard-save-status" class="clipboard-save-bar__status"></span>
+                </div>
+            </div>
+            <?php elseif ($isClipboardPreview): ?>
+            <div class="clipboard-preview-badge">Clipboard Preview — saving disabled by server</div>
+            <?php endif; ?>
             <div class="mb-10 border-b border-slate-200/70 pb-6 dark:border-slate-800">
                 <h1 class="font-display text-4xl font-semibold tracking-[-0.05em] text-slate-950 sm:text-5xl dark:text-white"><?= e($title) ?></h1>
                 <p class="mt-4 max-w-5xl text-base leading-8 text-slate-600 dark:text-slate-300"><?= e($desc) ?></p>
