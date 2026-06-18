@@ -1,7 +1,7 @@
 <?php
 /**
  * Markdown Viewer
- * Version: 2.8.0
+ * Version: 2.8.1
  * Author: Mikhail Deynekin
  * Site: https://Deynekin.com
  * Email: Mikhail@Deynekin.com
@@ -183,6 +183,9 @@ DISABLE_SAVE_CLIPBOARD_TO_FILE = true
 ; Allow updating files via updater.php?update=true or the Settings panel
 ; Set to true only on servers you control; false by default for safety
 ALLOW_UPDATE = false
+
+; Allow restoring a backup via updater.php?restore=latest or ?restore=[version]
+ALLOW_RESTORE = false
 INI;
         @file_put_contents($iniPath, $default);
     }
@@ -200,6 +203,11 @@ INI;
         $missingEntries .= "\n; Allow updating files via updater.php (set to true to enable)\n"
                          . "ALLOW_UPDATE = false\n";
         $ini['ALLOW_UPDATE'] = false;
+    }
+    if (!array_key_exists('ALLOW_RESTORE', $ini)) {
+        $missingEntries .= "\n; Allow restoring a backup via updater.php?restore=latest or ?restore=[version]\n"
+                         . "ALLOW_RESTORE = false\n";
+        $ini['ALLOW_RESTORE'] = false;
     }
     if ($missingEntries !== '') {
         @file_put_contents($iniPath, $missingEntries, FILE_APPEND | LOCK_EX);
@@ -226,6 +234,7 @@ INI;
     define('DISABLE_CLIPBOARD', (bool)($ini['DISABLE_CLIPBOARD'] ?? false));
     define('DISABLE_SAVE_CLIPBOARD_TO_FILE', (bool)($ini['DISABLE_SAVE_CLIPBOARD_TO_FILE'] ?? true));
     define('ALLOW_UPDATE',      (bool)($ini['ALLOW_UPDATE']      ?? false));
+    define('ALLOW_RESTORE',     (bool)($ini['ALLOW_RESTORE']     ?? false));
 })();
 
 // ── Feature toggle resolver (v2.5.1) ────────────────────────────────────────
@@ -2828,6 +2837,7 @@ render_page:
             'disableClipboard'           => DISABLE_CLIPBOARD,
             'disableSaveClipboardToFile' => DISABLE_SAVE_CLIPBOARD_TO_FILE,
             'allowUpdate'                => ALLOW_UPDATE,
+            'allowRestore'               => ALLOW_RESTORE,
             'updaterUrl'                 => '/updater.php',
         ], JSON_THROW_ON_ERROR); ?>;
     </script>
