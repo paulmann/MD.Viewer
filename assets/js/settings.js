@@ -1,6 +1,6 @@
 /**
  * MD.Viewer — Settings Panel Engine
- * Version: 2.8.4
+ * Version: 2.8.5
  * Auto-extracted from md.php inline <script> block.
  * Requires window.MDV_CONFIG to be set before this script loads.
  */
@@ -360,14 +360,10 @@
 
 
         // ── index.php hard link management ───────────────────────────────────
-        if (!ALLOW_INDEX) {
-            // Feature disabled in .md.ini — hide the section entirely
-            var elIdxSec = document.getElementById('sp-index-section');
-            if (elIdxSec) elIdxSec.style.display = 'none';
-        } else {
-        const elIndexStatus = document.getElementById('sp-index-status');
-        const elIndexCreate = document.getElementById('sp-index-create');
-        const elIndexRemove = document.getElementById('sp-index-remove');
+        // Element refs declared at outer scope so helper functions can close over them
+        let elIndexStatus = null;
+        let elIndexCreate = null;
+        let elIndexRemove = null;
 
         function indexSetStatus(msg, cls) {
             if (!elIndexStatus) return;
@@ -376,6 +372,7 @@
         }
 
         function loadIndexStatus() {
+            if (!ALLOW_INDEX) return;
             indexSetStatus('Checking…');
             fetch(UPDATER_URL + '?action=index_status')
                 .then(function (r) { return r.json(); })
@@ -418,18 +415,27 @@
                 .finally(function () { if (btn) btn.disabled = false; });
         }
 
-        if (elIndexCreate) {
-            elIndexCreate.addEventListener('click', function () {
-                indexAction('index_create', this);
-            });
-        }
-        if (elIndexRemove) {
-            elIndexRemove.addEventListener('click', function () {
-                if (!confirm('Remove index.php?\n\nIf it is a hard link to md.php, only the link will be removed. '
-                           + 'The md.php file itself is not affected.\n\nContinue?')) return;
-                indexAction('index_remove', this);
-            });
-        }
+        if (!ALLOW_INDEX) {
+            // Feature disabled in .md.ini — hide the section entirely
+            var elIdxSec = document.getElementById('sp-index-section');
+            if (elIdxSec) elIdxSec.style.display = 'none';
+        } else {
+            elIndexStatus = document.getElementById('sp-index-status');
+            elIndexCreate = document.getElementById('sp-index-create');
+            elIndexRemove = document.getElementById('sp-index-remove');
+
+            if (elIndexCreate) {
+                elIndexCreate.addEventListener('click', function () {
+                    indexAction('index_create', this);
+                });
+            }
+            if (elIndexRemove) {
+                elIndexRemove.addEventListener('click', function () {
+                    if (!confirm('Remove index.php?\n\nIf it is a hard link to md.php, only the link will be removed. '
+                               + 'The md.php file itself is not affected.\n\nContinue?')) return;
+                    indexAction('index_remove', this);
+                });
+            }
         } // end allowCreateIndexPhpLink
 
         // ── Backup & Restore ──────────────────────────────────────────────────
