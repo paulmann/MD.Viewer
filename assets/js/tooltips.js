@@ -1,6 +1,6 @@
 /**
  * Markdown Viewer — Glossary Tooltip Engine
- * Version: 2.4.3
+ * Version: 2.4.4
  * Author: Mikhail Deynekin
  * Site: https://Deynekin.com
  * Email: Mikhail@Deynekin.com
@@ -33,6 +33,8 @@
  *         mouseout child-node guard via el.contains(relatedTarget);
  *         replaced touchstart+passive with touchend for preventDefault safety;
  *         display:none deferred 220ms after CSS transition completes.
+ * v2.4.4: data-sp-tip support — static inline tooltips for Settings panel features;
+ *         [data-sp-tip] elements use same .g-tooltip bubble and positioning engine.
  * v2.4.3: Tooltip header — full first-column cell (data-gc="1") rendered as
  *         .g-tooltip-header above body rows; getTermCell() locates it via TR.
  * v2.4.2: HIDE_DELAY = 2000ms grace period before hiding; overTip flag keeps
@@ -45,7 +47,7 @@
         'use strict';
 
         function init() {
-            if (!document.querySelector('.glossary-term')) return;
+            if (!document.querySelector('.glossary-term') && !document.querySelector('[data-sp-tip]')) return;
 
             // ── Singleton tooltip bubble ──────────────────────────────────────
             const tip = document.createElement('div');
@@ -106,6 +108,21 @@
             }
 
             function buildTip(el) {
+                // ── Static inline tip (Settings panel features) ───────────────
+                if (el.dataset.spTip !== undefined) {
+                    const header = el.dataset.spTipHeader || el.textContent.trim();
+                    const body   = el.dataset.spTip;
+                    if (!body) return '';
+                    let html = header
+                        ? '<div class="g-tooltip-header">' + header + '</div>'
+                        : '';
+                    html += '<div class="g-tooltip-row">'
+                          +   '<div class="g-tooltip-val">' + body + '</div>'
+                          + '</div>';
+                    return html;
+                }
+
+                // ── Glossary table tip (standard .glossary-term) ──────────────
                 const attr = el.dataset.gterm || '';
                 if (tipCache[attr] !== undefined) return tipCache[attr];
 
@@ -213,7 +230,7 @@
 
             // ── Term span events (delegated) ──────────────────────────────────
             document.addEventListener('mouseover', function (e) {
-                const el = e.target.closest('.glossary-term');
+                const el = e.target.closest('.glossary-term') || e.target.closest('[data-sp-tip]');
                 if (!el) return;
                 cancelHide();
                 if (el === activeEl) return;
@@ -223,7 +240,7 @@
             });
 
             document.addEventListener('mouseout', function (e) {
-                const el = e.target.closest('.glossary-term');
+                const el = e.target.closest('.glossary-term') || e.target.closest('[data-sp-tip]');
                 if (!el) return;
                 // Ignore if still inside the same span (moving over child node)
                 if (el.contains(e.relatedTarget)) return;
@@ -249,7 +266,7 @@
 
             // ── Touch: tap to toggle ──────────────────────────────────────────
             document.addEventListener('touchend', function (e) {
-                const el = e.target.closest('.glossary-term');
+                const el = e.target.closest('.glossary-term') || e.target.closest('[data-sp-tip]');
                 if (!el) {
                     // Tapped outside — hide immediately
                     cancelHide();
