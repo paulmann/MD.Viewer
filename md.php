@@ -1,7 +1,7 @@
 <?php
 /**
  * Markdown Viewer
- * Version: 2.5.3
+ * Version: 2.5.4
  * Author: Mikhail Deynekin
  * Site: https://Deynekin.com
  * Email: Mikhail@Deynekin.com
@@ -2874,6 +2874,20 @@ if ($mode === 'viewer') {
                 </label>
             </section>
 
+            <!-- index.php hard link -->
+            <section class="settings-section" id="sp-index-section">
+                <div class="settings-section-title">Index File</div>
+                <div id="sp-index-status" class="sp-index-status"></div>
+                <div class="sp-index-actions">
+                    <button type="button" id="sp-index-create" class="settings-index-btn settings-index-btn--create" style="display:none">
+                        ⬡ Create index.php link
+                    </button>
+                    <button type="button" id="sp-index-remove" class="settings-index-btn settings-index-btn--remove" style="display:none">
+                        ✕ Remove index.php link
+                    </button>
+                </div>
+            </section>
+
             <!-- Apply and Reload (shown when PHP-side features changed) -->
             <section class="settings-section settings-section-apply" id="sp-apply-section" style="display:none">
                 <button type="button" id="sp-apply-reload" class="settings-apply-btn">
@@ -3148,6 +3162,37 @@ if ($mode === 'viewer') {
     .settings-reinstall-btn:hover { color: #334155; background: #f8fafc; }
     html[class~="dark"] .settings-reinstall-btn { border-color: #334155; }
     html[class~="dark"] .settings-reinstall-btn:hover { color: #e2e8f0; background: #1e293b; }
+
+    /* ── Index file (hard link) ─────────────────────────────────────────────── */
+    .sp-index-status {
+        font-size: .78rem; line-height: 1.55; margin-bottom: 8px; min-height: 1.2em;
+        color: #64748b;
+    }
+    .sp-index-status strong { color: #0f172a; }
+    html[class~="dark"] .sp-index-status strong { color: #f1f5f9; }
+    .sp-index-status.ok   { color: #16a34a; }
+    .sp-index-status.warn { color: #d97706; }
+    .sp-index-status.err  { color: #dc2626; }
+    html[class~="dark"] .sp-index-status.ok   { color: #4ade80; }
+    html[class~="dark"] .sp-index-status.warn { color: #fbbf24; }
+    html[class~="dark"] .sp-index-status.err  { color: #f87171; }
+    .sp-index-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+    .settings-index-btn {
+        padding: 8px 16px; font-size: .82rem; font-weight: 700;
+        border: none; border-radius: 8px; cursor: pointer;
+        transition: background .15s, transform .1s, opacity .15s;
+    }
+    .settings-index-btn:active { transform: scale(.97); }
+    .settings-index-btn:disabled { opacity: .4; cursor: not-allowed; }
+    .settings-index-btn--create { background: #3b82f6; color: #fff; }
+    .settings-index-btn--create:hover:not(:disabled) { background: #2563eb; }
+    .settings-index-btn--remove { background: transparent; color: #dc2626;
+        border: 1.5px solid #fca5a5; }
+    .settings-index-btn--remove:hover:not(:disabled) { background: #fef2f2; color: #b91c1c; }
+    html[class~="dark"] .settings-index-btn--create { background: #1d4ed8; }
+    html[class~="dark"] .settings-index-btn--create:hover:not(:disabled) { background: #1e40af; }
+    html[class~="dark"] .settings-index-btn--remove { border-color: #7f1d1d; color: #f87171; }
+    html[class~="dark"] .settings-index-btn--remove:hover:not(:disabled) { background: #1c0a0a; }
 
     /* ── Backup & Restore ───────────────────────────────────────────────────── */
     .sp-backup-meta {
@@ -3512,6 +3557,66 @@ if ($mode === 'viewer') {
         updateLHLabel();
 
 
+
+        // ── index.php hard link management ───────────────────────────────────
+        const elIndexStatus = document.getElementById('sp-index-status');
+        const elIndexCreate = document.getElementById('sp-index-create');
+        const elIndexRemove = document.getElementById('sp-index-remove');
+
+        function indexSetStatus(msg, cls) {
+            if (!elIndexStatus) return;
+            elIndexStatus.className = 'sp-index-status' + (cls ? ' ' + cls : '');
+            elIndexStatus.innerHTML = msg;
+        }
+
+        function loadIndexStatus() {
+            indexSetStatus('Checking…');
+            fetch(UPDATER_URL + '?action=index_status')
+                .then(function (r) { return r.json(); })
+                .then(function (d) {
+                    if (d.error) { indexSetStatus('⚠ ' + d.error, 'err'); return; }
+                    if (d.linked) {
+                        indexSetStatus('✓ <strong>index.php</strong> → <strong>md.php</strong>'
+                            + (d.inode ? '&ensp;<small>inode ' + d.inode + '</small>' : ''), 'ok');
+                        if (elIndexCreate) elIndexCreate.style.display = 'none';
+                        if (elIndexRemove) elIndexRemove.style.display = '';
+                    } else {
+                        const note = d.exists
+                            ? '⚠ <strong>index.php</strong> exists but is <em>not</em> a hard link to md.php'
+                            : 'No <strong>index.php</strong> in this directory.';
+                        indexSetStatus(note, d.exists ? 'warn' : '');
+                        if (elIndexCreate) elIndexCreate.style.display = '';
+                        if (elIndexRemove) elIndexRemove.style.display = d.exists ? '' : 'none';
+                    }
+                })
+                .catch(function (e) { indexSetStatus('⚠ ' + e.message, 'err'); });
+        }
+
+        function indexAction(action, btn) {
+            if (btn) btn.disabled = true;
+            fetch(UPDATER_URL + '?action=' + action, { method: 'POST' })
+                .then(function (r) { return r.json(); })
+                .then(function (d) {
+                    if (d.error) { indexSetStatus('⚠ ' + d.error, 'err'); }
+                    else { loadIndexStatus(); }
+                })
+                .catch(function (e) { indexSetStatus('⚠ ' + e.message, 'err'); })
+                .finally(function () { if (btn) btn.disabled = false; });
+        }
+
+        if (elIndexCreate) {
+            elIndexCreate.addEventListener('click', function () {
+                indexAction('index_create', this);
+            });
+        }
+        if (elIndexRemove) {
+            elIndexRemove.addEventListener('click', function () {
+                if (!confirm('Remove index.php?\n\nIf it is a hard link to md.php, only the link will be removed. '
+                           + 'The md.php file itself is not affected.\n\nContinue?')) return;
+                indexAction('index_remove', this);
+            });
+        }
+
         // ── Backup & Restore ──────────────────────────────────────────────────
         const elBackupSection    = document.getElementById('sp-backup-section');
         const elBackupSelect     = document.getElementById('sp-backup-select');
@@ -3780,6 +3885,7 @@ if ($mode === 'viewer') {
                 _orig();
                 loadVersionBadge();
                 loadBackups();
+                loadIndexStatus();
                 syncToolbarCheckboxes();
             };
         }());
