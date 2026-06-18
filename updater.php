@@ -1,7 +1,7 @@
 <?php
 /**
  * Markdown Viewer — Self-Updater
- * Version: 3.6.0
+ * Version: 3.7.0
  * Author: Mikhail Deynekin
  * Site: https://Deynekin.com
  * Email: Mikhail@Deynekin.com
@@ -37,6 +37,7 @@
  *
  * v2.0.0: Raw Range requests, no API/tokens.
  * v2.1.0: Backup-before-replace, restore-from-backup.
+ * v3.7.0: &force=true; fix version display for all files; file links in HTML output.
  * v3.6.0: ALLOW_RESTORE flag; direct ?restore=latest|[version] browser mode.
  * v3.5.0: TRACKED_FILES expanded — settings.js, settings.css, upload.js, README.md, LICENSE.
  * v3.4.0: ALLOW_UPDATE flag; direct ?update=true mode with two-phase self-update.
@@ -189,21 +190,21 @@ final class RawFileUpdater
      *
      * @return array{status: string, error: ?string}
      */
-    public function apply(string $backupVersion = ''): array
+    public function apply(string $backupVersion = '', bool $force = false): array
     {
         $result = $this->check();
 
         if ($result['status'] === 'error') {
             return ['status' => 'error', 'error' => $result['error']];
         }
-        if ($result['status'] === 'current') {
+        if (!$force && $result['status'] === 'current') {
             return ['status' => 'current', 'error' => null];
         }
 
         // Body may already be available from check() to avoid double-download
         $body = $result['body'] ?? null;
-        if ($body === null) {
-            // Re-fetch without ETag (shouldn't happen normally)
+        if ($body === null || $force) {
+            // Force: always re-fetch ignoring ETag/hash cache
             [, $respHeaders, $body] = $this->conditionalGet(null);
             if (!is_string($body)) {
                 return ['status' => 'error', 'error' => 'Download failed'];
@@ -225,10 +226,10 @@ final class RawFileUpdater
             return ['status' => 'error', 'error' => $e->getMessage()];
         }
 
-        $this->saveState($result['etag'], hash('sha256', $body));
+        $this->saveState($respHeaders['etag'] ?? null, hash('sha256', $body));
 
         return [
-            'status' => $result['status'] === 'missing' ? 'created' : 'updated',
+            'status' => ($result['status'] === 'missing' || (!isset($result['body']) && $force)) ? 'force-updated' : 'updated',
             'error'  => null,
         ];
     }
@@ -519,7 +520,8 @@ if (isset($_GET['update']) && $_GET['update'] === 'true') {
     if ($phase === 1) {
         // ── Phase 1: self-update updater.php ──────────────────────────────────
         $selfUpdater = makeUpdater('updater.php');
-        $result      = $selfUpdater->apply(backupVersion: localVersion('updater.php'));
+        $force       = isset($_GET['force']) && $_GET['force'] === 'true';
+        $result      = $selfUpdater->apply(backupVersion: localVersion('updater.php'), force: $force);
 
         if ($result['status'] === 'error') {
             outputUpdatePage('Self-update failed', [[
@@ -545,25 +547,30 @@ if (isset($_GET['update']) && $_GET['update'] === 'true') {
         $backupVer = localVersion('md.php');
         $rows      = [];
 
-        $docsFiles = ['README.md', 'LICENSE']; // no version strings, no backup needed
+        $docsFiles = ['README.md', 'LICENSE']; // no backup needed, but still version-tracked
+        $force     = isset($_GET['force']) && $_GET['force'] === 'true';
         foreach (TRACKED_FILES as $file) {
             if ($file === 'updater.php') {
-                // Already handled in phase 1 — report current status
-                $rows[] = ['file' => $file, 'status' => 'current (updated in phase 1)'];
+                // Already handled in phase 1 — show its current local version
+                $rows[] = [
+                    'file'   => $file,
+                    'status' => 'current (updated in phase 1)',
+                    'to'     => localVersion($file),
+                ];
                 continue;
             }
             $isDoc     = in_array($file, $docsFiles, true);
-            $verBefore = $isDoc ? null : localVersion($file);
+            $verBefore = localVersion($file); // always read — works for README/LICENSE too
             $updater   = makeUpdater($file);
-            // Docs: no backup (pass empty string); code files: backup to versioned dir
-            $res       = $updater->apply(backupVersion: $isDoc ? '' : $backupVer);
+            // Docs: no backup; code files: backup to versioned dir
+            $res       = $updater->apply(backupVersion: $isDoc ? '' : $backupVer, force: $force);
             $rows[]    = [
-                'file'    => $file,
-                'status'  => $res['status'],
-                'from'    => $verBefore,
-                'to'      => (!$isDoc && ($res['status'] === 'updated' || $res['status'] === 'created'))
+                'file'   => $file,
+                'status' => $res['status'],
+                'from'   => $verBefore,
+                'to'     => in_array($res['status'], ['updated', 'created', 'force-updated'], true)
                              ? localVersion($file) : null,
-                'error'   => $res['error'] ?? null,
+                'error'  => $res['error'] ?? null,
             ];
         }
 
@@ -708,11 +715,13 @@ if (isset($_GET['restore'])) {
 function outputUpdatePage(string $title, array $rows): void
 {
     $cssClass = static fn(string $s): string => match(true) {
-        str_starts_with($s, 'updated'), str_starts_with($s, 'created') => 'ok',
+        str_starts_with($s, 'updated'), str_starts_with($s, 'created'),
+        str_starts_with($s, 'force')   => 'ok',
         str_starts_with($s, 'current') => 'skip',
         str_starts_with($s, 'error')   => 'err',
         default                         => 'info',
     };
+    $rawBase = RAW_BASE;
 
     echo '<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8">';
     echo '<meta name="viewport" content="width=device-width,initial-scale=1">';
@@ -733,7 +742,8 @@ function outputUpdatePage(string $title, array $rows): void
         .skip .badge{background:#f1f5f9;color:#475569}
         .err  .badge{background:#fee2e2;color:#991b1b}
         .info .badge{background:#dbeafe;color:#1e40af}
-        .file{font-family:monospace;font-size:.85rem;flex:1;word-break:break-all}
+        .file{font-family:monospace;font-size:.85rem;flex:1;word-break:break-all;color:inherit;text-decoration:none}
+        .file:hover{text-decoration:underline}
         .ver {font-size:.75rem;color:#64748b}
         .footer{padding:1rem 1.5rem;text-align:right;background:#f8fafc;border-top:1px solid #e2e8f0}
         .btn{display:inline-block;padding:.55rem 1.25rem;background:#1e293b;color:#f8fafc;
@@ -768,16 +778,21 @@ function outputUpdatePage(string $title, array $rows): void
             echo '</div>';
             continue;
         }
-        $status = $row['status'] ?? 'info';
-        $cls    = $cssClass($status);
+        $status  = $row['status'] ?? 'info';
+        $cls     = $cssClass($status);
+        $file    = $row['file'] ?? '';
+        $fileUrl = $rawBase . '/' . ltrim($file, '/');
         echo '<div class="row ' . $cls . '">';
         echo '<span class="badge">' . htmlspecialchars($status) . '</span>';
-        echo '<span class="file">' . htmlspecialchars($row['file'] ?? '') . '</span>';
+        if ($file !== '') {
+            echo '<a class="file" href="' . htmlspecialchars($fileUrl) . '" target="_blank" rel="noopener">'
+               . htmlspecialchars($file) . '</a>';
+        }
         if (!empty($row['from']) || !empty($row['to'])) {
             echo '<span class="ver">';
-            if ($row['from']) echo htmlspecialchars($row['from']);
-            if ($row['from'] && $row['to']) echo ' → ';
-            if ($row['to'])   echo htmlspecialchars($row['to']);
+            if (!empty($row['from'])) echo htmlspecialchars($row['from']);
+            if (!empty($row['from']) && !empty($row['to'])) echo ' → ';
+            if (!empty($row['to']))   echo htmlspecialchars($row['to']);
             echo '</span>';
         }
         if (!empty($row['error'])) {
@@ -787,7 +802,19 @@ function outputUpdatePage(string $title, array $rows): void
     }
 
     echo '</div>';
-    echo '<div class="footer"><a class="btn" href="/">← Back</a></div>';
+    $isForcePage = isset($_GET['force']) && $_GET['force'] === 'true';
+    $forceUrl    = strtok($_SERVER['REQUEST_URI'], '?') . '?' . http_build_query(
+        array_merge(
+            array_filter(['update' => $_GET['update'] ?? null, 'restore' => $_GET['restore'] ?? null, '_phase' => $_GET['_phase'] ?? null]),
+            ['force' => 'true']
+        )
+    );
+    echo '<div class="footer" style="display:flex;gap:.5rem;justify-content:flex-end;align-items:center">';
+    if (!$isForcePage && (isset($_GET['update']))) {
+        echo '<a class="btn" style="background:#b45309" href="' . htmlspecialchars($forceUrl) . '">↺ Force reinstall all</a>';
+    }
+    echo '<a class="btn" href="/">← Back</a>';
+    echo '</div>';
     echo '</div></body></html>';
 }
 
@@ -933,18 +960,19 @@ function doApply(): never
     $backupVer = localVersion('md.php');
 
     $docsFiles = ['README.md', 'LICENSE'];
+    $force     = !empty($_POST['force']) || !empty($_GET['force']);
     foreach (TRACKED_FILES as $file) {
         $isDoc        = in_array($file, $docsFiles, true);
-        $locVerBefore = $isDoc ? null : localVersion($file); // capture BEFORE apply()
+        $locVerBefore = localVersion($file); // always read — works for README/LICENSE too
         $updater      = makeUpdater($file);
-        $result       = $updater->apply(backupVersion: $isDoc ? '' : $backupVer);
+        $result       = $updater->apply(backupVersion: $isDoc ? '' : $backupVer, force: $force);
 
         match ($result['status']) {
             'current' => $skipped[] = $file,
-            'updated', 'created' => $updated[] = [
+            'updated', 'created', 'force-updated' => $updated[] = [
                 'path'        => $file,
                 'fromVersion' => $locVerBefore,
-                'toVersion'   => $isDoc ? null : localVersion($file),
+                'toVersion'   => localVersion($file),
             ],
             default => $failed[] = [
                 'path'   => $file,
