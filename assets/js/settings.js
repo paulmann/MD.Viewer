@@ -1,5 +1,6 @@
 /**
  * MD.Viewer — Settings Panel Engine
+ * Version: 2.8.0
  * Auto-extracted from md.php inline <script> block.
  * Requires window.MDV_CONFIG to be set before this script loads.
  */
