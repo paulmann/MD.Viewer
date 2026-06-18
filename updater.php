@@ -1,7 +1,7 @@
 <?php
 /**
  * Markdown Viewer — Self-Updater
- * Version: 3.1.1
+ * Version: 3.2.0
  * Author: Mikhail Deynekin
  * Site: https://Deynekin.com
  * Email: Mikhail@Deynekin.com
@@ -37,6 +37,7 @@
  *
  * v2.0.0: Raw Range requests, no API/tokens.
  * v2.1.0: Backup-before-replace, restore-from-backup.
+ * v3.2.0: upload_md action — .md file upload with filename sanitization.
  * v3.1.1: index_create refuses (409) if regular index.php exists.
  * v3.1.0: index.php hard-link management (index_status/create/remove).
  * v3.0.1: updater.php added to TRACKED_FILES — now self-updates.
@@ -450,7 +451,7 @@ if ($reqOrigin !== '') {
 
 $action = $_REQUEST['action'] ?? 'check';
 $method = $_SERVER['REQUEST_METHOD'];
-if (in_array($action, ['apply', 'restore', 'index_create', 'index_remove'], true) && $method !== 'POST') {
+if (in_array($action, ['apply', 'restore', 'index_create', 'index_remove', 'upload_md'], true) && $method !== 'POST') {
     http_response_code(405);
     echo json_encode(['error' => 'POST required for ' . $action]);
     exit;
@@ -465,6 +466,7 @@ match ($action) {
     'index_status' => doIndexStatus(),
     'index_create' => doIndexCreate(),
     'index_remove' => doIndexRemove(),
+    'upload_md'    => doUploadMd(),
     default        => jsonError(400, 'Unknown action'),
 };
 
@@ -727,4 +729,82 @@ function doIndexRemove(): never
     echo json_encode(['success' => true]);
     exit;
 }
+
+// ── .md File Upload ───────────────────────────────────────────────────────────
+
+function doUploadMd(): never
+{
+    // ── 1. Check upload was received ─────────────────────────────────────────
+    if (empty($_FILES['md_file'])) {
+        jsonError(400, 'No file received.');
+    }
+
+    $file  = $_FILES['md_file'];
+    $error = $file['error'] ?? UPLOAD_ERR_NO_FILE;
+
+    if ($error !== UPLOAD_ERR_OK) {
+        $msgs = [
+            UPLOAD_ERR_INI_SIZE   => 'File exceeds upload_max_filesize.',
+            UPLOAD_ERR_FORM_SIZE  => 'File exceeds MAX_FILE_SIZE.',
+            UPLOAD_ERR_PARTIAL    => 'File was only partially uploaded.',
+            UPLOAD_ERR_NO_FILE    => 'No file was uploaded.',
+            UPLOAD_ERR_NO_TMP_DIR => 'Missing temporary folder.',
+            UPLOAD_ERR_CANT_WRITE => 'Failed to write to disk.',
+            UPLOAD_ERR_EXTENSION  => 'Upload stopped by extension.',
+        ];
+        jsonError(500, $msgs[$error] ?? 'Upload error ' . $error);
+    }
+
+    // ── 2. Validate & sanitize filename ──────────────────────────────────────
+    $raw = $file['name'] ?? '';
+
+    // Keep only the basename (strip any directory component the browser may include)
+    $raw = basename((string) $raw);
+
+    // Must end with .md (case-insensitive)
+    if (!preg_match('/\.md$/i', $raw)) {
+        jsonError(400, 'Only .md files are allowed.');
+    }
+
+    // Reject traversal, null bytes, shell-special characters, leading dots
+    if (
+        str_contains($raw, '/')  ||
+        str_contains($raw, '\\') ||
+        str_contains($raw, '..')  ||
+        str_contains($raw, "\x00") ||
+        preg_match('/[\x00-\x1f<>:"|?*]/', $raw) ||
+        preg_match('/^\./', $raw)  // leading dot
+    ) {
+        jsonError(400, 'Filename contains forbidden characters or patterns.');
+    }
+
+    if (strlen($raw) > 200) {
+        jsonError(400, 'Filename too long (max 200 chars).');
+    }
+
+    // Normalise to lowercase .md extension
+    $name = preg_replace('/\.md$/i', '.md', $raw);
+
+    // ── 3. Validate MIME / content (must be plain text) ──────────────────────
+    if ($file['size'] > 2 * 1024 * 1024) {
+        jsonError(400, 'File too large (max 2 MB).');
+    }
+
+    // ── 4. Destination path ───────────────────────────────────────────────────
+    $dest = dirname(localPath('md.php')) . '/' . $name;
+
+    if (is_file($dest)) {
+        // Keep a backup of existing file
+        $bak = $dest . '.bak.' . date('Ymd-His');
+        @rename($dest, $bak);
+    }
+
+    if (!@move_uploaded_file($file['tmp_name'], $dest)) {
+        jsonError(500, 'Could not save the file. Check directory permissions.');
+    }
+
+    echo json_encode(['success' => true, 'filename' => $name]);
+    exit;
+}
+
 
