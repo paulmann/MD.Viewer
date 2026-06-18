@@ -130,6 +130,8 @@
                             form.appendChild(f1);
                             form.appendChild(f2);
                             document.body.appendChild(form);
+                            // Store text in sessionStorage so the preview tab can save it
+                            try { sessionStorage.setItem('mdv_clipboard_preview_text', text); } catch(e) {}
                             form.submit();
                             document.body.removeChild(form);
                         })
@@ -139,3 +141,77 @@
                 });
             }
         }());
+
+        // ── Save Clipboard Preview to File ────────────────────────────────────────
+        (function () {
+            const saveBar  = document.getElementById('clipboard-save-bar');
+            const btnSave  = document.getElementById('btn-save-to-file');
+            const nameInput = document.getElementById('clipboard-save-name');
+            const statusEl = document.getElementById('clipboard-save-status');
+            if (!btnSave) return;
+
+            const cfg = window.MDV_CONFIG || {};
+            if (cfg.disableSaveClipboardToFile) {
+                if (saveBar) saveBar.style.display = 'none';
+                return;
+            }
+
+            // Filename sanitizer (client-side pre-check)
+            function isSafeFilename(name) {
+                if (!name) return false;
+                if (!/\.md$/i.test(name)) return false;
+                if (/[/\\]/.test(name)) return false;
+                if (/\.\./.test(name)) return false;
+                if (/[<>:"|?*\x00-\x1f]/.test(name)) return false;
+                if (name.length > 200) return false;
+                return true;
+            }
+
+            function setStatus(msg, type) {
+                if (!statusEl) return;
+                statusEl.textContent = msg;
+                statusEl.className = 'clipboard-save-bar__status ' + (type || '');
+            }
+
+            btnSave.addEventListener('click', function () {
+                if (cfg.disableSaveClipboardToFile) return; // server lock
+
+                const name = (nameInput ? nameInput.value.trim() : '') || 'clipboard.md';
+                if (!isSafeFilename(name)) {
+                    setStatus('⚠ Invalid filename (must end in .md, no slashes or special chars)', 'err');
+                    return;
+                }
+
+                // Get the original markdown from the hidden field that the preview form submitted
+                // It's stored in sessionStorage by the clipboard preview initiator
+                const mdText = sessionStorage.getItem('mdv_clipboard_preview_text') || '';
+
+                if (!mdText.trim()) {
+                    setStatus('⚠ Source text not available. Re-open preview from clipboard.', 'err');
+                    return;
+                }
+
+                btnSave.disabled = true;
+                setStatus('Saving…', '');
+
+                const updaterUrl = cfg.updaterUrl || '/updater.php';
+                const fd = new FormData();
+                fd.append('content',  mdText);
+                fd.append('filename', name);
+
+                fetch(updaterUrl + '?action=save_clipboard', { method: 'POST', body: fd })
+                    .then(function (r) { return r.json(); })
+                    .then(function (d) {
+                        if (d.error) {
+                            setStatus('⚠ ' + d.error, 'err');
+                        } else {
+                            setStatus('✓ Saved to ' + d.path, 'ok');
+                            if (nameInput) nameInput.value = d.filename;
+                        }
+                    })
+                    .catch(function (e) { setStatus('⚠ ' + e.message, 'err'); })
+                    .finally(function () { btnSave.disabled = false; });
+            });
+        }());
+
+
