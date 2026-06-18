@@ -1,7 +1,7 @@
 <?php
 /**
  * Markdown Viewer
- * Version: 2.5.2
+ * Version: 2.5.3
  * Author: Mikhail Deynekin
  * Site: https://Deynekin.com
  * Email: Mikhail@Deynekin.com
@@ -2695,13 +2695,13 @@ if ($mode === 'viewer') {
             <div class="flex flex-wrap items-center gap-3">
                 <?php if ($mode === 'viewer'): ?>
                 <!-- Width switcher: desktop only -->
-                <div id="width-switcher" class="hidden md:inline-flex items-center rounded-full border border-slate-200 bg-white/80 p-1 shadow-soft dark:border-slate-700 dark:bg-slate-900/80">
+                <div id="width-switcher" data-toolbar="width" class="items-center rounded-full border border-slate-200 bg-white/80 p-1 shadow-soft dark:border-slate-700 dark:bg-slate-900/80">
                     <button type="button" data-width="reading" class="width-switch rounded-full px-4 py-2 text-sm font-medium text-slate-600 transition hover:text-slate-950 dark:text-slate-300 dark:hover:text-white">Narrow</button>
                     <button type="button" data-width="article" class="width-switch rounded-full px-4 py-2 text-sm font-medium text-slate-600 transition hover:text-slate-950 dark:text-slate-300 dark:hover:text-white">Medium</button>
                     <button type="button" data-width="wide" class="width-switch rounded-full px-4 py-2 text-sm font-medium text-slate-600 transition hover:text-slate-950 dark:text-slate-300 dark:hover:text-white">Wide</button>
                 </div>
                 <!-- Font-size controls: mobile only -->
-                <div id="fontsize-controls" class="inline-flex md:hidden items-center rounded-full border border-slate-200 bg-white/80 p-1 shadow-soft dark:border-slate-700 dark:bg-slate-900/80">
+                <div id="fontsize-controls" data-toolbar="font" class="items-center rounded-full border border-slate-200 bg-white/80 p-1 shadow-soft dark:border-slate-700 dark:bg-slate-900/80">
                     <button type="button" id="fs-decrease" aria-label="Decrease font size" class="rounded-full w-9 h-9 flex items-center justify-center text-lg font-bold text-slate-600 transition hover:text-slate-950 dark:text-slate-300 dark:hover:text-white">−</button>
                     <span id="fs-label" class="px-2 text-xs font-medium text-slate-500 dark:text-slate-400 tabular-nums w-10 text-center"></span>
                     <button type="button" id="fs-increase" aria-label="Increase font size" class="rounded-full w-9 h-9 flex items-center justify-center text-lg font-bold text-slate-600 transition hover:text-slate-950 dark:text-slate-300 dark:hover:text-white">+</button>
@@ -2807,6 +2807,41 @@ if ($mode === 'viewer') {
                     <button type="button" data-sp-width="article" class="settings-width-btn">Medium</button>
                     <button type="button" data-sp-width="wide"    class="settings-width-btn">Wide</button>
                 </div>
+            </section>
+
+            <!-- Header toolbar visibility -->
+            <section class="settings-section">
+                <div class="settings-section-title">Header Toolbar</div>
+
+                <label class="settings-checkbox-row">
+                    <input type="checkbox" id="sp-show-width-ctrl" class="settings-checkbox">
+                    <span class="settings-checkbox-label">
+                        Show width switcher
+                        <small>Narrow / Medium / Wide buttons in the header.</small>
+                    </span>
+                </label>
+                <label class="settings-checkbox-row" style="margin-top:6px">
+                    <input type="checkbox" id="sp-show-width-mobile" class="settings-checkbox">
+                    <span class="settings-checkbox-label">
+                        Show width switcher on mobile
+                        <small>Auto-hidden on phones by default.</small>
+                    </span>
+                </label>
+
+                <label class="settings-checkbox-row" style="margin-top:10px">
+                    <input type="checkbox" id="sp-show-font-ctrl" class="settings-checkbox">
+                    <span class="settings-checkbox-label">
+                        Show font &amp; line controls
+                        <small>Font-size ± and line-height buttons in the header.</small>
+                    </span>
+                </label>
+                <label class="settings-checkbox-row" style="margin-top:6px">
+                    <input type="checkbox" id="sp-show-font-mobile" class="settings-checkbox">
+                    <span class="settings-checkbox-label">
+                        Show font &amp; line controls on mobile
+                        <small>Auto-shown on phones by default.</small>
+                    </span>
+                </label>
             </section>
 
             <!-- Feature toggles — PHP-side (require reload) -->
@@ -3590,6 +3625,73 @@ if ($mode === 'viewer') {
         }
 
 
+
+        // ── Header Toolbar visibility prefs ───────────────────────────────────
+        const TB_KEYS = {
+            showWidth:       PREFIX + 'show-width-ctrl',
+            showWidthMobile: PREFIX + 'show-width-mobile',
+            showFont:        PREFIX + 'show-font-ctrl',
+            showFontMobile:  PREFIX + 'show-font-mobile',
+        };
+        // Defaults: width shown on desktop, hidden on mobile;
+        //           font hidden on desktop, shown on mobile
+        const TB_DEF = {
+            showWidth:       '1',
+            showWidthMobile: '0',
+            showFont:        '0',
+            showFontMobile:  '1',
+        };
+
+        const elWidthCtrl  = document.getElementById('width-switcher');
+        const elFontCtrl   = document.getElementById('fontsize-controls');
+
+        function applyToolbarPrefs() {
+            const mobile        = isMobile();
+            const showWidth     = load(TB_KEYS.showWidth,       TB_DEF.showWidth)       === '1';
+            const showWidthMob  = load(TB_KEYS.showWidthMobile, TB_DEF.showWidthMobile) === '1';
+            const showFont      = load(TB_KEYS.showFont,        TB_DEF.showFont)        === '1';
+            const showFontMob   = load(TB_KEYS.showFontMobile,  TB_DEF.showFontMobile)  === '1';
+
+            if (elWidthCtrl) {
+                const show = mobile ? showWidthMob : showWidth;
+                elWidthCtrl.style.display = show ? 'inline-flex' : 'none';
+            }
+            if (elFontCtrl) {
+                const show = mobile ? showFontMob : showFont;
+                elFontCtrl.style.display = show ? 'inline-flex' : 'none';
+            }
+        }
+
+        function syncToolbarCheckboxes() {
+            const ck = function (id, key, def) {
+                const el = document.getElementById(id);
+                if (el) el.checked = load(key, def) === '1';
+            };
+            ck('sp-show-width-ctrl',   TB_KEYS.showWidth,       TB_DEF.showWidth);
+            ck('sp-show-width-mobile', TB_KEYS.showWidthMobile, TB_DEF.showWidthMobile);
+            ck('sp-show-font-ctrl',    TB_KEYS.showFont,        TB_DEF.showFont);
+            ck('sp-show-font-mobile',  TB_KEYS.showFontMobile,  TB_DEF.showFontMobile);
+        }
+
+        // Wire checkboxes
+        [
+            ['sp-show-width-ctrl',   TB_KEYS.showWidth],
+            ['sp-show-width-mobile', TB_KEYS.showWidthMobile],
+            ['sp-show-font-ctrl',    TB_KEYS.showFont],
+            ['sp-show-font-mobile',  TB_KEYS.showFontMobile],
+        ].forEach(function ([id, key]) {
+            const el = document.getElementById(id);
+            if (!el) return;
+            el.addEventListener('change', function () {
+                store(key, this.checked ? '1' : '0');
+                applyToolbarPrefs();
+            });
+        });
+
+        // Apply on init
+        applyToolbarPrefs();
+        syncToolbarCheckboxes();
+
         // Resize debounce for mobile/desktop switch
         let resizeTimer;
         window.addEventListener('resize', function () {
@@ -3603,6 +3705,7 @@ if ($mode === 'viewer') {
                     if (sec) sec.style.display = '';
                     applyWidth(load(PREFIX + 'width', DEF_WIDTH));
                 }
+                applyToolbarPrefs();
             }, 200);
         }, { passive: true });
 
@@ -3670,10 +3773,15 @@ if ($mode === 'viewer') {
                 .catch(function () { /* silent */ });
         }
 
-        // Patch openPanel to load version badge on first open
+        // Patch openPanel to load version badge, backups, and sync toolbar checkboxes
         (function () {
             const _orig = openPanel;
-            openPanel = function () { _orig(); loadVersionBadge(); loadBackups(); };
+            openPanel = function () {
+                _orig();
+                loadVersionBadge();
+                loadBackups();
+                syncToolbarCheckboxes();
+            };
         }());
 
         if (elCheckBtn) elCheckBtn.addEventListener('click', function () {
