@@ -1,7 +1,7 @@
 <?php
 /**
  * Markdown Viewer
- * Version: 2.7.1
+ * Version: 2.8.0
  * Author: Mikhail Deynekin
  * Site: https://Deynekin.com
  * Email: Mikhail@Deynekin.com
@@ -179,6 +179,10 @@ DISABLE_CLIPBOARD = false
 
 ; Disable the "Save to File" button in clipboard preview (saves to uploads.md/)
 DISABLE_SAVE_CLIPBOARD_TO_FILE = true
+
+; Allow updating files via updater.php?update=true or the Settings panel
+; Set to true only on servers you control; false by default for safety
+ALLOW_UPDATE = false
 INI;
         @file_put_contents($iniPath, $default);
     }
@@ -191,6 +195,11 @@ INI;
         $missingEntries .= "\n; Disable the \"Save to File\" button in clipboard preview\n"
                          . "DISABLE_SAVE_CLIPBOARD_TO_FILE = true\n";
         $ini['DISABLE_SAVE_CLIPBOARD_TO_FILE'] = true;
+    }
+    if (!array_key_exists('ALLOW_UPDATE', $ini)) {
+        $missingEntries .= "\n; Allow updating files via updater.php (set to true to enable)\n"
+                         . "ALLOW_UPDATE = false\n";
+        $ini['ALLOW_UPDATE'] = false;
     }
     if ($missingEntries !== '') {
         @file_put_contents($iniPath, $missingEntries, FILE_APPEND | LOCK_EX);
@@ -216,6 +225,7 @@ INI;
     define('DISABLE_UPLOAD',    (bool)($ini['DISABLE_UPLOAD']    ?? true));
     define('DISABLE_CLIPBOARD', (bool)($ini['DISABLE_CLIPBOARD'] ?? false));
     define('DISABLE_SAVE_CLIPBOARD_TO_FILE', (bool)($ini['DISABLE_SAVE_CLIPBOARD_TO_FILE'] ?? true));
+    define('ALLOW_UPDATE',      (bool)($ini['ALLOW_UPDATE']      ?? false));
 })();
 
 // ── Feature toggle resolver (v2.5.1) ────────────────────────────────────────
@@ -2817,6 +2827,7 @@ render_page:
             'disableUpload'              => DISABLE_UPLOAD,
             'disableClipboard'           => DISABLE_CLIPBOARD,
             'disableSaveClipboardToFile' => DISABLE_SAVE_CLIPBOARD_TO_FILE,
+            'allowUpdate'                => ALLOW_UPDATE,
             'updaterUrl'                 => '/updater.php',
         ], JSON_THROW_ON_ERROR); ?>;
     </script>
