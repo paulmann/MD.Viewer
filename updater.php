@@ -1,7 +1,7 @@
 <?php
 /**
  * Markdown Viewer — Self-Updater
- * Version: 3.0.0
+ * Version: 3.0.1
  * Author: Mikhail Deynekin
  * Site: https://Deynekin.com
  * Email: Mikhail@Deynekin.com
@@ -31,9 +31,13 @@
  *   - Never deletes local files absent from remote.
  *   - Same-origin CORS guard; POST required for mutating actions.
  *   - cURL required (curl extension).
+ *   - updater.php updates itself safely: rename() is atomic on the same filesystem,
+ *     and PHP has already loaded the current script into memory/opcache for the
+ *     running request. The new version takes effect from the next request onward.
  *
  * v2.0.0: Raw Range requests, no API/tokens.
  * v2.1.0: Backup-before-replace, restore-from-backup.
+ * v3.0.1: updater.php added to TRACKED_FILES — now self-updates.
  * v3.0.0: RawFileUpdater class — ETag + SHA-256 conditional updates.
  */
 declare(strict_types=1);
@@ -44,6 +48,7 @@ const RAW_BASE = 'https://raw.githubusercontent.com/paulmann/MD.Viewer/refs/head
 
 const TRACKED_FILES = [
     'md.php',
+    'updater.php',
     'assets/js/md.js',
     'assets/js/tooltips.js',
     'assets/css/md.css',
