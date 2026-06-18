@@ -1,173 +1,97 @@
 # MD.Viewer
 
-> A secure, self-hosted PHP Markdown viewer that transforms plain `.md` files into polished, production-grade documentation pages — complete with auto-generated table of contents, heading numbering, footnotes, Mermaid diagrams, syntax-highlighted code blocks with one-click copy, dark mode, responsive layout controls, and a searchable file browser. No build step. No database. No dependencies beyond PHP itself.
+> A secure, self-hosted PHP Markdown viewer and browser that turns plain `.md` files into polished documentation pages with a searchable file browser, auto-generated table of contents, heading numbering, Mermaid diagrams, glossary tooltips, responsive reading controls, dark mode, and a built-in self-updater. No build step. No database. No framework.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://github.com/paulmann/MD.Viewer/blob/main/LICENSE)
-[![PHP](https://img.shields.io/badge/PHP-8.0%2B-777BB4?logo=php&logoColor=white)](https://php.net)
-[![Version](https://img.shields.io/badge/version-2.3.0-success)](https://github.com/paulmann/MD.Viewer/releases)
+[![PHP](https://img.shields.io/badge/PHP-8.3%2B-777BB4?logo=php&logoColor=white)](https://php.net)
+[![md.php](https://img.shields.io/badge/md.php-v2.5.5-success)](https://github.com/paulmann/MD.Viewer)
+[![updater.php](https://img.shields.io/badge/updater.php-v3.1.1-4f46e5)](https://github.com/paulmann/MD.Viewer)
 
 ---
 
-## Table of Contents
+## Overview
 
-- [1. Quick Start](#1-quick-start)
-- [2. Overview](#2-overview)
-  - [2.1 The Problem](#21-the-problem)
-  - [2.2 Who Is It For](#22-who-is-it-for)
-  - [2.3 Use Cases](#23-use-cases)
-- [3. Requirements](#3-requirements)
-- [4. Installation](#4-installation)
-  - [4.1 Via Git](#41-via-git)
-  - [4.2 Manual Installation](#42-manual-installation)
-  - [4.3 PHP Built-in Server (Development)](#43-php-built-in-server-development)
-  - [4.4 Apache](#44-apache)
-  - [4.5 Nginx](#45-nginx)
-- [5. File Structure](#5-file-structure)
-- [6. Usage](#6-usage)
-  - [6.1 Viewer Mode](#61-viewer-mode)
-  - [6.2 File Browser Mode](#62-file-browser-mode)
-  - [6.3 URL Parameters](#63-url-parameters)
-- [7. Features](#7-features)
-  - [7.1 Auto-generated Table of Contents](#71-auto-generated-table-of-contents)
-  - [7.2 Heading Numbering](#72-heading-numbering)
-  - [7.3 Mermaid Diagrams](#73-mermaid-diagrams)
-  - [7.4 Code Blocks with Copy Button](#74-code-blocks-with-copy-button)
-  - [7.5 Tables](#75-tables)
-  - [7.6 Footnotes and Source References](#76-footnotes-and-source-references)
-  - [7.7 Task Lists](#77-task-lists)
-  - [7.8 Emoji Shortcodes](#78-emoji-shortcodes)
-  - [7.9 Images](#79-images)
-  - [7.10 Dark Mode](#710-dark-mode)
-  - [7.11 Adaptive Content Width](#711-adaptive-content-width)
-  - [7.12 Universal Inline Patterns](#712-universal-inline-patterns)
-  - [7.13 Title Splitting by Colon](#713-title-splitting-by-colon)
-- [8. Configuration](#8-configuration)
-  - [8.1 Feature Toggles](#81-feature-toggles)
-  - [8.2 Security Limits](#82-security-limits)
-  - [8.3 Paragraph Break Style](#83-paragraph-break-style)
-- [9. Security](#9-security)
-- [10. Markdown Syntax Reference](#10-markdown-syntax-reference)
-  - [10.1 Headings](#101-headings)
-  - [10.2 Inline Formatting](#102-inline-formatting)
-  - [10.3 Links and Images](#103-links-and-images)
-  - [10.4 Lists](#104-lists)
-  - [10.5 Blockquotes](#105-blockquotes)
-  - [10.6 Horizontal Rules](#106-horizontal-rules)
-  - [10.7 Source Reference Links](#107-source-reference-links)
-  - [10.8 Footnotes](#108-footnotes)
-  - [10.9 Reference-style Links](#109-reference-style-links)
-- [11. File Browser](#11-file-browser)
-- [12. Script-name-based File Mapping](#12-script-name-based-file-mapping)
-- [13. Edge Cases and Troubleshooting](#13-edge-cases-and-troubleshooting)
-  - [13.1 File Not Rendering](#131-file-not-rendering)
-  - [13.2 Mermaid Diagram Not Rendering](#132-mermaid-diagram-not-rendering)
-  - [13.3 Duplicate Heading Numbers](#133-duplicate-heading-numbers)
-  - [13.4 File Browser Shows No Files](#134-file-browser-shows-no-files)
-  - [13.5 TOC Not Shown on Short Documents](#135-toc-not-shown-on-short-documents)
-  - [13.6 Character Encoding Issues](#136-character-encoding-issues)
-  - [13.7 Offline Usage](#137-offline-usage)
-- [14. Changelog](#14-changelog)
-- [15. License](#15-license)
+MD.Viewer is built around **`md.php`**, a single PHP entry point that renders a matching Markdown file, or switches to a recursive Markdown file browser when no matching file exists. The project is designed for simple deployment: copy the files to a PHP host, place your `.md` documents nearby, and open `md.php` in a browser.
+
+The viewer focuses on self-hosted documentation without a toolchain. It supports readable typography, heading numbering, automatic table of contents generation, Mermaid rendering, code-copy buttons, glossary tooltips, dark mode, mobile-friendly controls, and a Settings panel that stores viewer preferences locally.
+
+Recent versions also add a built-in updater in **`updater.php`**. It checks GitHub raw files using **ETag** and **SHA-256**, creates versioned backups before replacement, restores previous versions from the Settings panel, and can manage an optional `index.php` hard link to `md.php`.
 
 ---
 
-## 1. Quick Start
+## Quick start
 
 ```bash
-# Clone the repository into your web server's document root
+# Clone into your web root or any subdirectory
 git clone https://github.com/paulmann/MD.Viewer.git /var/www/html/docs
 
-# Place your Markdown file alongside the script
-echo "# Hello, World\n\nThis is my documentation." > /var/www/html/docs/index.md
+# Create a Markdown file that matches the script name
+echo "# Hello, World
 
-# Open in your browser
-# https://your-domain.com/docs/
+This is my documentation." > /var/www/html/docs/md.md
+
+# Open in a browser
+# https://your-domain.com/docs/md.php
 ```
 
-> **Minimal setup:** drop `index.php` and `index.md` into the same directory and open `index.php` in a browser. MD.Viewer will automatically locate and render `index.md` — no configuration required.
+Minimal setup:
+
+- Place **`md.php`** next to **`md.md`**.
+- Open **`md.php`** in a browser.
+- The script automatically looks for a Markdown file with the same base name, so `md.php` renders `md.md`, `guide.php` renders `guide.md`, and so on.
+
+Optional:
+
+- Add **`updater.php`** to enable in-app update checks, apply updates, backups, restore, and `index.php` link management.
+- If you want your directory root to open MD.Viewer automatically, create `index.php` as a hard link to `md.php` from the Settings panel, or create it manually.
 
 ---
 
-## 2. Overview
+## Requirements
 
-### 2.1 The Problem
-
-Markdown is the de facto standard for technical documentation. Developers author it, teams store it in repositories, and CI pipelines publish it. Yet the raw `.md` format is entirely unsuitable for end-user consumption: there is no navigation, no numbered sections, no visual hierarchy, and no way to render diagrams or highlight code without a full build pipeline.
-
-Existing solutions force a choice between heavy infrastructure — Node.js-based static site generators with complex toolchains and npm dependency trees — or external SaaS platforms that introduce vendor lock-in and potential data privacy concerns.
-
-**MD.Viewer collapses that complexity into a single PHP file.** Drop it next to any `.md` document and you instantly have a professional, self-hosted documentation page with zero external dependencies, no database, no build step, and no ongoing maintenance overhead.
-
-### 2.2 Who Is It For
-
-- Developers who need to publish internal or customer-facing technical documentation on their own infrastructure
-- Engineering teams running internal wikis backed by Markdown files in a repository
-- DevOps and SRE engineers who want a fast, distraction-free way to browse READMEs and runbooks
-- Technical writers who author Markdown content and need an immediate, accurate preview
-- Anyone who wants beautifully rendered `.md` files without the overhead of a full documentation framework
-
-### 2.3 Use Cases
-
-| Scenario | Description |
-|---|---|
-| Project documentation | Place `index.md` alongside the script — get a polished documentation page instantly |
-| File browser | Open a directory with no `.md` file and get a sortable, searchable index of all Markdown files |
-| Multi-page documentation | Navigate between files using the `?file=path/to/doc.md` query parameter |
-| Internal wiki | Deploy the script and a set of `.md` files on a private server — no CMS required |
-| Self-hosted blog | Each post is a `.md` file; a matching PHP file finds and renders it automatically |
+- PHP **8.3+**.
+- PHP extensions: `mbstring` and `curl` for the updater.
+- A web server such as Apache, Nginx, Caddy, or the PHP built-in server.
+- Browser-side internet access for CDN assets used by the UI, Mermaid, and syntax highlighting, unless you replace them with local copies.
 
 ---
 
-## 3. Requirements
+## Installation
 
-- **PHP** 8.0 or higher (8.2+ recommended)
-- A web server: **Apache**, **Nginx**, or the **PHP built-in development server**
-- PHP extension: `mbstring` (enabled by default in most distributions)
-- Browser-side internet access for CDN assets: Tailwind CSS, Google Fonts, and Mermaid
-
-> **Air-gapped or offline environments:** replace the CDN `<script>` and `<link>` tags in `index.php` with locally served copies of the respective libraries.
-
----
-
-## 4. Installation
-
-### 4.1 Via Git
+### Git clone
 
 ```bash
 git clone https://github.com/paulmann/MD.Viewer.git
 cd MD.Viewer
 ```
 
-### 4.2 Manual Installation
+### Manual install
 
-1. Download the latest release archive from [GitHub Releases](https://github.com/paulmann/MD.Viewer/releases).
-2. Extract the archive into your web server's document root or a subdirectory thereof.
-3. Verify that `index.php` is reachable via a browser.
+1. Download the repository or release archive.
+2. Copy `md.php`, `assets/`, and optionally `updater.php` into your target directory.
+3. Add your Markdown files in the same directory tree.
+4. Open `md.php` in a browser.
 
-### 4.3 PHP Built-in Server (Development)
+### PHP built-in server
 
 ```bash
 cd /path/to/MD.Viewer
 php -S localhost:8080
-# Navigate to http://localhost:8080
+# then open http://localhost:8080/md.php
 ```
 
-### 4.4 Apache
-
-No `.htaccess` configuration is required. Ensure that `mod_php` or `php-fpm` is active and that the target directory is readable by the web server process.
-
-### 4.5 Nginx
+### Nginx example
 
 ```nginx
 server {
     listen 80;
     server_name docs.example.com;
     root /var/www/html/docs;
-    index index.php;
+    index index.php md.php;
 
     location ~ \.php$ {
         include fastcgi_params;
-        fastcgi_pass unix:/run/php/php8.2-fpm.sock;
+        fastcgi_pass unix:/run/php/php8.3-fpm.sock;
         fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
     }
 }
@@ -175,610 +99,265 @@ server {
 
 ---
 
-## 5. File Structure
+## File layout
 
-```
+```text
 MD.Viewer/
-├── index.php              # Core rendering engine — the entire application
-├── index.md               # Your default Markdown document
+├── md.php                     # Main viewer / browser script
+├── updater.php                # Optional self-updater and backup manager
+├── md.md                      # Default Markdown file for md.php
+├── md.backup/                 # Created automatically when updates/restores run
+│   ├── 2.5.0/
+│   └── .state/
 ├── assets/
 │   ├── css/
-│   │   └── md.css      # Supplementary stylesheet
+│   │   ├── md.css
+│   │   └── tooltips.css
 │   └── js/
-│       └── md.js          # Client-side logic: theme switching, layout width,
-│                          # copy-to-clipboard, Mermaid lazy initialization
+│       ├── md.js
+│       └── tooltips.js
 ├── LICENSE
 └── README.md
 ```
 
-> The script automatically resolves the companion Markdown file by matching its own filename: a script named `docs.php` looks for `docs.md`. This makes it straightforward to deploy multiple independent viewer instances within a single directory, each serving its own document.
+Key naming rule:
+
+- `md.php` looks for `md.md`.
+- `docs.php` looks for `docs.md`.
+- `readme.php` looks for `readme.md`.
+
+That means you can keep multiple independent viewer instances in one directory tree without extra routing.
 
 ---
 
-## 6. Usage
+## Usage modes
 
-### 6.1 Viewer Mode
+### Viewer mode
 
-When a matching `.md` file is found — either by name inference or via the `?file=` parameter — the script enters **viewer mode**:
+When a matching Markdown file exists, MD.Viewer renders it as a styled document page.
 
-- The page title is derived from the first `#` heading in the document.
-- The meta description is extracted from the first paragraph.
-- An auto-generated table of contents is rendered before the article body.
-- The full Markdown source is parsed and emitted as structured, styled HTML.
+It derives the page title from the first top-level heading, builds a description from the first paragraph, renders a table of contents, styles headings and code blocks, and applies local viewer preferences such as theme, width, font size, and line spacing.
 
-### 6.2 File Browser Mode
+### File browser mode
 
-When no `.md` file can be located, the script enters **file browser mode**:
+When no matching Markdown file exists, MD.Viewer switches to a recursive Markdown browser.
 
-- The current directory is scanned recursively up to `MAX_SCAN_DEPTH` levels.
-- Results are displayed in a sortable table with columns: File, Dir, Created, Modified, Size.
-- A debounced live search field filters rows in real time by filename or directory path.
-- Clicking any row opens the corresponding file in a new tab via `?file=`.
+The browser scans the current directory tree, lists Markdown files in a searchable table, and opens the selected file with `?file=relative/path.md`. This is useful for wiki-style repositories, notes collections, documentation folders, and READMEs spread across subdirectories.
 
-### 6.3 URL Parameters
+### URL parameter
 
-| Parameter | Description | Example |
+| Parameter | Meaning | Example |
 |---|---|---|
-| `?file=path/to/doc.md` | Render a specific Markdown file | `?file=docs/api.md` |
+| `?file=path/to/doc.md` | Render a specific Markdown file inside the allowed tree | `md.php?file=docs/api.md` |
 
-The path must be **relative** and must resolve to a file within the script's own directory tree. Absolute paths, path traversal sequences (`../`), null bytes, and control characters are all rejected outright by the validation layer.
-
----
-
-## 7. Features
-
-### 7.1 Auto-generated Table of Contents
-
-MD.Viewer automatically collects all headings from level `##` through `######` and constructs a hierarchical table of contents that appears above the article body. The TOC:
-
-- Renders the full heading hierarchy with proportional indentation
-- Generates stable anchor slugs derived from each heading's text content
-- Handles duplicate headings gracefully by appending `-2`, `-3`, etc.
-- Can be disabled via the `AUTO_TOC` constant
-
-```php
-const AUTO_TOC = true; // Set to false to suppress the table of contents
-```
-
-### 7.2 Heading Numbering
-
-All headings are automatically numbered in hierarchical dotted notation — `1.`, `1.1.`, `1.1.1.`, and so on. The engine intelligently detects manually numbered headings and skips auto-numbering for them, while preserving the counter state for subsequent headings.
-
-```php
-const AUTO_NUMBERING = true; // Set to false to disable automatic numbering
-```
-
-> **Edge case:** headings that already carry a manual prefix such as `1. Introduction`, `1.1 Background`, or `I. Preface` are automatically recognized as manually numbered. Auto-numbering is skipped for those specific headings, but the internal counter continues uninterrupted for any following un-prefixed headings.
-
-### 7.3 Mermaid Diagrams
-
-Fenced code blocks declared with the language identifier ` ```mermaid ` or ` ```mmd ` are rendered as interactive Mermaid diagrams.
-
-````markdown
-```mermaid
-graph TD
-    A[Browser] --> B[MD.Viewer]
-    B --> C[Markdown source]
-    B --> D[Rendered HTML]
-```
-````
-
-The Mermaid library is loaded **lazily** — it is fetched from CDN only when at least one diagram block is present in the document. Pages with no diagrams incur zero Mermaid-related overhead.
-
-### 7.4 Code Blocks with Copy Button
-
-Every fenced code block is rendered in a full editor-inspired style:
-
-- A header bar with macOS-style traffic-light decorators and the detected language label
-- A **Copy** button that writes the block's content to the system clipboard
-- After a successful copy, the button transitions to a **Copied!** state with a green checkmark icon
-- Syntax class names in the form `language-*` are applied for downstream highlighter compatibility
-
-### 7.5 Tables
-
-Standard GFM pipe tables are supported, including per-column alignment directives:
-
-```markdown
-| Left-aligned | Centered | Right-aligned |
-|:-------------|:--------:|--------------:|
-| Value        |  Value   |         Value |
-```
-
-All tables are wrapped in a horizontally scrollable container so they remain usable on narrow viewports.
-
-### 7.6 Footnotes and Source References
-
-**Source references** are a MD.Viewer-specific convention for numbered inline citations rendered as a formatted reference list at the end of the document:
-
-```markdown
-This claim is supported by prior research [1] and industry benchmarks [2].
-
-[1]: Title of First Source - URL: https://example.com
-[2]: Title of Second Source - URL: https://example.org
-```
-
-Inline citations are rendered as superscript numerals with hyperlinks. The reference section heading must be `## Sources List` or `## Sources` — it is automatically excluded from the body and rendered as a styled list at the bottom of the page.
-
-**Footnotes** follow the standard `[^identifier]` convention:
-
-```markdown
-This statement requires a clarification.[^clarification]
-
-[^clarification]: Here is the full explanatory note, with **inline formatting** support.
-```
-
-Requires `FEATURE_FOOTNOTES = true`.
-
-### 7.7 Task Lists
-
-```markdown
-- [x] Completed item
-- [ ] Pending item
-```
-
-Rendered as read-only checkboxes. Requires `FEATURE_TASK_LISTS = true`.
-
-### 7.8 Emoji Shortcodes
-
-Text shortcodes are substituted with their Unicode equivalents at render time:
-
-```markdown
-:check: All tests passing
-:warning: Deprecated in v3
-:rocket: Initial release
-:bulb: Pro tip
-```
-
-Supported shortcodes: `:smile:`, `:laughing:`, `:joy:`, `:heart:`, `:thumbsup:`, `:thumbsdown:`, `:warning:`, `:error:`, `:check:`, `:x:`, `:star:`, `:fire:`, `:bulb:`, `:rocket:`, `:link:`, `:info:`.
-
-Requires `FEATURE_EMOJI = true`.
-
-### 7.9 Images
-
-```markdown
-![Alternative text](https://example.com/image.png "Optional caption")
-```
-
-- `loading="lazy"` and `decoding="async"` attributes are injected automatically for optimal performance.
-- If an image fails to load, it is hidden and a text fallback is shown in its place.
-- Requires `FEATURE_IMAGES = true`.
-
-### 7.10 Dark Mode
-
-A theme toggle button is available in the page header. The user's preference is persisted in `localStorage` and restored on subsequent visits. The active color scheme is applied via a `data-theme` attribute on the `<html>` element, which Tailwind's dark-mode variant uses as its selector.
-
-### 7.11 Adaptive Content Width
-
-In viewer mode, three content column widths are available from the header toolbar:
-
-| Mode    | Width   | Best suited for |
-|---------|---------|------------------|
-| Reading | `72ch`  | Long prose and narrative documentation |
-| Article | `90ch`  | Technical docs with inline code snippets |
-| Wide    | `120ch` | Wide tables, diagrams, and side-by-side comparisons |
-
-The selected width is persisted in `localStorage`.
-
-### 7.12 Universal Inline Patterns
-
-MD.Viewer supports a lightweight inline syntax for visualizing graph nodes, relationships, and annotated patterns directly within paragraph text — no separate diagram block required:
-
-```markdown
-`(Node A)--[relationship]->(Node B){annotation}`
-```
-
-Requires both `UNIVERSAL_PATTERNS = true` and `CYPHER_PATTERNS = true`.
+Only relative paths inside the viewer root are accepted. Path traversal, absolute paths, null bytes, and control characters are rejected.
 
 ---
 
-### 7.13 Title Splitting by Colon
+## Features
 
-MD.Viewer can split the first `#` heading into a page title and a subtitle / meta description when the heading contains a colon separator. Both the ASCII colon (`:`) and the full-width colon (`：`) are recognized.
+### Markdown rendering
 
-```markdown
-# Main Title: Subtitle or short description
-```
+MD.Viewer supports the core Markdown features expected for technical documents:
 
-With `SPLIT_TITLE_BY_COLON = true`, the heading above is interpreted as:
+- Headings, paragraphs, emphasis, strong text, inline code, blockquotes, horizontal rules, and fenced code blocks.
+- Ordered and unordered lists, including nested lists.
+- Tables with styled output.
+- Task lists.
+- Footnotes and source-style references.
+- Reference-style links.
+- Images and standard links.
 
-| Part | Extracted value |
-|---|---|
-| Page title | `Main Title` |
-| Subtitle / meta description | `Subtitle or short description` |
+### Navigation and structure
 
-The split is intentionally conservative:
+The viewer improves raw Markdown readability with structural features:
 
-- Only the **first** colon is used as the separator.
-- Both sides must be **non-empty**, otherwise the full heading is kept as the title.
-- When the H1 contains no valid separator, the entire H1 remains the page title and the first `##` heading is used as the description fallback.
-- Setting the constant to `false` disables the behavior entirely.
+- Auto-generated table of contents.
+- Optional automatic heading numbering.
+- Title splitting by colon or full-width colon for cleaner hero titles.
+- Searchable file browser mode when no matching Markdown file is found.
 
-```php
-const SPLIT_TITLE_BY_COLON = true; // Set to false to keep the full H1 as the title
-```
+### Code, diagrams, and rich content
 
-> **Use case:** documents whose visible heading carries both a strong title and a concise explanatory subtitle, e.g. `# From Passive Receiver to Active Orchestrator: A practical guide to self-regulation`.
+MD.Viewer includes presentation features useful for developer-facing documentation:
 
-## 8. Configuration
+- Syntax-highlighted fenced code blocks.
+- Copy button for code blocks.
+- Mermaid diagrams.
+- Emoji shortcode support.
+- Universal inline patterns used for polished document formatting.
 
-All configuration constants are declared near the top of `index.php` in the **Feature toggles** block. No separate configuration file is needed.
+### Glossary tooltips
 
-### 8.1 Feature Toggles
+The current versions include inline glossary tooltips backed by `assets/js/tooltips.js` and `assets/css/tooltips.css`.
 
-```php
-const AUTO_NUMBERING        = true;  // Automatic hierarchical heading numbering
-const AUTO_TOC              = true;  // Auto-generated table of contents
-const AUTO_FOOTNOTES_LINKS  = true;  // Render source reference list at end of page
-const DOUBLE_LINE_BREAKS    = true;  // Treat double line break as <br>
-const CYPHER_PATTERNS       = true;  // Inline Cypher / graph pattern visualization
-const UNIVERSAL_PATTERNS    = true;  // Inline universal pattern visualization
-const FEATURE_IMAGES        = true;  // Render Markdown image syntax as <img>
-const FEATURE_REF_LINKS     = true;  // Reference-style links: [label][ref]
-const FEATURE_TASK_LISTS    = true;  // GFM task list checkboxes
-const FEATURE_FOOTNOTES     = true;  // Footnote syntax: [^id]
-const FEATURE_SUB_SUP       = true;  // Subscript ~text~ and superscript ^text^
-const FEATURE_EMOJI         = true;  // Emoji shortcode substitution
-const SPLIT_TITLE_BY_COLON = true;  // Split H1 "Title: Subtitle" into title + description
-```
+Terms can show a tooltip on hover, and the tooltip engine resolves supported glossary syntax variants to the same term. This is useful for documentation with abbreviations, domain-specific terms, or inline explanations.
 
-### 8.2 Security Limits
+### Appearance and reading controls
 
-```php
-const MAX_FILE_PARAM_LENGTH = 255;   // Maximum allowed length of the ?file= parameter
-const MAX_SCAN_DEPTH        = 3;     // Maximum directory recursion depth during scanning
-const MAX_FILES_SCAN        = 10000; // Maximum number of files processed in a single scan
-```
+The viewer includes a modern Settings panel and header controls for reading comfort:
 
-> **Recommendation:** on servers with large directory trees, reduce `MAX_SCAN_DEPTH` and `MAX_FILES_SCAN` to keep the file browser responsive. A depth of `1` is sufficient for most flat documentation layouts.
+- Dark mode.
+- Adjustable page width.
+- Adjustable font size.
+- Adjustable line height.
+- Header toolbar visibility settings.
+- Mobile-aware behavior for width and font controls.
+- Persistent preferences stored locally in the browser.
 
-### 8.3 Paragraph Break Style
+The latest version adds dedicated Settings toggles for:
 
-```php
-const PARAGRAPH_BREAK_STYLE = 'double-br'; // Options: 'double-br', 'paragraph', 'space', 'nbsp'
-```
+- Showing or hiding the width switcher in the header.
+- Showing the width switcher on mobile.
+- Showing font and line controls in the header.
+- Showing font and line controls on mobile.
 
-| Value | Behavior |
-|---|---|
-| `double-br` | A double line break is emitted as `<br><br>` |
-| `paragraph` | A double line break opens a new `<p>` element with margin |
-| `space` | A double line break is collapsed to a single space |
-| `nbsp` | A double line break is replaced with a non-breaking space |
+These defaults preserve the current UI behavior: width controls shown on desktop but hidden on phones, font controls hidden on desktop but shown on phones.
 
----
+### Settings panel
 
-## 9. Security
+The Settings panel is now a major part of the application rather than a small theme toggle. It includes:
 
-MD.Viewer applies a **14-layer defense-in-depth validation chain** to every value supplied via the `?file=` query parameter. Each layer is a hard gate — a failure at any point immediately aborts the request and returns an access-denied response.
+- Font size controls.
+- Line height controls.
+- Page width controls.
+- Header toolbar visibility controls.
+- PHP-side feature toggles that require reload.
+- Paragraph break style settings.
+- Cookie-consent behavior.
+- Update check and apply controls.
+- Backup and restore controls.
+- `index.php` link management.
 
-1. **Length check** — the parameter value must not exceed `MAX_FILE_PARAM_LENGTH` characters.
-2. **Null-byte rejection** — embedded `\0` characters are unconditionally blocked.
-3. **Control character rejection** — ASCII codepoints 0–31, 127, and backspace are rejected.
-4. **URL-decode and re-validate** — the value is decoded to catch encoded traversal sequences such as `%2e%2e%2f`, then all control-character checks are re-applied.
-5. **Absolute path rejection** — Unix-style (`/`), Windows drive (`C:\`), and UNC (`\\`) prefixes are all disallowed.
-6. **Path traversal normalization** — directory separators are normalized and any resulting `..` segments are rejected.
-7. **Character whitelist** — only the characters `A-Za-z0-9`, `.`, `-`, `_`, and `/` are permitted in the final path.
-8. **Directory depth cap** — the number of path segments must not exceed `MAX_SCAN_DEPTH`.
-9. **Extension enforcement** — the file must carry a `.md` extension (case-insensitive).
-10. **Base directory `realpath` resolution** — the canonical absolute path of the base directory is established.
-11. **Target file `realpath` resolution** — the canonical absolute path of the requested file is established; the file must exist.
-12. **Containment check** — the resolved file path must be strictly prefixed by the resolved base directory path.
-13. **File type assertion** — the target must be a regular file; directories, device nodes, and other special files are rejected.
-14. **Post-symlink extension re-check** — the extension is verified again on the real, symlink-resolved path to prevent extension-spoofing via symbolic links.
+### Built-in updater
 
-`POST` requests are silently ignored. The application processes `GET` exclusively.
+If `updater.php` is present, the Settings panel can check for updates and apply them without using the GitHub API.
 
----
+Current updater behavior:
 
-## 10. Markdown Syntax Reference
+- Checks **all tracked files**, including `md.php`, `updater.php`, `assets/js/md.js`, `assets/js/tooltips.js`, `assets/css/md.css`, and `assets/css/tooltips.css`.
+- Uses conditional GET with stored **ETag** values against `raw.githubusercontent.com`.
+- Treats **HTTP 304** as unchanged, avoiding unnecessary downloads.
+- On **HTTP 200**, verifies the remote payload by comparing **SHA-256** with the local file.
+- Stores per-file ETag and SHA-256 state under `md.backup/.state/`.
+- Applies updates with atomic replacement.
+- Allows `updater.php` to update **itself** safely; the new version is used from the next request.
 
-### 10.1 Headings
+### Backups and restore
 
-```markdown
-# Heading Level 1
-## Heading Level 2
-### Heading Level 3
-#### Heading Level 4
-##### Heading Level 5
-###### Heading Level 6
+The updater now creates versioned backups automatically before replacing files.
 
-# Setext-style headings are also supported:
-Heading Level 1
-===============
-Heading Level 2
----------------
-```
+Backup behavior:
 
-### 10.2 Inline Formatting
+- Before each replacement, the current local file is copied into `md.backup/[version]/...`.
+- Backup folders contain only the files that actually changed.
+- The Settings panel lists backup versions, dates, and file counts.
+- Restore first backs up the current version, then writes the selected old files back into place.
+- Restoring invalidates cached updater state so the next update check starts fresh.
 
-```markdown
-**Bold text**
-__Also bold__
-*Italic text*
-_Also italic_
-~~Strikethrough~~
-==Highlighted==
-~Subscript~       (requires FEATURE_SUB_SUP)
-^Superscript^     (requires FEATURE_SUB_SUP)
-`inline code`
-```
+This makes updates reversible from the UI without Git, SSH, or manual file copying.
 
-### 10.3 Links and Images
+### `index.php` hard-link management
 
-```markdown
-[Link text](https://example.com)
-[Link with title](https://example.com "Tooltip text")
-![Alt text](https://example.com/image.png)
-![Alt text](https://example.com/image.png "Image caption")
-```
+The latest version adds Settings controls for managing an optional `index.php` entry point.
 
-### 10.4 Lists
+Behavior:
 
-```markdown
-- Unordered list item
-- Another item
-
-1. Ordered list item
-2. Another item
-
-- [x] Completed task       (requires FEATURE_TASK_LISTS)
-- [ ] Pending task         (requires FEATURE_TASK_LISTS)
-```
-
-### 10.5 Blockquotes
-
-```markdown
-> This is a blockquote.
-> It can span multiple lines.
-```
-
-### 10.6 Horizontal Rules
-
-```markdown
----
-***
-___
-```
-
-### 10.7 Source Reference Links
-
-```markdown
-This conclusion is drawn from field observations [1] and published benchmarks [2].
-
-[1]: Name of First Source - URL: https://example.com
-[2]: Name of Second Source - URL: https://example.org
-```
-
-> The section containing source definitions must carry a heading of `## Sources List` or `## Sources`. This heading and its content are automatically stripped from the rendered document body and re-emitted as a styled reference list at the foot of the page.
-
-### 10.8 Footnotes
-
-```markdown
-This technique has important caveats.[^caveats]
-
-[^caveats]: A full explanation of the caveats, with support for **inline formatting**.
-```
-
-### 10.9 Reference-style Links
-
-```markdown
-[Link text][ref-identifier]
-
-[ref-identifier]: https://example.com "Optional title attribute"
-```
+- The panel can detect whether `index.php` is a hard link to `md.php` by comparing inode numbers.
+- If no `index.php` exists, the panel can create a hard link.
+- If the host does not allow `link()`, the updater falls back to a tiny wrapper file that includes `md.php`.
+- If `index.php` is already a regular file and not a hard link, the feature is blocked and the UI explains that you must remove or rename the file manually first.
+- If `index.php` is a hard link, the panel can remove it safely without affecting `md.php`.
 
 ---
 
-## 11. File Browser
+## Configuration
 
-When MD.Viewer is opened in a directory that contains no matching `.md` file — either because none exists or because a `?file=` lookup failed — it activates the **file browser mode**:
+### Feature toggles
 
-- **Recursive scanning** traverses subdirectories up to `MAX_SCAN_DEPTH` levels deep.
-- **Hidden file filtering** excludes any file or directory whose name begins with a `.`.
-- **Sortable columns** allow ordering by File, Dir, Created, Modified, or Size with a single click.
-- **Live search with debounce** filters the table in real time as the user types, matching against both the filename and the directory path.
-- **Open in new tab** — clicking any row navigates to that file via `?file=`, opening it in a new browser tab.
-- **Symlink escape protection** — symbolic links that resolve outside the base directory are silently skipped.
+MD.Viewer includes PHP-side feature toggles for behavior that affects rendering and may require a reload. These are available in the script and surfaced in the Settings panel where applicable.
 
----
+Examples include:
 
-## 12. Script-name-based File Mapping
+- Auto numbering.
+- Automatic table of contents.
+- Glossary tooltip support.
+- Update UI.
+- Cookie-consent behavior.
 
-MD.Viewer supports a zero-configuration multi-page layout through automatic PHP-to-Markdown filename inference:
+### Paragraph break style
 
-```
-/docs/
-├── index.php      → automatically serves index.md
-├── api.php        → automatically serves api.md
-├── changelog.php  → automatically serves changelog.md
-├── index.md
-├── api.md
-└── changelog.md
-```
+The Settings panel lets the user choose how paragraph breaks are rendered in the viewer. This is useful for different reading preferences and different Markdown authoring styles.
 
-Each PHP file is a fully independent documentation page that locates its companion `.md` document without any routing configuration. This pattern is particularly well-suited to small documentation sites where each top-level topic deserves a dedicated, bookmarkable URL.
+### Cookie consent
+
+The current versions include a Settings option that controls cookie persistence behavior, such as session-only vs persistent storage when cookie-backed settings are used.
 
 ---
 
-## 13. Edge Cases and Troubleshooting
+## Security
 
-### 13.1 File Not Rendering
+MD.Viewer is designed to be safe for self-hosted documentation browsing.
 
-**Symptom:** the file browser or an error message is shown instead of the expected document.
+Security-related behavior includes:
 
-**Checklist:**
-- The `.md` file resides in the same directory as `index.php`.
-- The Markdown filename matches the PHP script name exactly (`index.php` → `index.md`).
-- The file carries a `.md` extension — the check is case-insensitive, but the extension must be present.
-- File system read permissions are correctly set (`chmod 644` or equivalent).
+- Restricting `?file=` to files inside the allowed directory tree.
+- Rejecting traversal attempts and malformed paths.
+- Same-origin protection for updater actions.
+- Requiring POST for mutating updater operations.
+- Using atomic file replacement for updates and restore.
+- Avoiding the GitHub REST API and access tokens for normal update checks.
+- Keeping update state locally instead of depending on external storage.
 
-### 13.2 Mermaid Diagram Not Rendering
-
-**Symptom:** the diagram source is displayed as plain text inside a code block.
-
-**Checklist:**
-- The fenced block is annotated with ` ```mermaid ` or ` ```mmd `.
-- The diagram syntax is valid — use [mermaid.live](https://mermaid.live) to verify.
-- The browser can reach `cdn.jsdelivr.net`.
-
-### 13.3 Duplicate Heading Numbers
-
-**Symptom:** a heading written as `1. Introduction` renders as `1. 1. Introduction`.
-
-**Cause:** `AUTO_NUMBERING` is enabled, but the engine's manual-numbering detector has not matched this particular heading format.
-
-**Resolution:** MD.Viewer recognizes the following patterns as manually numbered and skips auto-numbering for them: `1. Text`, `1.1 Text`, `1.1.1 Text`, `I. Text`, `XIV. Text`. Bare integers without a following separator — e.g., `1 Introduction` — are not considered manual numbers and will receive an auto-generated prefix.
-
-### 13.4 File Browser Shows No Files
-
-**Symptom:** the file browser is empty or displays "No .md files found".
-
-**Checklist:**
-- `MAX_SCAN_DEPTH` is not set to `0`. At depth `0`, only the immediate directory is scanned — no subdirectories.
-- The target files are not inside hidden directories (names beginning with `.`).
-- The total file count does not exceed `MAX_FILES_SCAN`.
-- Check the server's PHP error log for any `MD.Viewer scanMarkdownFiles` entries, which indicate scan failures.
-
-### 13.5 TOC Not Shown on Short Documents
-
-**Behavior:** the table of contents is intentionally suppressed when a document contains fewer than two headings. For single-section documents, a TOC would be redundant and visually noisy.
-
-### 13.6 Character Encoding Issues
-
-MD.Viewer operates exclusively in **UTF-8**. If rendered output contains garbled characters, verify the following:
-- All `.md` source files are saved as UTF-8 **without BOM**.
-- The web server includes `charset=UTF-8` in the `Content-Type` response header.
-
-### 13.7 Offline Usage
-
-By default, MD.Viewer loads the following assets from external CDNs at page render time:
-
-- **Tailwind CSS** — `cdn.tailwindcss.com`
-- **Google Fonts** — Inter and Sora typefaces
-- **Mermaid** — `cdn.jsdelivr.net` (only when diagrams are present)
-
-For air-gapped environments, replace these CDN references with locally hosted copies. Download each library, serve it from the `assets/` directory, and update the corresponding `<link>` and `<script>` tags in `index.php`.
+As always, you should still deploy it behind normal web-server best practices and ensure file permissions are appropriate for your host.
 
 ---
 
-## 14. Changelog
+## Recent additions
 
-### v2.3.0
+The current public repository version includes the following newer capabilities beyond the older README snapshot:
 
-- **FEATURE:** Added `SPLIT_TITLE_BY_COLON` toggle for metadata extraction. When enabled, an H1 such as `# Main Title: Subtitle` is rendered with page title "Main Title" and subtitle/description "Subtitle". Both ASCII `:` and full-width `：` separators are supported, and both sides of the split must be non-empty.
-- **FIXED:** UTF-8 BOM handling in `normalizeMarkdown()`. BOM is now removed with byte-safe `str_starts_with("\xEF\xBB\xBF")` + `substr()` before Unicode regex processing, because the BOM bytes can invalidate UTF-8 matching prior to cleanup.
-- **FIXED:** H1 metadata extraction no longer falls back to the default title when a Markdown file starts with a BOM or common invisible Unicode markers (U+FEFF, U+200B, U+200C, U+200D, U+2060).
-- **FIXED:** Removed temporary debug `error_log()` calls from `extractMeta()`.
-- **IMPROVED:** Refactored `extractMeta()` with an explicit resolution order — H1 title first, optional colon split for the description, then the first `##` heading as a fallback description.
-- **IMPROVED:** Added defensive matching for invisible Unicode markers before H1/H2 metadata headings.
-- **IMPROVED:** Added PHPDoc for `normalizeMarkdown()` and `extractMeta()`, documenting BOM cleanup order, invisible-marker handling, `SPLIT_TITLE_BY_COLON` behaviour, return shape, and metadata extraction precedence.
-- **UI:** Removed the narrow `max-w-3xl` constraint from the header description so the subtitle uses the same available width as the H1 in Wide mode.
-
-### v2.2.5
-
-- **FIXED:** Badge and inline images rendered vertically instead of inline when multiple
-  image-only lines appeared consecutively in a paragraph. The `$flushPara` closure now
-  uses per-pair glue resolution: any line boundary where at least one neighbour contains
-  an `<img>` uses a plain space instead of the configured `<br><br>` separator, so badges
-  flow horizontally without altering behaviour for plain-text paragraphs.
-- **FIXED:** Setext headings (`===` / `---` underline syntax) were never rendered by
-  `renderMarkdown`, causing heading-counter desynchronisation (`$si`) between
-  `collectHeadings` and `renderMarkdown`. A dedicated setext branch with `array_pop($para)`
-  was added, mirroring the logic already present in `collectHeadings`.
-- **FIXED:** ATX heading regex in `renderMarkdown` was narrower than the one in
-  `collectHeadings`, causing further `$si` drift for headings with leading spaces or
-  trailing `#` markers. Both functions now share the same pattern:
-  `/^ {0,3}(#{1,6})\s+(.*?)\s*#*\s*$/u`.
-- **REFACTOR:** Heading render logic extracted into a `$renderHeading` closure, eliminating
-  code duplication between the ATX and setext branches.
-- **REFACTOR:** `$src`, `$refs`, and `$fn` are now captured **by reference** (`&`) in all
-  inner closures of `renderMarkdown`, making data-flow explicit and preventing stale-copy
-  bugs if these arrays were ever mutated mid-render.
-
-### v2.2.4
-
-- **FIXED:** `TypeError: slugify(): Argument #1 must be of type string, int given` thrown
-  by `renderFootnotes` when footnote identifiers are numeric (e.g. `[^1]`). `slugify` now
-  accepts `string|int`; all call-sites that receive raw array keys cast them explicitly to
-  `string`.
-- **FIXED:** `[![badge](img)](url)` syntax corrupted — the `<img>` tag was HTML-escaped
-  and then re-wrapped in a spurious `<a>` by the link handler. Images are now extracted
-  into raw-HTML placeholders **before** `htmlspecialchars` runs, so the generated markup
-  is never escaped and link patterns cannot match it.
-
-### v2.2.3
-
-- **FIXED:** Robust numeric and Roman-numeral prefix detection in `hasManualNumbering`.
-  Corrects false negatives for short titles such as `5 A`, rejects year/ID/tech-label
-  tokens, and validates canonical Roman numerals to prevent plain words (`Civic`, `Mix`)
-  from being treated as numbering.
-- **FIXED:** Undefined `$lvl`, `$txt`, and `$slug` variables and a `TypeError` in
-  `hasManualNumbering` inside `collectHeadings`. Parser state is now initialised before
-  the loop; every heading entry carries a `manual_number` flag.
-- **IMPROVED:** GitHub-compatible anchor slugging in `slugify` — strips HTML tags,
-  lowercases with Unicode awareness, removes non-letter/digit/hyphen characters, and
-  replaces whitespace with hyphens, matching GitHub's own algorithm for `#anchor` links.
-- **IMPROVED:** Unicode-aware key normalisation in `parseReferenceLinks`; supports both
-  `"double"` and `'single'` quoted titles; first definition wins on duplicate keys.
-- **IMPROVED:** Hardened EOL-anchored terminator lookahead in `parseFootnotes`; duplicate
-  identifier guard added; multi-line bodies are whitespace-collapsed; identifiers always
-  stored as `string` to prevent downstream `TypeError`.
-
-### v2.2.2
-
-- **FIXED:** Duplicate numbering in headings that already carry a manual prefix
-  (e.g., `1. Title`). A manual-numbering detector was added that skips auto-numbering
-  for such headings.
-- **FIXED:** The heading counter no longer increments for manually-numbered headings,
-  preserving the correct sequence for subsequent auto-numbered headings.
-- **FIXED:** The TOC respects the manual-numbering flag — no duplicate prefixes appear
-  in navigation links.
-
-### v2.2.1
-
-- **FIXED:** "No .md files found" regression caused by `RecursiveDirectoryIterator` not
-  exposing a `getDepth()` method. Replaced `RecursiveCallbackFilterIterator` with manual
-  depth checks via `RecursiveIteratorIterator`.
-- **FIXED:** Silent exception swallowing — errors are now surfaced via `error_log` for
-  diagnostics.
-- **SECURITY:** Added symlink escape protection in the file scanner.
-- **IMPROVED:** Hidden file filtering now covers files nested inside hidden directories
-  (e.g., `.hidden/sub.md`).
-
-### v2.2.0
-
-- **SECURITY:** 8-layer path traversal protection for the `?file=` parameter.
-- **SECURITY:** Null-byte, control-character, and URL-encoded attack vectors rejected.
-- **SECURITY:** `realpath`-based whitelist validation against the base directory.
-- **SECURITY:** Symlink resolution protection.
-- **FEATURE:** File browser table displayed when no matching `.md` file is found.
-- **FEATURE:** Sortable columns — File, Dir, Created, Modified, Size.
-- **FEATURE:** Instant search with debounce.
-- **FEATURE:** Click-to-open in new tab via GET parameter.
-- **REFACTOR:** All JavaScript extracted to `assets/js/md.js`.
-
-### v2.1.0
-
-- **FEATURE:** Dynamic Markdown file loading inferred from the PHP script filename.
-- **FEATURE:** Professional copy-to-clipboard buttons for fenced code blocks.
-- **IMPROVED:** Editor-style code block UI with traffic-light header decoration.
+- Built-in updater with raw GitHub checks via ETag and SHA-256.
+- Self-updating `updater.php`.
+- Automatic per-version backups in `md.backup/`.
+- Restore-from-backup UI in Settings.
+- Header toolbar visibility settings for desktop and mobile.
+- `index.php` hard-link management from Settings.
+- Safer `index.php` handling when a regular file already exists.
+- Updated terminology and file naming centered on **`md.php`** instead of the old `index.php` wording.
 
 ---
 
-## 15. License
+## Troubleshooting
 
-Distributed under the [MIT License](https://github.com/paulmann/MD.Viewer/blob/main/LICENSE).
+### The page opens in browser mode instead of showing my document
 
-```
-Copyright (c) 2026 Mikhail Deynekin
-https://github.com/paulmann/MD.Viewer
-```
+Make sure the Markdown filename matches the PHP filename, or pass the file explicitly with `?file=`.
 
-You are free to use, copy, modify, merge, publish, distribute, sublicense, and sell copies of this software, subject to the condition that the above copyright notice and this permission notice are included in all copies or substantial portions of the software.
+Examples:
+
+- `md.php` expects `md.md`.
+- `guide.php` expects `guide.md`.
+- `docs.php?file=manual/install.md` opens a specific file.
+
+### Update controls are not visible
+
+The update and backup UI depends on `updater.php` being present and reachable from the same directory. The server must also allow PHP to write the tracked files and the `md.backup/` directory.
+
+### `index.php` link controls are disabled
+
+If `index.php` already exists as a normal file, MD.Viewer will not overwrite it. Remove or rename that file manually, then reopen Settings.
+
+### Restore does not show any backups
+
+Backups appear only after at least one update or restore operation has created `md.backup/[version]/` folders containing tracked files.
+
+### Hard link creation falls back to a wrapper
+
+Some shared hosts or filesystems do not allow `link()`. In that case MD.Viewer creates a tiny `index.php` wrapper that includes `md.php`, which provides the same entry-point behavior even though it is not a true hard link.
 
 ---
 
-<div align="center">
+## License
 
-Crafted with care by [Mikhail Deynekin](https://Deynekin.com) &nbsp;&middot;&nbsp; [Deynekin.com](https://Deynekin.com)
-
-</div>
+Released under the MIT License. See [LICENSE](https://github.com/paulmann/MD.Viewer/blob/main/LICENSE).
