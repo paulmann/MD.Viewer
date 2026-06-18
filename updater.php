@@ -1,7 +1,7 @@
 <?php
 /**
  * Markdown Viewer — Self-Updater
- * Version: 3.8.0
+ * Version: 3.8.1
  * Author: Mikhail Deynekin
  * Site: https://Deynekin.com
  * Email: Mikhail@Deynekin.com
@@ -37,6 +37,7 @@
  *
  * v2.0.0: Raw Range requests, no API/tokens.
  * v2.1.0: Backup-before-replace, restore-from-backup.
+ * v3.8.1: ALLOW_CREATE_INDEX_PHP_LINK — guard index_create/remove/status actions.
  * v3.8.0: one-file install; readIni() creates .md.ini; landing page; full auto-append.
  * v3.7.0: &force=true; fix version display for all files; file links in HTML output.
  * v3.6.0: ALLOW_RESTORE flag; direct ?restore=latest|[version] browser mode.
@@ -380,7 +381,9 @@ function readIni(): array
         $default .= "; Set to true only on servers you control\n";
         $default .= "ALLOW_UPDATE = false\n\n";
         $default .= "; Allow restoring a backup via updater.php?restore=latest or ?restore=[version]\n";
-        $default .= "ALLOW_RESTORE = false\n";
+        $default .= "ALLOW_RESTORE = false\n\n";
+        $default .= "; Allow creating/removing the index.php hard link from the Settings panel\n";
+        $default .= "ALLOW_CREATE_INDEX_PHP_LINK = true\n";
         @file_put_contents($path, $default, LOCK_EX);
     }
 
@@ -397,6 +400,11 @@ function readIni(): array
         $appendIni .= "\n; Allow restoring a backup via updater.php?restore=latest or ?restore=[version]\n";
         $appendIni .= "ALLOW_RESTORE = false\n";
         $cache['ALLOW_RESTORE'] = false;
+    }
+    if (!array_key_exists('ALLOW_CREATE_INDEX_PHP_LINK', $cache)) {
+        $appendIni .= "\n; Allow creating/removing the index.php hard link from the Settings panel\n";
+        $appendIni .= "ALLOW_CREATE_INDEX_PHP_LINK = true\n";
+        $cache['ALLOW_CREATE_INDEX_PHP_LINK'] = true;
     }
     if (!array_key_exists('DISABLE_UPLOAD', $cache)) {
         $appendIni .= "\n; Disable the Upload .md button in the file browser\n";
@@ -433,6 +441,14 @@ function requireAllowRestore(): void
     $ini = readIni();
     if (!(bool)($ini['ALLOW_RESTORE'] ?? false)) {
         jsonError(403, 'Restore is disabled. Set ALLOW_RESTORE = true in .md.ini to enable.');
+    }
+}
+
+function requireAllowIndexLink(): void
+{
+    $ini = readIni();
+    if (!(bool)($ini['ALLOW_CREATE_INDEX_PHP_LINK'] ?? true)) {
+        jsonError(403, 'Index link management is disabled. Set ALLOW_CREATE_INDEX_PHP_LINK = true in .md.ini to enable.');
     }
 }
 
@@ -1107,6 +1123,11 @@ function indexIsLinked(): bool
 
 function doIndexStatus(): never
 {
+    $ini = readIni();
+    if (!(bool)($ini['ALLOW_CREATE_INDEX_PHP_LINK'] ?? true)) {
+        echo json_encode(['disabled' => true]);
+        exit;
+    }
     $idx    = indexPath();
     $linked = indexIsLinked();
     $inode  = $linked ? (int) stat($idx)['ino'] : null;
@@ -1120,6 +1141,7 @@ function doIndexStatus(): never
 
 function doIndexCreate(): never
 {
+    requireAllowIndexLink();
     $idx = indexPath();
     $mdp = localPath('md.php');
 
@@ -1148,6 +1170,7 @@ function doIndexCreate(): never
 
 function doIndexRemove(): never
 {
+    requireAllowIndexLink();
     $idx = indexPath();
     if (!is_file($idx)) {
         echo json_encode(['success' => true, 'note' => 'index.php did not exist']);
