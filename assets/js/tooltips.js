@@ -1,6 +1,6 @@
 /**
  * Markdown Viewer — Glossary Tooltip Engine
- * Version: 2.4.4
+ * Version: 2.4.5
  * Author: Mikhail Deynekin
  * Site: https://Deynekin.com
  * Email: Mikhail@Deynekin.com
@@ -33,6 +33,8 @@
  *         mouseout child-node guard via el.contains(relatedTarget);
  *         replaced touchstart+passive with touchend for preventDefault safety;
  *         display:none deferred 220ms after CSS transition completes.
+ * v2.4.5: re-append tip to body on every showTip() — ensures tooltip is always
+ *         the topmost DOM child regardless of panel z-index stacking contexts.
  * v2.4.4: data-sp-tip support — static inline tooltips for Settings panel features;
  *         [data-sp-tip] elements use same .g-tooltip bubble and positioning engine.
  * v2.4.3: Tooltip header — full first-column cell (data-gc="1") rendered as
@@ -181,6 +183,11 @@
 
                 const html = buildTip(el);
                 if (!html) return;
+
+                // Re-append to body so tooltip is always the topmost DOM child
+                // (guarantees paint order above any dynamically opened panels)
+                if (tip.parentNode !== document.body) document.body.appendChild(tip);
+                else document.body.appendChild(tip); // move to last child position
 
                 tip.innerHTML    = html;
                 tip.style.display = 'block';
