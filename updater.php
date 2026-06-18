@@ -1,7 +1,7 @@
 <?php
 /**
  * Markdown Viewer — Self-Updater
- * Version: 3.1.0
+ * Version: 3.1.1
  * Author: Mikhail Deynekin
  * Site: https://Deynekin.com
  * Email: Mikhail@Deynekin.com
@@ -37,6 +37,7 @@
  *
  * v2.0.0: Raw Range requests, no API/tokens.
  * v2.1.0: Backup-before-replace, restore-from-backup.
+ * v3.1.1: index_create refuses (409) if regular index.php exists.
  * v3.1.0: index.php hard-link management (index_status/create/remove).
  * v3.0.1: updater.php added to TRACKED_FILES — now self-updates.
  * v3.0.0: RawFileUpdater class — ETag + SHA-256 conditional updates.
@@ -694,10 +695,9 @@ function doIndexCreate(): never
 
     if (!is_file($mdp)) jsonError(500, 'md.php not found');
 
-    // If a non-linked index.php already exists, back it up first
+    // If a regular (non-linked) index.php already exists — refuse; user must remove it manually
     if (is_file($idx) && !indexIsLinked()) {
-        $bak = $idx . '.bak.' . date('Ymd-His');
-        if (!@rename($idx, $bak)) jsonError(500, 'Cannot backup existing index.php');
+        jsonError(409, 'index.php already exists as a regular file. Remove or rename it manually first.');
     }
 
     // Remove any existing (linked) index.php so link() doesn't fail
