@@ -1,6 +1,6 @@
 /**
  * MD.Viewer — Settings Panel Engine
- * Version: 2.8.1
+ * Version: 2.8.2
  * Auto-extracted from md.php inline <script> block.
  * Requires window.MDV_CONFIG to be set before this script loads.
  */
@@ -136,20 +136,34 @@
 
         // ── Feature toggles (PHP-side, require reload) ────────────────────────
         const FEATURES = [
-            { key: 'AUTO_NUMBERING',       label: 'Auto Numbering'     },
-            { key: 'AUTO_TOC',             label: 'Auto TOC'           },
-            { key: 'AUTO_FOOTNOTES_LINKS', label: 'Footnote Links'     },
-            { key: 'DOUBLE_LINE_BREAKS',   label: 'Double Line Breaks' },
-            { key: 'CYPHER_PATTERNS',      label: 'Cypher Patterns'    },
-            { key: 'UNIVERSAL_PATTERNS',   label: 'Universal Patterns' },
-            { key: 'FEATURE_IMAGES',       label: 'Images'             },
-            { key: 'FEATURE_REF_LINKS',    label: 'Ref Links'          },
-            { key: 'FEATURE_TASK_LISTS',   label: 'Task Lists'         },
-            { key: 'FEATURE_FOOTNOTES',    label: 'Footnotes'          },
-            { key: 'FEATURE_SUBSUP',       label: 'Sub / Sup'          },
-            { key: 'FEATURE_EMOJI',        label: 'Emoji'              },
-            { key: 'SPLIT_TITLE_BY_COLON', label: 'Split Title'        },
-            { key: 'GLOSSARY_TOOLTIPS',    label: 'Glossary Tooltips'  },
+            { key: 'AUTO_NUMBERING',       label: 'Auto Numbering',
+              tip: 'Automatically adds numbered prefixes to all headings (1. / 1.1. / 1.1.1. etc.). Numbering restarts correctly when heading levels change. Applied client-side — no change to the source .md file.' },
+            { key: 'AUTO_TOC',             label: 'Auto TOC',
+              tip: 'Generates a Table of Contents from all headings in the document and inserts it before the first heading. Heading levels appear as nested lists. Combined with Auto Numbering the TOC also shows numbers.' },
+            { key: 'AUTO_FOOTNOTES_LINKS', label: 'Footnote Links',
+              tip: 'Turns every [^N] footnote reference into a clickable jump-link to the corresponding footnote definition at the bottom of the page, and adds a ↩ back-link from each definition to its reference.' },
+            { key: 'DOUBLE_LINE_BREAKS',   label: 'Double Line Breaks',
+              tip: 'When enabled, TWO consecutive blank lines are required to start a new paragraph — a single blank line becomes a soft line break. Useful for poetry, dense notes, or text where accidental double-spacing is common.' },
+            { key: 'CYPHER_PATTERNS',      label: 'Cypher Patterns',
+              tip: 'Enables shorthand inline patterns specific to this viewer: custom styled badges, highlighted spans, colored text blocks, and other visual markers defined in the pattern engine.' },
+            { key: 'UNIVERSAL_PATTERNS',   label: 'Universal Patterns',
+              tip: 'Activates extended inline formatting: smart quotes, em-dashes, arrows (-->, <==>), typographic replacements, and other universal text transformations applied across all document types.' },
+            { key: 'FEATURE_IMAGES',       label: 'Images',
+              tip: 'Renders standard Markdown image syntax ![alt](url). When disabled, image tags are left as plain text — useful for pure-text environments or when images cause layout issues.' },
+            { key: 'FEATURE_REF_LINKS',    label: 'Ref Links',
+              tip: 'Enables reference-style links: [text][id] where [id]: url is defined elsewhere in the document. Without this only inline [text](url) links work. Keeps prose clean by moving URLs to the end.' },
+            { key: 'FEATURE_TASK_LISTS',   label: 'Task Lists',
+              tip: 'Converts - [ ] and - [x] list items into visual checkboxes. Checked items show ✓, unchecked show □. The checkboxes are display-only — clicking does not save state.' },
+            { key: 'FEATURE_FOOTNOTES',    label: 'Footnotes',
+              tip: 'Parses [^label] inline references and [^label]: definition blocks, rendering them as a numbered footnote list at the bottom of the page. Works with Footnote Links for two-way ↑↓ navigation.' },
+            { key: 'FEATURE_SUBSUP',       label: 'Sub / Sup',
+              tip: 'Enables subscript (~text~) and superscript (^text^) inline syntax. Useful for scientific notation, chemical formulas (H~2~O), math expressions, and ordinals (1^st^).' },
+            { key: 'FEATURE_EMOJI',        label: 'Emoji',
+              tip: 'Converts :shortcode: sequences to emoji characters (:smile: → 😊, :rocket: → 🚀). Supports all common GitHub-flavored emoji shortcodes. Has no effect on literal Unicode emoji already in the source.' },
+            { key: 'SPLIT_TITLE_BY_COLON', label: 'Split Title',
+              tip: 'When the first H1 heading contains a colon (e.g. "Project: Overview"), splits it into a large primary title and a smaller subtitle for a cleaner hero-style header. Does not affect headings without a colon.' },
+            { key: 'GLOSSARY_TOOLTIPS',    label: 'Glossary Tooltips',
+              tip: 'Activates hover tooltips for terms defined in a Glossary table in the document. Hovering a highlighted term shows its definition and extra columns from the table. Includes touch support and a 2-second grace period so you can move the mouse onto the tooltip itself.' },
         ];
 
         // Map MDV_CONFIG keys to FEATURES keys
@@ -192,8 +206,9 @@
                 const checked   = storedVal !== null
                     ? storedVal === '1'
                     : (CFG_MAP[f.key] !== false && CFG_MAP[f.key] !== undefined);
+                const tipAttr = f.tip ? ' data-sp-tip="' + f.tip.replace(/"/g, '&quot;') + '"' : '';
                 return '<label class="settings-toggle-row" title="Requires page reload">'
-                     +   '<span class="settings-toggle-name">' + f.label + '</span>'
+                     +   '<span class="settings-toggle-name"' + tipAttr + '>' + f.label + '</span>'
                      +   '<span class="settings-toggle-switch">'
                      +     '<input type="checkbox" data-feat="' + f.key + '"'
                      +       (checked ? ' checked' : '') + '>'
