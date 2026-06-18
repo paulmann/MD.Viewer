@@ -1,7 +1,7 @@
 <?php
 /**
  * Markdown Viewer — Self-Updater
- * Version: 3.8.1
+ * Version: 3.8.2
  * Author: Mikhail Deynekin
  * Site: https://Deynekin.com
  * Email: Mikhail@Deynekin.com
@@ -37,6 +37,7 @@
  *
  * v2.0.0: Raw Range requests, no API/tokens.
  * v2.1.0: Backup-before-replace, restore-from-backup.
+ * v3.8.2: doBackups() guarded with requireAllowRestore() — no info leak.
  * v3.8.1: ALLOW_CREATE_INDEX_PHP_LINK — guard index_create/remove/status actions.
  * v3.8.0: one-file install; readIni() creates .md.ini; landing page; full auto-append.
  * v3.7.0: &force=true; fix version display for all files; file links in HTML output.
@@ -919,6 +920,7 @@ function doVersion(): never
 
 function doBackups(): never
 {
+    requireAllowRestore();
     $root = backupRoot();
     if (!is_dir($root)) { echo json_encode(['backups' => []]); exit; }
 
