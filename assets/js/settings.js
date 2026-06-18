@@ -1,6 +1,6 @@
 /**
  * MD.Viewer — Settings Panel Engine
- * Version: 2.8.2
+ * Version: 2.8.3
  * Auto-extracted from md.php inline <script> block.
  * Requires window.MDV_CONFIG to be set before this script loads.
  */
@@ -429,6 +429,10 @@
 
         // ── Backup & Restore ──────────────────────────────────────────────────
         const elBackupSection    = document.getElementById('sp-backup-section');
+        // Hide entire section when ALLOW_RESTORE = false in .md.ini
+        if (!ALLOW_RESTORE && elBackupSection) {
+            elBackupSection.style.display = 'none';
+        }
         const elBackupSelect     = document.getElementById('sp-backup-select');
         const elRestoreBtn       = document.getElementById('sp-restore-btn');
         const elRestoreStatus    = document.getElementById('sp-restore-status');
@@ -468,7 +472,7 @@
             });
         }
 
-        if (elRestoreBtn) {
+        if (elRestoreBtn && ALLOW_RESTORE) {
             elRestoreBtn.addEventListener('click', function () {
                 const ver = elBackupSelect ? elBackupSelect.value : '';
                 if (!ver) return;
@@ -626,7 +630,8 @@
 
         // ── Updates ───────────────────────────────────────────────────────────
         const UPDATER_URL  = (window.MDV_CONFIG || {}).updaterUrl || '/updater.php';
-        const ALLOW_UPDATE = !!(window.MDV_CONFIG || {}).allowUpdate;
+        const ALLOW_UPDATE  = !!(window.MDV_CONFIG || {}).allowUpdate;
+        const ALLOW_RESTORE = !!(window.MDV_CONFIG || {}).allowRestore;
 
         const elCheckBtn    = document.getElementById('sp-check-updates');
         const elApplyBtn    = document.getElementById('sp-apply-updates');
@@ -695,7 +700,7 @@
             openPanel = function () {
                 _orig();
                 loadVersionBadge();
-                loadBackups();
+                if (ALLOW_RESTORE) loadBackups();
                 loadIndexStatus();
                 syncToolbarCheckboxes();
             };
