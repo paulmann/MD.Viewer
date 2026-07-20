@@ -2821,6 +2821,19 @@ render_page:
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
         tailwind.config = { darkMode: 'class', theme: { extend: { fontFamily: { sans: ['Inter','system-ui','sans-serif'], display: ['Sora','Inter','sans-serif'] }, maxWidth: { reading:'72ch', article:'100ch', wide:'160ch' }, boxShadow: { soft: '0 20px 60px rgba(15,23,42,0.10)' } } } };
+		  // Pre-apply width class before JS module loads to avoid FOUC
+  		(function(){
+    		var k = 'radio-viewer-width';
+    		var valid = ['reading','article','wide'];
+    		var stored = localStorage.getItem(k);
+    		var w = valid.includes(stored) ? stored
+          		: (window.innerWidth >= 1280 ? 'wide' : (window.innerWidth >= 768 ? 'article' : 'reading'));
+    		var el = document.querySelector('[data-width-target]');
+    		if (el) {
+      		el.classList.remove('max-w-reading','max-w-article','max-w-wide');
+      		el.classList.add('max-w-' + w);
+    		}
+  		})();
     </script>
     <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Sora:wght@600;700;800&display=swap" rel="stylesheet">
@@ -2860,9 +2873,9 @@ render_page:
                 <?php if ($mode === 'viewer'): ?>
                 <!-- Width switcher: desktop only -->
                 <div id="width-switcher" data-toolbar="width" class="items-center rounded-full border border-slate-200 bg-white/80 p-1 shadow-soft dark:border-slate-700 dark:bg-slate-900/80">
-                    <button type="button" data-width="reading" class="width-switch rounded-full px-4 py-2 text-sm font-medium text-slate-600 transition hover:text-slate-950 dark:text-slate-300 dark:hover:text-white">Narrow</button>
-                    <button type="button" data-width="article" class="width-switch rounded-full px-4 py-2 text-sm font-medium text-slate-600 transition hover:text-slate-950 dark:text-slate-300 dark:hover:text-white">Medium</button>
-                    <button type="button" data-width="wide" class="width-switch rounded-full px-4 py-2 text-sm font-medium text-slate-600 transition hover:text-slate-950 dark:text-slate-300 dark:hover:text-white">Wide</button>
+<button type="button" data-width="reading" class="width-switch rounded-full px-4 py-2 text-sm font-medium text-slate-600 transition hover:text-slate-950 dark:text-slate-300 dark:hover:text-white" aria-pressed="false">Narrow</button>
+<button type="button" data-width="article" class="width-switch rounded-full px-4 py-2 text-sm font-medium text-slate-600 transition hover:text-slate-950 dark:text-slate-300 dark:hover:text-white" aria-pressed="false">Medium</button>
+<button type="button" data-width="wide"    class="width-switch rounded-full px-4 py-2 text-sm font-medium text-slate-600 transition hover:text-slate-950 dark:text-slate-300 dark:hover:text-white" aria-pressed="false">Wide</button>
                 </div>
                 <!-- Font-size controls: mobile only -->
                 <div id="fontsize-controls" data-toolbar="font" class="flex items-center gap-0 rounded-full border border-slate-200 bg-white/80 p-1 shadow-soft dark:border-slate-700 dark:bg-slate-900/80">
