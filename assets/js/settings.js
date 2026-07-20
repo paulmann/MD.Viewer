@@ -1,9 +1,12 @@
 /**
  * MD.Viewer — Settings Panel Engine
- * Version: 2.8.6
+ * Version: 2.8.7
  * Auto-extracted from md.php inline <script> block.
  * Requires window.MDV_CONFIG to be set before this script loads.
  *
+ * v2.8.7: Removed the obsolete resize-time default-width fallback and legacy
+ *         mobile forced-Wide behavior; toolbar resizing now delegates width changes
+ *         exclusively to the responsive width controller.
  * v2.8.6: Restored responsive automatic document width, separated automatic
  *         selection from persisted manual overrides, synchronized both width
  *         control groups, and added debounced viewport resize handling.
@@ -741,21 +744,31 @@
         applyToolbarPrefs();
         syncToolbarCheckboxes();
 
-        // Resize debounce for mobile/desktop switch
-        let resizeTimer;
+        /**
+         * Updates viewport-dependent toolbar and settings-panel visibility.
+         * Width mode changes are handled by scheduleAutoWidthUpdate().
+         *
+         * Function version: 2.0.0
+         *
+         * @returns {void}
+         */
+        function updateResponsiveToolbar() {
+            const widthSection = document.getElementById('sp-width-section');
+
+            if (widthSection) {
+                widthSection.style.display = isMobile() ? 'none' : '';
+            }
+
+            applyToolbarPrefs();
+        }
+
+        let toolbarResizeTimer = null;
         window.addEventListener('resize', function () {
-            clearTimeout(resizeTimer);
-            resizeTimer = setTimeout(function () {
-                const sec = document.getElementById('sp-width-section');
-                if (isMobile()) {
-                    applyWidth('wide');
-                    if (sec) sec.style.display = 'none';
-                } else {
-                    if (sec) sec.style.display = '';
-                    applyWidth(load(PREFIX + 'width', DEF_WIDTH));
-                }
-                applyToolbarPrefs();
-            }, 200);
+            window.clearTimeout(toolbarResizeTimer);
+            toolbarResizeTimer = window.setTimeout(
+                updateResponsiveToolbar,
+                200
+            );
         }, { passive: true });
 
         // ── Updates ───────────────────────────────────────────────────────────
