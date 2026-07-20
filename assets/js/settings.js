@@ -107,27 +107,61 @@
         const DEF_WIDTH = 'article';
         let   currentWidth = DEF_WIDTH;
 
-        function applyWidth(w) {
-            if (!WIDTHS.includes(w)) w = DEF_WIDTH;
-            currentWidth = w;
-            store(PREFIX + 'width', w);
-            const maxW = { reading: '72ch', article: '100ch', wide: '160ch' }[w];
-            document.querySelectorAll('[data-width-target], .width-target').forEach(el => {
-                el.style.maxWidth = maxW;
-            });
-            // Sync header width-switch buttons
-            document.querySelectorAll('.width-switch').forEach(btn => {
-                const on = btn.dataset.width === w;
-                btn.classList.toggle('bg-slate-950', on);
-                btn.classList.toggle('text-white', on);
-                btn.classList.toggle('dark:bg-slate-200', on);
-                btn.classList.toggle('dark:text-slate-900', on);
-            });
-            // Sync panel buttons
-            document.querySelectorAll('[data-sp-width]').forEach(btn => {
-                btn.classList.toggle('active', btn.dataset.spWidth === w);
-            });
+// Function version: 2.1.0
+function applyWidth(width) {
+    const selectedWidth = WIDTHS.includes(width) ? width : DEF_WIDTH;
+    const maxWidthByMode = {
+        reading: '72ch',
+        article: '100ch',
+        wide: '160ch',
+    };
+
+    currentWidth = selectedWidth;
+    store(PREFIX + 'width', selectedWidth);
+
+    document
+        .querySelectorAll('[data-width-target], .width-target')
+        .forEach((element) => {
+            element.style.maxWidth = maxWidthByMode[selectedWidth];
+        });
+
+    document.querySelectorAll('.width-switch').forEach((button) => {
+        const isActive = button.dataset.width === selectedWidth;
+
+        button.classList.remove(
+            'bg-slate-950',
+            'text-white',
+            'dark:bg-white',
+            'dark:text-slate-950',
+            'dark:bg-slate-200',
+            'dark:text-slate-900'
+        );
+
+        if (isActive) {
+            button.classList.add(
+                'bg-slate-950',
+                'text-white',
+                'dark:bg-white',
+                'dark:text-slate-950'
+            );
         }
+
+        button.setAttribute(
+            'aria-pressed',
+            isActive ? 'true' : 'false'
+        );
+    });
+
+    document.querySelectorAll('[data-sp-width]').forEach((button) => {
+        const isActive = button.dataset.spWidth === selectedWidth;
+
+        button.classList.toggle('active', isActive);
+        button.setAttribute(
+            'aria-pressed',
+            isActive ? 'true' : 'false'
+        );
+    });
+}
 
         function initWidth() {
             if (isMobile()) {
