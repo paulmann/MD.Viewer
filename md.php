@@ -2815,29 +2815,72 @@ render_page:
     <title><?= e($title) ?></title>
     <meta name="description" content="<?= e($desc) ?>">
     <meta name="color-scheme" content="light dark">
-    <!-- Critical CSS for FOUC prevention and code block enhancements -->
+
+    <!-- Critical styles -->
     <link rel="stylesheet" href="/assets/css/tooltips.css">
     <link rel="stylesheet" href="/assets/css/md.css">
+
+    <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
-        tailwind.config = { darkMode: 'class', theme: { extend: { fontFamily: { sans: ['Inter','system-ui','sans-serif'], display: ['Sora','Inter','sans-serif'] }, maxWidth: { reading:'72ch', article:'100ch', wide:'160ch' }, boxShadow: { soft: '0 20px 60px rgba(15,23,42,0.10)' } } } };
-		  // Pre-apply width class before JS module loads to avoid FOUC
-  		(function(){
-    		var k = 'radio-viewer-width';
-    		var valid = ['reading','article','wide'];
-    		var stored = localStorage.getItem(k);
-    		var w = valid.includes(stored) ? stored
-          		: (window.innerWidth >= 1280 ? 'wide' : (window.innerWidth >= 768 ? 'article' : 'reading'));
-    		var el = document.querySelector('[data-width-target]');
-    		if (el) {
-      		el.classList.remove('max-w-reading','max-w-article','max-w-wide');
-      		el.classList.add('max-w-' + w);
-    		}
-  		})();
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: [
+                            'Inter',
+                            'system-ui',
+                            'sans-serif'
+                        ],
+                        display: [
+                            'Sora',
+                            'Inter',
+                            'sans-serif'
+                        ]
+                    },
+                    maxWidth: {
+                        reading: '72ch',
+                        article: '100ch',
+                        wide: '160ch'
+                    },
+                    boxShadow: {
+                        soft: '0 20px 60px rgba(15, 23, 42, 0.10)'
+                    }
+                }
+            }
+        };
     </script>
-    <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Sora:wght@600;700;800&display=swap" rel="stylesheet">
+
+    <!-- Fonts -->
+    <link
+        rel="preconnect"
+        href="https://fonts.googleapis.com"
+    >
+    <link
+        rel="preconnect"
+        href="https://fonts.gstatic.com"
+        crossorigin
+    >
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Sora:wght@600;700;800&display=swap"
+        rel="stylesheet"
+    >
+
     <script>
+        window.MDV_CONFIG = <?php echo json_encode(
+            [
+                'cookieAccept' => COOKIE_ACCEPT,
+                // Остальные существующие параметры оставить здесь.
+            ],
+            JSON_UNESCAPED_SLASHES
+            | JSON_UNESCAPED_UNICODE
+            | JSON_HEX_TAG
+            | JSON_HEX_AMP
+            | JSON_HEX_APOS
+            | JSON_HEX_QUOT
+        ); ?>;
+
         window.MDV_CONFIG = <?php echo json_encode([
             'cookieAccept'      => COOKIE_ACCEPT,
             'autoNumbering'     => AUTO_NUMBERING,
@@ -2866,37 +2909,145 @@ render_page:
     </script>
 </head>
 <body class="flex flex-col min-h-screen antialiased">
-    <header class="sticky top-0 z-50 border-b border-slate-200/70 bg-white/70 backdrop-blur-xl dark:border-slate-800 dark:bg-slate-950/65">
-        <div class="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-3 px-4 py-4 sm:px-6 lg:px-8">
-            <a href="?" class="font-display text-lg font-semibold text-slate-900 dark:text-white hover:text-blue-600 dark:hover:text-blue-400 transition">MD Viewer</a>
-            <div class="flex flex-wrap items-center gap-3">
-                <?php if ($mode === 'viewer'): ?>
-                <!-- Width switcher: desktop only -->
-                <div id="width-switcher" data-toolbar="width" class="items-center rounded-full border border-slate-200 bg-white/80 p-1 shadow-soft dark:border-slate-700 dark:bg-slate-900/80">
-<button type="button" data-width="reading" class="width-switch rounded-full px-4 py-2 text-sm font-medium text-slate-600 transition hover:text-slate-950 dark:text-slate-300 dark:hover:text-white" aria-pressed="false">Narrow</button>
-<button type="button" data-width="article" class="width-switch rounded-full px-4 py-2 text-sm font-medium text-slate-600 transition hover:text-slate-950 dark:text-slate-300 dark:hover:text-white" aria-pressed="false">Medium</button>
-<button type="button" data-width="wide"    class="width-switch rounded-full px-4 py-2 text-sm font-medium text-slate-600 transition hover:text-slate-950 dark:text-slate-300 dark:hover:text-white" aria-pressed="false">Wide</button>
+<header
+    class="sticky top-0 z-50 border-b border-slate-200/70 bg-white/70 backdrop-blur-xl dark:border-slate-800 dark:bg-slate-950/65"
+    role="banner"
+>
+    <div
+        class="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-3 px-4 py-3 sm:px-6 sm:py-4 lg:px-8"
+    >
+        <a
+            href="?"
+            class="rounded-lg font-display text-lg font-semibold text-slate-900 transition-colors hover:text-blue-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 dark:text-white dark:hover:text-blue-400 dark:focus-visible:ring-offset-slate-950"
+            aria-label="MD Viewer home"
+        >
+            MD Viewer
+        </a>
+
+        <div
+            class="flex flex-wrap items-center justify-end gap-2 sm:gap-3"
+            role="toolbar"
+            aria-label="Document controls"
+        >
+            <?php if ($mode === 'viewer'): ?>
+                <!-- Document width switcher -->
+                <div
+                    id="width-switcher"
+                    data-toolbar="width"
+                    class="items-center rounded-full border border-slate-200 bg-white/80 p-1 shadow-soft dark:border-slate-700 dark:bg-slate-900/80"
+                    role="group"
+                    aria-label="Document width"
+                >
+                    <button
+                        type="button"
+                        data-width="reading"
+                        class="width-switch inline-flex min-h-11 items-center justify-center rounded-full px-4 py-2 text-sm font-medium text-slate-600 transition-colors hover:text-slate-950 focus-visible:z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 dark:text-slate-300 dark:hover:text-white dark:focus-visible:ring-offset-slate-900"
+                        aria-label="Use narrow document width"
+                        aria-pressed="false"
+                    >
+                        Narrow
+                    </button>
+
+                    <button
+                        type="button"
+                        data-width="article"
+                        class="width-switch inline-flex min-h-11 items-center justify-center rounded-full px-4 py-2 text-sm font-medium text-slate-600 transition-colors hover:text-slate-950 focus-visible:z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 dark:text-slate-300 dark:hover:text-white dark:focus-visible:ring-offset-slate-900"
+                        aria-label="Use medium document width"
+                        aria-pressed="false"
+                    >
+                        Medium
+                    </button>
+
+                    <button
+                        type="button"
+                        data-width="wide"
+                        class="width-switch inline-flex min-h-11 items-center justify-center rounded-full px-4 py-2 text-sm font-medium text-slate-600 transition-colors hover:text-slate-950 focus-visible:z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 dark:text-slate-300 dark:hover:text-white dark:focus-visible:ring-offset-slate-900"
+                        aria-label="Use wide document width"
+                        aria-pressed="false"
+                    >
+                        Wide
+                    </button>
                 </div>
-                <!-- Font-size controls: mobile only -->
-                <div id="fontsize-controls" data-toolbar="font" class="flex items-center gap-0 rounded-full border border-slate-200 bg-white/80 p-1 shadow-soft dark:border-slate-700 dark:bg-slate-900/80">
-                    <button type="button" id="fs-decrease" aria-label="Decrease font size" class="rounded-full w-9 h-9 flex items-center justify-center text-lg font-bold text-slate-600 transition hover:text-slate-950 dark:text-slate-300 dark:hover:text-white">−</button>
-                    <button type="button" id="fs-increase" aria-label="Increase font size" class="rounded-full w-9 h-9 flex items-center justify-center text-lg font-bold text-slate-600 transition hover:text-slate-950 dark:text-slate-300 dark:hover:text-white">+</button>
+
+                <!-- Mobile font-size controls -->
+                <div
+                    id="fontsize-controls"
+                    data-toolbar="font"
+                    class="flex items-center rounded-full border border-slate-200 bg-white/80 p-1 shadow-soft dark:border-slate-700 dark:bg-slate-900/80"
+                    role="group"
+                    aria-label="Document font size"
+                >
+                    <button
+                        type="button"
+                        id="fs-decrease"
+                        class="inline-flex min-h-11 min-w-11 items-center justify-center rounded-full text-lg font-bold text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-950 focus-visible:z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-40 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white dark:focus-visible:ring-offset-slate-900"
+                        aria-label="Decrease document font size"
+                        title="Decrease font size"
+                    >
+                        <span aria-hidden="true">−</span>
+                    </button>
+
+                    <button
+                        type="button"
+                        id="fs-increase"
+                        class="inline-flex min-h-11 min-w-11 items-center justify-center rounded-full text-lg font-bold text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-950 focus-visible:z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-40 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white dark:focus-visible:ring-offset-slate-900"
+                        aria-label="Increase document font size"
+                        title="Increase font size"
+                    >
+                        <span aria-hidden="true">+</span>
+                    </button>
                 </div>
-                <?php endif; ?>
-                <!-- Theme toggle -->
-                <button type="button" data-theme-toggle class="inline-flex min-h-11 items-center gap-2 rounded-full border border-slate-200 bg-white/80 px-4 py-2 text-sm font-medium text-slate-700 shadow-soft transition hover:-translate-y-0.5 hover:text-slate-950 dark:border-slate-700 dark:bg-slate-900/80 dark:text-slate-200 dark:hover:text-white" aria-label="Toggle theme">
-                    <span data-theme-icon aria-hidden="true"></span>
-                </button>
-                <!-- Settings button -->
-                <button type="button" id="settings-btn" aria-label="Settings" aria-expanded="false" aria-controls="settings-panel"
-                    class="inline-flex min-h-11 items-center gap-2 rounded-full border border-slate-200 bg-white/80 px-4 py-2 text-sm font-medium text-slate-700 shadow-soft transition hover:-translate-y-0.5 hover:text-slate-950 dark:border-slate-700 dark:bg-slate-900/80 dark:text-slate-200 dark:hover:text-white">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                        <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
-                    </svg>
-                </button>
-            </div>
+            <?php endif; ?>
+
+            <!-- Theme toggle -->
+            <button
+                type="button"
+                data-theme-toggle
+                class="inline-flex min-h-11 min-w-11 items-center justify-center rounded-full border border-slate-200 bg-white/80 px-3 py-2 text-sm font-medium text-slate-700 shadow-soft transition-colors hover:bg-white hover:text-slate-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 dark:border-slate-700 dark:bg-slate-900/80 dark:text-slate-200 dark:hover:bg-slate-900 dark:hover:text-white dark:focus-visible:ring-offset-slate-950"
+                aria-label="Toggle color theme"
+                title="Toggle color theme"
+            >
+                <span
+                    data-theme-icon
+                    class="inline-flex h-5 w-5 items-center justify-center"
+                    aria-hidden="true"
+                ></span>
+            </button>
+
+            <!-- Settings panel toggle -->
+            <button
+                type="button"
+                id="settings-btn"
+                class="inline-flex min-h-11 min-w-11 items-center justify-center rounded-full border border-slate-200 bg-white/80 px-3 py-2 text-sm font-medium text-slate-700 shadow-soft transition-colors hover:bg-white hover:text-slate-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 dark:border-slate-700 dark:bg-slate-900/80 dark:text-slate-200 dark:hover:bg-slate-900 dark:hover:text-white dark:focus-visible:ring-offset-slate-950"
+                aria-label="Open settings"
+                aria-expanded="false"
+                aria-controls="settings-panel"
+                aria-haspopup="dialog"
+                title="Settings"
+            >
+                <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    class="h-[18px] w-[18px]"
+                    width="18"
+                    height="18"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    aria-hidden="true"
+                    focusable="false"
+                >
+                    <circle cx="12" cy="12" r="3"></circle>
+                    <path
+                        d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"
+                    ></path>
+                </svg>
+            </button>
         </div>
-    </header>
+    </div>
+</header>
     <main class="px-4 py-8 sm:px-6 lg:px-8">
         <?php if ($mode === 'viewer'): ?>
         <section id="viewer" data-width-target class="content-shell mx-auto rounded-[2rem] px-6 py-8 shadow-soft transition-[max-width] duration-300 ease-out sm:px-8 lg:px-10 lg:py-10">
