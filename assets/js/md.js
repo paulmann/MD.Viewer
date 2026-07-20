@@ -23,15 +23,10 @@
     const root = document.documentElement;
 
     const THEME_KEY = 'radio-viewer-theme';
-    const WIDTH_KEY = 'radio-viewer-width';
-    const WIDTH_CLASSES = ['max-w-reading', 'max-w-article', 'max-w-wide'];
-    const VALID_WIDTHS = ['reading', 'article', 'wide'];
+
 
     const themeBtn = document.querySelector('[data-theme-toggle]');
     const themeIcon = document.querySelector('[data-theme-icon]');
-    const widthBtns = [...document.querySelectorAll('.width-switch')];
-    // Apply width to ALL declared targets, not just the first one.
-    const widthTargets = [...document.querySelectorAll('[data-width-target]')];
 
     // ============================================================
     // Theme management
@@ -81,44 +76,6 @@
         media.addListener(onSystemChange);
     }
 
-    // ============================================================
-    // Width controls (viewer mode only)
-    // ============================================================
-    const getDefaultWidth = () => {
-        const stored = localStorage.getItem(WIDTH_KEY);
-        if (VALID_WIDTHS.includes(stored)) {
-            return stored;
-        }
-        const w = window.innerWidth;
-        return w >= 1280 ? 'wide' : (w >= 768 ? 'article' : 'reading');
-    };
-
-    const applyWidth = (width) => {
-        const w = VALID_WIDTHS.includes(width) ? width : 'reading';
-
-        widthTargets.forEach((target) => {
-            WIDTH_CLASSES.forEach((cls) => target.classList.remove(cls));
-            target.classList.add('max-w-' + w);
-        });
-
-        widthBtns.forEach((btn) => {
-            const active = btn.dataset.width === w;
-            btn.classList.toggle('bg-slate-950', active);
-            btn.classList.toggle('text-white', active);
-            btn.classList.toggle('dark:bg-white', active);
-            btn.classList.toggle('dark:text-slate-950', active);
-            btn.setAttribute('aria-pressed', active ? 'true' : 'false');
-        });
-
-        localStorage.setItem(WIDTH_KEY, w);
-    };
-
-    if (widthTargets.length > 0) {
-        applyWidth(getDefaultWidth());
-        widthBtns.forEach((btn) => {
-            btn.addEventListener('click', () => applyWidth(btn.dataset.width || 'reading'));
-        });
-    }
 
 // ============================================================
 // Mermaid diagram initialization (lazy-load)
