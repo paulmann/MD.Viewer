@@ -1,10 +1,43 @@
 <?php
 /**
  * Markdown Viewer
- * Version: 2.8.3
+ * Version: 2.8.4
  * Author: Mikhail Deynekin
  * Site: https://Deynekin.com
  * Email: Mikhail@Deynekin.com
+ *
+* Changelog v2.8.4:
+ * - FIXED: Removed hardcoded active styles from document width buttons,
+ *   preventing Medium and another automatically selected width from appearing
+ *   active at the same time.
+ * - FIXED: Removed the obsolete inline width initializer that used the legacy
+ *   radio-viewer-width localStorage key and executed before the document width
+ *   target was available in the DOM.
+ * - FIXED: Eliminated duplicate document width ownership between md.php,
+ *   md.js, and settings.js.
+ * - IMPROVED: Delegated automatic width detection, manual width persistence,
+ *   visual state updates, and control synchronization exclusively to
+ *   settings.js.
+ * - IMPROVED: Restored responsive automatic width selection: Narrow below
+ *   768px, Medium from 768px through 1279px, and Wide from 1280px.
+ * - IMPROVED: Automatic width choices are no longer persisted as explicit user
+ *   preferences; only manual selections override responsive behavior.
+ * - IMPROVED: Added synchronized aria-pressed states for width controls in the
+ *   header and Settings panel.
+ * - IMPROVED: Added semantic toolbar, control-group, dialog, section-heading,
+ *   status, and live-region markup throughout the header and Settings panel.
+ * - IMPROVED: Added accessible labels, keyboard focus states, minimum touch
+ *   targets, and assistive-technology-safe decorative icons.
+ * - IMPROVED: Added accessible output elements for font-size and line-spacing
+ *   values and an explicit label for the backup version selector.
+ * - IMPROVED: Added live announcements for clipboard, index-file, update,
+ *   restore, and browser notification statuses.
+ * - IMPROVED: Refined responsive header spacing and removed hover transforms
+ *   that could cause toolbar controls to shift visually.
+ * - IMPROVED: Preserved all existing element IDs, classes, and data attributes
+ *   required by settings.js, upload.js, tooltips.js, and md.js.
+ * - IMPROVED: Added file modification timestamps to local CSS and JavaScript
+ *   asset URLs to prevent stale frontend resources after application updates.
  *
  * Changelog v2.5.0:
  * - FEATURE: Settings panel with font-size, line-height, page width controls
@@ -3107,191 +3140,668 @@ render_page:
 
     </div>
 </footer>    
-    <!-- Accessible live region for copy status announcements -->
-    <div aria-live="polite" aria-atomic="true" class="sr-only" id="copy-status"></div>
+    <!-- Accessible live region for clipboard announcements -->
+    <div
+        id="copy-status"
+        class="sr-only"
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+    ></div>
 
+    <!-- Settings overlay -->
+    <div
+        id="settings-overlay"
+        class="settings-overlay"
+        aria-hidden="true"
+    ></div>
 
-    <!-- ── Settings Panel (v2.5.1) ─────────────────────────────────────────── -->
-    <div id="settings-overlay" class="settings-overlay" aria-hidden="true"></div>
-    <aside id="settings-panel" role="dialog" aria-modal="true" aria-label="Settings" class="settings-panel">
+    <!-- Settings panel -->
+    <aside
+        id="settings-panel"
+        class="settings-panel"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="settings-panel-title"
+        tabindex="-1"
+    >
         <div class="settings-header">
-            <span class="settings-title">⚙ Settings</span>
-            <button type="button" id="settings-close" aria-label="Close settings" class="settings-close">✕</button>
+            <h2
+                id="settings-panel-title"
+                class="settings-title"
+            >
+                <span aria-hidden="true">⚙</span>
+                Settings
+            </h2>
+
+            <button
+                type="button"
+                id="settings-close"
+                class="settings-close"
+                aria-label="Close settings"
+                title="Close settings"
+            >
+                <span aria-hidden="true">✕</span>
+            </button>
         </div>
+
         <div class="settings-body">
-
             <!-- Font size -->
-            <section class="settings-section">
-                <div class="settings-section-title">Font Size</div>
-                <div class="settings-spinner-row">
-                    <button type="button" id="sp-fs-decrease" class="settings-spin-btn" aria-label="Decrease">−</button>
-                    <span id="sp-fs-label" class="settings-spin-label"></span>
-                    <button type="button" id="sp-fs-increase" class="settings-spin-btn" aria-label="Increase">+</button>
-                    <button type="button" id="sp-fs-reset" class="settings-reset-btn">Reset</button>
+            <section
+                class="settings-section"
+                aria-labelledby="settings-font-size-title"
+            >
+                <h3
+                    id="settings-font-size-title"
+                    class="settings-section-title"
+                >
+                    Font Size
+                </h3>
+
+                <div
+                    class="settings-spinner-row"
+                    role="group"
+                    aria-label="Document font size"
+                >
+                    <button
+                        type="button"
+                        id="sp-fs-decrease"
+                        class="settings-spin-btn"
+                        aria-label="Decrease document font size"
+                        title="Decrease font size"
+                    >
+                        <span aria-hidden="true">−</span>
+                    </button>
+
+                    <output
+                        id="sp-fs-label"
+                        class="settings-spin-label"
+                        aria-live="polite"
+                        aria-atomic="true"
+                    ></output>
+
+                    <button
+                        type="button"
+                        id="sp-fs-increase"
+                        class="settings-spin-btn"
+                        aria-label="Increase document font size"
+                        title="Increase font size"
+                    >
+                        <span aria-hidden="true">+</span>
+                    </button>
+
+                    <button
+                        type="button"
+                        id="sp-fs-reset"
+                        class="settings-reset-btn"
+                        aria-label="Reset document font size"
+                    >
+                        Reset
+                    </button>
                 </div>
             </section>
 
-            <!-- Line height -->
-            <section class="settings-section">
-                <div class="settings-section-title">Line Spacing</div>
-                <div class="settings-spinner-row">
-                    <button type="button" id="sp-lh-decrease" class="settings-spin-btn" aria-label="Decrease">−</button>
-                    <span id="sp-lh-label" class="settings-spin-label"></span>
-                    <button type="button" id="sp-lh-increase" class="settings-spin-btn" aria-label="Increase">+</button>
-                    <button type="button" id="sp-lh-reset" class="settings-reset-btn">Reset</button>
+            <!-- Line spacing -->
+            <section
+                class="settings-section"
+                aria-labelledby="settings-line-spacing-title"
+            >
+                <h3
+                    id="settings-line-spacing-title"
+                    class="settings-section-title"
+                >
+                    Line Spacing
+                </h3>
+
+                <div
+                    class="settings-spinner-row"
+                    role="group"
+                    aria-label="Document line spacing"
+                >
+                    <button
+                        type="button"
+                        id="sp-lh-decrease"
+                        class="settings-spin-btn"
+                        aria-label="Decrease document line spacing"
+                        title="Decrease line spacing"
+                    >
+                        <span aria-hidden="true">−</span>
+                    </button>
+
+                    <output
+                        id="sp-lh-label"
+                        class="settings-spin-label"
+                        aria-live="polite"
+                        aria-atomic="true"
+                    ></output>
+
+                    <button
+                        type="button"
+                        id="sp-lh-increase"
+                        class="settings-spin-btn"
+                        aria-label="Increase document line spacing"
+                        title="Increase line spacing"
+                    >
+                        <span aria-hidden="true">+</span>
+                    </button>
+
+                    <button
+                        type="button"
+                        id="sp-lh-reset"
+                        class="settings-reset-btn"
+                        aria-label="Reset document line spacing"
+                    >
+                        Reset
+                    </button>
                 </div>
             </section>
 
-            <!-- Page width -->
-            <section class="settings-section" id="sp-width-section">
-                <div class="settings-section-title">Page Width</div>
-                <div class="settings-btn-group">
-                    <button type="button" data-sp-width="reading" class="settings-width-btn">Narrow</button>
-                    <button type="button" data-sp-width="article" class="settings-width-btn">Medium</button>
-                    <button type="button" data-sp-width="wide"    class="settings-width-btn">Wide</button>
+            <!-- Document width -->
+            <section
+                id="sp-width-section"
+                class="settings-section"
+                aria-labelledby="settings-page-width-title"
+            >
+                <h3
+                    id="settings-page-width-title"
+                    class="settings-section-title"
+                >
+                    Page Width
+                </h3>
+
+                <div
+                    class="settings-btn-group"
+                    role="group"
+                    aria-label="Document width"
+                >
+                    <button
+                        type="button"
+                        data-sp-width="reading"
+                        class="settings-width-btn"
+                        aria-label="Use narrow document width"
+                        aria-pressed="false"
+                    >
+                        Narrow
+                    </button>
+
+                    <button
+                        type="button"
+                        data-sp-width="article"
+                        class="settings-width-btn"
+                        aria-label="Use medium document width"
+                        aria-pressed="false"
+                    >
+                        Medium
+                    </button>
+
+                    <button
+                        type="button"
+                        data-sp-width="wide"
+                        class="settings-width-btn"
+                        aria-label="Use wide document width"
+                        aria-pressed="false"
+                    >
+                        Wide
+                    </button>
                 </div>
             </section>
 
             <!-- Header toolbar visibility -->
-            <section class="settings-section">
-                <div class="settings-section-title">Header Toolbar</div>
+            <section
+                class="settings-section"
+                aria-labelledby="settings-toolbar-title"
+            >
+                <h3
+                    id="settings-toolbar-title"
+                    class="settings-section-title"
+                >
+                    Header Toolbar
+                </h3>
 
                 <label class="settings-checkbox-row">
-                    <input type="checkbox" id="sp-show-width-ctrl" class="settings-checkbox">
+                    <input
+                        type="checkbox"
+                        id="sp-show-width-ctrl"
+                        class="settings-checkbox"
+                    >
+
                     <span class="settings-checkbox-label">
                         Show width switcher
-                        <small>Narrow / Medium / Wide buttons in the header.</small>
-                    </span>
-                </label>
-                <label class="settings-checkbox-row" style="margin-top:6px">
-                    <input type="checkbox" id="sp-show-width-mobile" class="settings-checkbox">
-                    <span class="settings-checkbox-label">
-                        Show width switcher on mobile
-                        <small>Auto-hidden on phones by default.</small>
+
+                        <small>
+                            Show the Narrow, Medium and Wide buttons in the
+                            document header.
+                        </small>
                     </span>
                 </label>
 
-                <label class="settings-checkbox-row" style="margin-top:10px">
-                    <input type="checkbox" id="sp-show-font-ctrl" class="settings-checkbox">
+                <label class="settings-checkbox-row mt-1.5">
+                    <input
+                        type="checkbox"
+                        id="sp-show-width-mobile"
+                        class="settings-checkbox"
+                    >
+
                     <span class="settings-checkbox-label">
-                        Show font &amp; line controls
-                        <small>Font-size ± and line-height buttons in the header.</small>
+                        Show width switcher on mobile
+
+                        <small>
+                            The width switcher is hidden on phones by default.
+                        </small>
                     </span>
                 </label>
-                <label class="settings-checkbox-row" style="margin-top:6px">
-                    <input type="checkbox" id="sp-show-font-mobile" class="settings-checkbox">
+
+                <label class="settings-checkbox-row mt-2.5">
+                    <input
+                        type="checkbox"
+                        id="sp-show-font-ctrl"
+                        class="settings-checkbox"
+                    >
+
                     <span class="settings-checkbox-label">
-                        Show font &amp; line controls on mobile
-                        <small>Auto-shown on phones by default.</small>
+                        Show font and line controls
+
+                        <small>
+                            Show the font-size and line-spacing controls in the
+                            document header.
+                        </small>
+                    </span>
+                </label>
+
+                <label class="settings-checkbox-row mt-1.5">
+                    <input
+                        type="checkbox"
+                        id="sp-show-font-mobile"
+                        class="settings-checkbox"
+                    >
+
+                    <span class="settings-checkbox-label">
+                        Show font and line controls on mobile
+
+                        <small>
+                            These controls are shown on phones by default.
+                        </small>
                     </span>
                 </label>
             </section>
 
-            <!-- Feature toggles — PHP-side (require reload) -->
-            <section class="settings-section">
-                <div class="settings-section-title">
+            <!-- Server-side feature toggles -->
+            <section
+                class="settings-section"
+                aria-labelledby="settings-features-title"
+            >
+                <h3
+                    id="settings-features-title"
+                    class="settings-section-title"
+                >
                     Features
-                    <span class="settings-badge" id="sp-reload-badge" style="display:none">reload to apply</span>
-                </div>
-                <div class="settings-toggles" id="sp-features"></div>
+
+                    <span
+                        id="sp-reload-badge"
+                        class="settings-badge"
+                        style="display: none;"
+                        role="status"
+                        aria-live="polite"
+                    >
+                        reload to apply
+                    </span>
+                </h3>
+
+                <div
+                    id="sp-features"
+                    class="settings-toggles"
+                ></div>
             </section>
 
             <!-- Paragraph break style -->
-            <section class="settings-section">
-                <div class="settings-section-title">Paragraph Break</div>
-                <div class="settings-btn-group">
-                    <button type="button" data-sp-para="double-br"    class="settings-width-btn">Double BR</button>
-                    <button type="button" data-sp-para="single-space" class="settings-width-btn">Single Space</button>
-                    <button type="button" data-sp-para="margin"       class="settings-width-btn">Margin</button>
+            <section
+                class="settings-section"
+                aria-labelledby="settings-paragraph-break-title"
+            >
+                <h3
+                    id="settings-paragraph-break-title"
+                    class="settings-section-title"
+                >
+                    Paragraph Break
+                </h3>
+
+                <div
+                    class="settings-btn-group"
+                    role="group"
+                    aria-label="Paragraph break style"
+                >
+                    <button
+                        type="button"
+                        data-sp-para="double-br"
+                        class="settings-width-btn"
+                        aria-pressed="false"
+                    >
+                        Double BR
+                    </button>
+
+                    <button
+                        type="button"
+                        data-sp-para="single-space"
+                        class="settings-width-btn"
+                        aria-pressed="false"
+                    >
+                        Single Space
+                    </button>
+
+                    <button
+                        type="button"
+                        data-sp-para="margin"
+                        class="settings-width-btn"
+                        aria-pressed="false"
+                    >
+                        Margin
+                    </button>
                 </div>
             </section>
 
             <!-- Cookie consent -->
-            <section class="settings-section">
+            <section
+                class="settings-section"
+                aria-labelledby="settings-storage-title"
+            >
+                <h3
+                    id="settings-storage-title"
+                    class="settings-section-title"
+                >
+                    Storage
+                </h3>
+
                 <label class="settings-checkbox-row">
-                    <input type="checkbox" id="sp-cookie-accept" class="settings-checkbox">
+                    <input
+                        type="checkbox"
+                        id="sp-cookie-accept"
+                        class="settings-checkbox"
+                    >
+
                     <span class="settings-checkbox-label">
                         Allow Cookies
-                        <small>When enabled, settings persist between visits via cookies. Otherwise only for this session.</small>
+
+                        <small>
+                            When enabled, settings persist between visits.
+                            Otherwise, they remain available only for the
+                            current browser session.
+                        </small>
                     </span>
                 </label>
             </section>
 
-            <!-- index.php hard link -->
             <?php if (ALLOW_CREATE_INDEX_PHP_LINK): ?>
-            <section class="settings-section" id="sp-index-section">
-                <div class="settings-section-title">Index File</div>
-                <div id="sp-index-status" class="sp-index-status"></div>
-                <div class="sp-index-actions">
-                    <button type="button" id="sp-index-create" class="settings-index-btn settings-index-btn--create" style="display:none">
-                        ⬡ Create index.php link
-                    </button>
-                    <button type="button" id="sp-index-remove" class="settings-index-btn settings-index-btn--remove" style="display:none">
-                        ✕ Remove index.php link
-                    </button>
-                </div>
-            </section>
+                <!-- index.php hard-link management -->
+                <section
+                    id="sp-index-section"
+                    class="settings-section"
+                    aria-labelledby="settings-index-title"
+                >
+                    <h3
+                        id="settings-index-title"
+                        class="settings-section-title"
+                    >
+                        Index File
+                    </h3>
+
+                    <div
+                        id="sp-index-status"
+                        class="sp-index-status"
+                        role="status"
+                        aria-live="polite"
+                        aria-atomic="true"
+                    ></div>
+
+                    <div class="sp-index-actions">
+                        <button
+                            type="button"
+                            id="sp-index-create"
+                            class="settings-index-btn settings-index-btn--create"
+                            style="display: none;"
+                        >
+                            <span aria-hidden="true">⬡</span>
+                            Create index.php link
+                        </button>
+
+                        <button
+                            type="button"
+                            id="sp-index-remove"
+                            class="settings-index-btn settings-index-btn--remove"
+                            style="display: none;"
+                        >
+                            <span aria-hidden="true">✕</span>
+                            Remove index.php link
+                        </button>
+                    </div>
+                </section>
             <?php endif; ?>
 
-            <!-- Apply and Reload (shown when PHP-side features changed) -->
-            <section class="settings-section settings-section-apply" id="sp-apply-section" style="display:none">
-                <button type="button" id="sp-apply-reload" class="settings-apply-btn">
-                    ↺ Apply and Reload
+            <!-- Apply changed server-side settings -->
+            <section
+                id="sp-apply-section"
+                class="settings-section settings-section-apply"
+                style="display: none;"
+                aria-label="Apply pending settings"
+            >
+                <button
+                    type="button"
+                    id="sp-apply-reload"
+                    class="settings-apply-btn"
+                >
+                    <span aria-hidden="true">↺</span>
+                    Apply and Reload
                 </button>
             </section>
 
-            <!-- Updates -->
-            <section class="settings-section" id="sp-updates-section">
-                <div class="settings-section-title">
+            <!-- Application updates -->
+            <section
+                id="sp-updates-section"
+                class="settings-section"
+                aria-labelledby="settings-updates-title"
+            >
+                <h3
+                    id="settings-updates-title"
+                    class="settings-section-title"
+                >
                     Updates
-                    <span id="sp-version-badge" class="settings-version-badge"></span>
-                </div>
-                <div id="sp-update-status" class="sp-update-status" style="display:none"></div>
-                <div id="sp-file-list" class="sp-file-list" style="display:none"></div>
+
+                    <span
+                        id="sp-version-badge"
+                        class="settings-version-badge"
+                        aria-label="Installed version"
+                    ></span>
+                </h3>
+
+                <div
+                    id="sp-update-status"
+                    class="sp-update-status"
+                    style="display: none;"
+                    role="status"
+                    aria-live="polite"
+                    aria-atomic="true"
+                ></div>
+
+                <div
+                    id="sp-file-list"
+                    class="sp-file-list"
+                    style="display: none;"
+                    aria-label="Files included in the update"
+                ></div>
+
                 <div class="sp-update-actions">
-                    <button type="button" id="sp-check-updates" class="settings-check-btn">
-                        ↻ Check for Updates
+                    <button
+                        type="button"
+                        id="sp-check-updates"
+                        class="settings-check-btn"
+                    >
+                        <span aria-hidden="true">↻</span>
+                        Check for Updates
                     </button>
-                    <button type="button" id="sp-apply-updates" class="settings-apply-updates-btn" style="display:none">
-                        ↓ Apply Updates
+
+                    <button
+                        type="button"
+                        id="sp-apply-updates"
+                        class="settings-apply-updates-btn"
+                        style="display: none;"
+                    >
+                        <span aria-hidden="true">↓</span>
+                        Apply Updates
                     </button>
-                    <button type="button" id="sp-reinstall-btn" class="settings-reinstall-btn" style="display:none">
-                        ↺ Reinstall Files
+
+                    <button
+                        type="button"
+                        id="sp-reinstall-btn"
+                        class="settings-reinstall-btn"
+                        style="display: none;"
+                    >
+                        <span aria-hidden="true">↺</span>
+                        Reinstall Files
                     </button>
-                    <button type="button" id="sp-reload-after-update" class="settings-apply-btn" style="display:none">
-                        ↺ Reload Page
+
+                    <button
+                        type="button"
+                        id="sp-reload-after-update"
+                        class="settings-apply-btn"
+                        style="display: none;"
+                    >
+                        <span aria-hidden="true">↺</span>
+                        Reload Page
                     </button>
                 </div>
             </section>
 
-            <!-- Backup & Restore -->
-            <section class="settings-section" id="sp-backup-section" style="display:none">
-                <div class="settings-section-title">Backup &amp; Restore</div>
-                <div class="sp-backup-meta" id="sp-backup-meta"></div>
+            <!-- Backup and restore -->
+            <section
+                id="sp-backup-section"
+                class="settings-section"
+                style="display: none;"
+                aria-labelledby="settings-backup-title"
+            >
+                <h3
+                    id="settings-backup-title"
+                    class="settings-section-title"
+                >
+                    Backup &amp; Restore
+                </h3>
+
+                <div
+                    id="sp-backup-meta"
+                    class="sp-backup-meta"
+                    aria-live="polite"
+                ></div>
+
                 <div class="sp-backup-row">
-                    <select id="sp-backup-select" class="sp-backup-select">
-                        <option value="">— select backup version —</option>
+                    <label
+                        for="sp-backup-select"
+                        class="sr-only"
+                    >
+                        Backup version
+                    </label>
+
+                    <select
+                        id="sp-backup-select"
+                        class="sp-backup-select"
+                    >
+                        <option value="">
+                            — select backup version —
+                        </option>
                     </select>
-                    <button type="button" id="sp-restore-btn" class="settings-restore-btn" disabled>
-                        ↩ Restore
+
+                    <button
+                        type="button"
+                        id="sp-restore-btn"
+                        class="settings-restore-btn"
+                        disabled
+                    >
+                        <span aria-hidden="true">↩</span>
+                        Restore
                     </button>
                 </div>
-                <div id="sp-restore-status" class="sp-update-status" style="display:none"></div>
-                <button type="button" id="sp-reload-after-restore" class="settings-apply-btn" style="display:none;margin-top:6px">
-                    ↺ Reload Page
+
+                <div
+                    id="sp-restore-status"
+                    class="sp-update-status"
+                    style="display: none;"
+                    role="status"
+                    aria-live="polite"
+                    aria-atomic="true"
+                ></div>
+
+                <button
+                    type="button"
+                    id="sp-reload-after-restore"
+                    class="settings-apply-btn mt-1.5"
+                    style="display: none;"
+                >
+                    <span aria-hidden="true">↺</span>
+                    Reload Page
                 </button>
             </section>
-
         </div>
     </aside>
 
-        <link rel="stylesheet" href="/assets/css/settings.css">
+    <!-- Browser operation notifications -->
+    <div
+        id="browser-toast"
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+    ></div>
 
-        <script src="/assets/js/settings.js"></script>
-    <script src="/assets/js/upload.js"></script>
+    <?php
+    /*
+     * Generate cache-busting query parameters from local asset modification
+     * timestamps. This prevents browsers and reverse proxies from using stale
+     * CSS or JavaScript after an application update.
+     */
+    $assetVersion = static function (string $assetPath): string {
+        $absolutePath = __DIR__ . '/' . ltrim($assetPath, '/');
 
-    <script src="/assets/js/tooltips.js" defer></script>
-    <script type="module" src="/assets/js/md.js"></script>
-<div id="browser-toast"></div>
+        if (!is_file($absolutePath)) {
+            return '';
+        }
+
+        $modifiedAt = filemtime($absolutePath);
+
+        if ($modifiedAt === false) {
+            return '';
+        }
+
+        return '?v=' . rawurlencode((string) $modifiedAt);
+    };
+    ?>
+
+    <link
+        rel="stylesheet"
+        href="/assets/css/settings.css<?= e(
+            $assetVersion('/assets/css/settings.css')
+        ) ?>"
+    >
+
+    <script
+        src="/assets/js/settings.js<?= e(
+            $assetVersion('/assets/js/settings.js')
+        ) ?>"
+    ></script>
+
+    <script
+        src="/assets/js/upload.js<?= e(
+            $assetVersion('/assets/js/upload.js')
+        ) ?>"
+    ></script>
+
+    <script
+        src="/assets/js/tooltips.js<?= e(
+            $assetVersion('/assets/js/tooltips.js')
+        ) ?>"
+        defer
+    ></script>
+
+    <script
+        type="module"
+        src="/assets/js/md.js<?= e(
+            $assetVersion('/assets/js/md.js')
+        ) ?>"
+    ></script>
 </body>
 </html>
