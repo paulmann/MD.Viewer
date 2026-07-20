@@ -1,8 +1,12 @@
 /**
  * MD.Viewer — Settings Panel Engine
- * Version: 2.8.5
+ * Version: 2.8.6
  * Auto-extracted from md.php inline <script> block.
  * Requires window.MDV_CONFIG to be set before this script loads.
+ *
+ * v2.8.6: Restored responsive automatic document width, separated automatic
+ *         selection from persisted manual overrides, synchronized both width
+ *         control groups, and added debounced viewport resize handling.
  */
 'use strict';
 
@@ -103,74 +107,148 @@
         applyLH(currentLH);
 
         // ── Width ─────────────────────────────────────────────────────────────
-        const WIDTHS    = ['reading', 'article', 'wide'];
-        const DEF_WIDTH = 'article';
-        let   currentWidth = DEF_WIDTH;
-
-// Function version: 2.1.0
-function applyWidth(width) {
-    const selectedWidth = WIDTHS.includes(width) ? width : DEF_WIDTH;
-    const maxWidthByMode = {
-        reading: '72ch',
-        article: '100ch',
-        wide: '160ch',
-    };
-
-    currentWidth = selectedWidth;
-    store(PREFIX + 'width', selectedWidth);
-
-    document
-        .querySelectorAll('[data-width-target], .width-target')
-        .forEach((element) => {
-            element.style.maxWidth = maxWidthByMode[selectedWidth];
+        const WIDTHS = Object.freeze(['reading', 'article', 'wide']);
+        const WIDTH_STORAGE_KEY = PREFIX + 'width';
+        const WIDTH_MANUAL_KEY = PREFIX + 'width-manual';
+        const WIDTH_BREAKPOINT_TABLET = 768;
+        const WIDTH_BREAKPOINT_WIDE = 1280;
+        const WIDTH_RESIZE_DELAY_MS = 150;
+        const WIDTH_MAX_VALUES = Object.freeze({
+            reading: '72ch',
+            article: '100ch',
+            wide: '160ch',
         });
-
-    document.querySelectorAll('.width-switch').forEach((button) => {
-        const isActive = button.dataset.width === selectedWidth;
-
-        button.classList.remove(
+        const WIDTH_ACTIVE_CLASSES = Object.freeze([
             'bg-slate-950',
             'text-white',
             'dark:bg-white',
             'dark:text-slate-950',
+        ]);
+        const WIDTH_STALE_ACTIVE_CLASSES = Object.freeze([
+            ...WIDTH_ACTIVE_CLASSES,
             'dark:bg-slate-200',
-            'dark:text-slate-900'
-        );
+            'dark:text-slate-900',
+        ]);
 
-        if (isActive) {
-            button.classList.add(
-                'bg-slate-950',
-                'text-white',
-                'dark:bg-white',
-                'dark:text-slate-950'
-            );
+        let currentWidth = null;
+        let hasManualWidth = false;
+        let widthResizeTimer = null;
+
+        /**
+         * Returns a responsive width mode for the current viewport.
+         *
+         * Function version: 2.0.0
+         *
+         * @returns {'reading'|'article'|'wide'}
+         */
+        function getAutoWidth() {
+            const viewportWidth = window.innerWidth;
+
+            if (viewportWidth >= WIDTH_BREAKPOINT_WIDE) {
+                return 'wide';
+            }
+
+            if (viewportWidth >= WIDTH_BREAKPOINT_TABLET) {
+                return 'article';
+            }
+
+            return 'reading';
         }
 
-        button.setAttribute(
-            'aria-pressed',
-            isActive ? 'true' : 'false'
-        );
-    });
-
-    document.querySelectorAll('[data-sp-width]').forEach((button) => {
-        const isActive = button.dataset.spWidth === selectedWidth;
-
-        button.classList.toggle('active', isActive);
-        button.setAttribute(
-            'aria-pressed',
-            isActive ? 'true' : 'false'
-        );
-    });
-}
-
-        function initWidth() {
-            if (isMobile()) {
-                applyWidth('wide');
-                const sec = document.getElementById('sp-width-section');
-                if (sec) sec.style.display = 'none';
-            } else {
-                applyWidth(load(PREFIX + 'width', DEF_WIDTH));
+        /**
+         * Reads a valid width explicitly selected by the user.
+         * Legacy values without the manual marker are intentionally ignored.
+         *
+         * Function version: 2.0.0
+         *
+         * @returns {'reading'|'article'|'wide'|null}
+         */
+        function getStoredManualWidth() {
+            if (load(WIDTH_MANUAL_KEY, '0') !== '1') {
+                return null;
             }
+
+            const storedWidth = load(WIDTH_STORAGE_KEY, null);
+            return WIDTHS.includes(storedWidth) ? storedWidth : null;
+        }
+
+        /**
+         * Applies a width mode and synchronizes viewer and settings controls.
+         * Automatic choices are not persisted; only explicit user choices are.
+         *
+         * Function version: 2.2.0
+         *
+         * @param {'reading'|'article'|'wide'} width
+         * @param {boolean} [persist=false]
+         * @returns {void}
+         */
+        function applyWidth(width, persist = false) {
+            const selectedWidth = WIDTHS.includes(width) ? width : getAutoWidth();
+            currentWidth = selectedWidth;
+
+            if (persist) {
+                hasManualWidth = true;
+                store(WIDTH_STORAGE_KEY, selectedWidth);
+                store(WIDTH_MANUAL_KEY, '1');
+            }
+
+            document
+                .querySelectorAll('[data-width-target], .width-target')
+                .forEach((element) => {
+                    element.style.maxWidth = WIDTH_MAX_VALUES[selectedWidth];
+                });
+
+            document.querySelectorAll('.width-switch').forEach((button) => {
+                const isActive = button.dataset.width === selectedWidth;
+
+                button.classList.remove(...WIDTH_STALE_ACTIVE_CLASSES);
+                if (isActive) {
+                    button.classList.add(...WIDTH_ACTIVE_CLASSES);
+                }
+
+                button.setAttribute('aria-pressed', String(isActive));
+            });
+
+            document.querySelectorAll('[data-sp-width]').forEach((button) => {
+                const isActive = button.dataset.spWidth === selectedWidth;
+                button.classList.toggle('active', isActive);
+                button.setAttribute('aria-pressed', String(isActive));
+            });
+        }
+
+        /**
+         * Initializes a manual override when available; otherwise enables the
+         * responsive automatic mode.
+         *
+         * Function version: 2.0.0
+         *
+         * @returns {void}
+         */
+        function initWidth() {
+            const storedWidth = getStoredManualWidth();
+            hasManualWidth = storedWidth !== null;
+            applyWidth(storedWidth ?? getAutoWidth());
+        }
+
+        /**
+         * Recalculates automatic width after viewport changes.
+         *
+         * Function version: 1.0.0
+         *
+         * @returns {void}
+         */
+        function scheduleAutoWidthUpdate() {
+            if (hasManualWidth) {
+                return;
+            }
+
+            window.clearTimeout(widthResizeTimer);
+            widthResizeTimer = window.setTimeout(() => {
+                const automaticWidth = getAutoWidth();
+                if (automaticWidth !== currentWidth) {
+                    applyWidth(automaticWidth);
+                }
+            }, WIDTH_RESIZE_DELAY_MS);
         }
 
         // ── Feature toggles (PHP-side, require reload) ────────────────────────
@@ -381,10 +459,17 @@ function applyWidth(width) {
         document.getElementById('sp-lh-reset')?.addEventListener('click',    () => applyLH(LH_DEF));
 
         // Width buttons
-        document.querySelectorAll('[data-sp-width]').forEach(b =>
-            b.addEventListener('click', function () { applyWidth(this.dataset.spWidth); }));
-        document.querySelectorAll('.width-switch').forEach(b =>
-            b.addEventListener('click', function () { applyWidth(this.dataset.width); }));
+        document.querySelectorAll('[data-sp-width]').forEach((button) => {
+            button.addEventListener('click', function () {
+                applyWidth(this.dataset.spWidth, true);
+            });
+        });
+        document.querySelectorAll('.width-switch').forEach((button) => {
+            button.addEventListener('click', function () {
+                applyWidth(this.dataset.width, true);
+            });
+        });
+        window.addEventListener('resize', scheduleAutoWidthUpdate, { passive: true });
 
         // ── Init ──────────────────────────────────────────────────────────────
         initWidth();
