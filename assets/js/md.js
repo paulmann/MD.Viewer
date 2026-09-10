@@ -1,6 +1,6 @@
 /**
  * Markdown Viewer — Client-side functionality
- * Version: 2.3.0
+ * Version: 2.3.1
  * Author: Mikhail Deynekin
  * Site: https://Deynekin.com
  * Email: Mikhail@Deynekin.com
@@ -12,6 +12,8 @@
  * - Copy-to-clipboard for code blocks and multi-line blockquotes
  * - File browser: debounced search, tri-state sort, click/keyboard open
  *
+ * v2.3.1: Replaced the quote copy text control with an accessible emoji icon
+ *         button designed for the lower-right corner of each quote.
  * v2.3.0: Added one accessible copy control per rendered blockquote, preserved
  *         paragraph boundaries, and enforced the server clipboard lock.
  * v2.2.1: Width selection persisted and re-applied to every width target;
@@ -149,7 +151,7 @@ const getQuoteText = (blockquote) => {
  * Adds one accessible copy control to each rendered blockquote. Every
  * blockquote remains the authoritative boundary for a multi-line quote.
  *
- * Function version: 2.0.0
+ * Function version: 2.1.0
  *
  * @returns {void}
  */
@@ -165,11 +167,15 @@ const initQuoteBlocks = () => {
         }
 
         const button = document.createElement('button');
+        const icon = document.createElement('span');
         button.type = 'button';
         button.className = 'quote-copy-btn';
-        button.textContent = 'Копировать цитату';
         button.title = 'Копировать цитату';
         button.setAttribute('aria-label', 'Копировать цитату');
+        icon.className = 'quote-copy-icon';
+        icon.textContent = '📋';
+        icon.setAttribute('aria-hidden', 'true');
+        button.appendChild(icon);
         blockquote.appendChild(button);
         blockquote.dataset.quoteCopyInitialized = 'true';
     });
@@ -181,7 +187,7 @@ initQuoteBlocks();
  * Copies a complete quote and exposes success or failure without changing its
  * source content.
  *
- * Function version: 1.0.0
+ * Function version: 1.1.0
  */
 document.addEventListener('click', async (event) => {
     const button = event.target.closest('.quote-copy-btn');
@@ -195,7 +201,7 @@ document.addEventListener('click', async (event) => {
         return;
     }
 
-    const originalText = button.textContent;
+    const icon = button.querySelector('.quote-copy-icon');
     const statusElement = document.getElementById('copy-status');
     button.disabled = true;
 
@@ -206,19 +212,28 @@ document.addEventListener('click', async (event) => {
             fallbackCopy(text);
         }
 
-        button.textContent = 'Цитата скопирована';
+        if (icon) {
+            icon.textContent = '✅';
+        }
+        button.classList.add('is-success');
         if (statusElement) {
             statusElement.textContent = 'Quote copied to clipboard';
         }
     } catch (error) {
         console.error('Quote copy failed:', error);
-        button.textContent = 'Ошибка копирования';
+        if (icon) {
+            icon.textContent = '⚠️';
+        }
+        button.classList.add('is-error');
         if (statusElement) {
             statusElement.textContent = 'Failed to copy quote';
         }
     } finally {
         window.setTimeout(() => {
-            button.textContent = originalText;
+            if (icon) {
+                icon.textContent = '📋';
+            }
+            button.classList.remove('is-success', 'is-error');
             button.disabled = false;
             if (statusElement) {
                 statusElement.textContent = '';
