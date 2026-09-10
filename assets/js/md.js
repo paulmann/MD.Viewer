@@ -1,6 +1,6 @@
 /**
  * Markdown Viewer — Client-side functionality
- * Version: 2.3.2
+ * Version: 2.4.0
  * Author: Mikhail Deynekin
  * Site: https://Deynekin.com
  * Email: Mikhail@Deynekin.com
@@ -9,9 +9,11 @@
  * - Theme toggle with localStorage persistence + system sync
  * - Width control (reading/article/wide) with persistence
  * - Mermaid diagram initialization
- * - Copy-to-clipboard for code blocks and multi-line blockquotes
+ * - Unified copy-to-clipboard controls for code blocks and blockquotes
  * - File browser: debounced search, tri-state sort, click/keyboard open
  *
+ * v2.4.0: Unified code and quote copying behind one copy-btn handler and
+ *         reused the existing icon, label, feedback, and fallback behavior.
  * v2.3.2: Shortened the quote copy button accessible label and tooltip to Copy.
  * v2.3.1: Replaced the quote copy text control with an accessible emoji icon
  *         button designed for the lower-right corner of each quote.
@@ -152,7 +154,7 @@ const getQuoteText = (blockquote) => {
  * Adds one accessible copy control to each rendered blockquote. Every
  * blockquote remains the authoritative boundary for a multi-line quote.
  *
- * Function version: 2.2.0
+ * Function version: 3.0.0
  *
  * @returns {void}
  */
@@ -168,80 +170,18 @@ const initQuoteBlocks = () => {
         }
 
         const button = document.createElement('button');
-        const icon = document.createElement('span');
         button.type = 'button';
-        button.className = 'quote-copy-btn';
-        button.title = 'Copy';
-        button.setAttribute('aria-label', 'Copy');
-        icon.className = 'quote-copy-icon';
-        icon.textContent = '📋';
-        icon.setAttribute('aria-hidden', 'true');
-        button.appendChild(icon);
+        button.className = 'copy-btn quote-copy-btn inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium text-slate-400 transition-all duration-200 hover:bg-slate-800 hover:text-white focus:outline-none focus:ring-2 focus:ring-blue-500/50 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed';
+        button.setAttribute('aria-label', 'Copy quote to clipboard');
+        button.innerHTML = '<svg class="copy-icon h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg>'
+            + '<svg class="check-icon h-4 w-4 hidden text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>'
+            + '<span class="copy-text">Copy</span><span class="check-text hidden text-green-400">Copied!</span>';
         blockquote.appendChild(button);
         blockquote.dataset.quoteCopyInitialized = 'true';
     });
 };
 
 initQuoteBlocks();
-
-/**
- * Copies a complete quote and exposes success or failure without changing its
- * source content.
- *
- * Function version: 1.1.0
- */
-document.addEventListener('click', async (event) => {
-    const button = event.target.closest('.quote-copy-btn');
-    if (!button || button.disabled || window.MDV_CONFIG?.disableClipboard === true) {
-        return;
-    }
-
-    const blockquote = button.closest('blockquote[data-quote-block]');
-    const text = blockquote ? getQuoteText(blockquote) : '';
-    if (!text) {
-        return;
-    }
-
-    const icon = button.querySelector('.quote-copy-icon');
-    const statusElement = document.getElementById('copy-status');
-    button.disabled = true;
-
-    try {
-        if (navigator.clipboard && window.isSecureContext) {
-            await navigator.clipboard.writeText(text);
-        } else {
-            fallbackCopy(text);
-        }
-
-        if (icon) {
-            icon.textContent = '✅';
-        }
-        button.classList.add('is-success');
-        if (statusElement) {
-            statusElement.textContent = 'Quote copied to clipboard';
-        }
-    } catch (error) {
-        console.error('Quote copy failed:', error);
-        if (icon) {
-            icon.textContent = '⚠️';
-        }
-        button.classList.add('is-error');
-        if (statusElement) {
-            statusElement.textContent = 'Failed to copy quote';
-        }
-    } finally {
-        window.setTimeout(() => {
-            if (icon) {
-                icon.textContent = '📋';
-            }
-            button.classList.remove('is-success', 'is-error');
-            button.disabled = false;
-            if (statusElement) {
-                statusElement.textContent = '';
-            }
-        }, 2000);
-    }
-});
 
 window.addEventListener('load', () => {
     initMermaidIfNeeded();
@@ -275,13 +215,17 @@ window.addEventListener('load', () => {
             return;
         }
 
+        const quote = btn.closest('blockquote[data-quote-block]');
         const wrapper = btn.closest('.code-block-wrapper');
-        const codeEl = wrapper?.querySelector('pre code, pre.mermaid');
-        if (!codeEl) {
+        const codeElement = wrapper?.querySelector('pre code, pre.mermaid');
+        const text = quote
+            ? getQuoteText(quote)
+            : (codeElement?.textContent || '');
+        const subject = quote ? 'Quote' : 'Code';
+
+        if (!text) {
             return;
         }
-
-        const text = codeEl.textContent || '';
         const copyIcon = btn.querySelector('.copy-icon');
         const checkIcon = btn.querySelector('.check-icon');
         const copyText = btn.querySelector('.copy-text');
@@ -311,7 +255,7 @@ window.addEventListener('load', () => {
             checkText?.classList.remove('hidden');
             btn.classList.remove('opacity-75');
             btn.classList.add('text-green-400');
-            announce('Code copied to clipboard');
+            announce(subject + ' copied to clipboard');
             setTimeout(resetButton, 2000);
         };
 
@@ -328,7 +272,7 @@ window.addEventListener('load', () => {
         } catch (err) {
             console.error('Copy to clipboard failed:', err);
             resetButton();
-            announce('Failed to copy code. Please select and copy manually.');
+            announce('Failed to copy ' + subject.toLowerCase() + '. Please select and copy manually.');
         }
     });
 
