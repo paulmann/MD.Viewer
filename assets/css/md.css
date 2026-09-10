@@ -1,5 +1,5 @@
 /* Markdown Viewer — Main Styles
- * Version: 2.0.2
+ * Version: 2.1.0
  * Author: Mikhail Deynekin
  * Site: https://Deynekin.com
  * Email: Mikhail@Deynekin.com
@@ -272,7 +272,44 @@ html[data-theme="dark"] .markdown-body mark {
     color: var(--page-fg);
 }
 
-.markdown-body blockquote p { margin: 0; }
+.markdown-body blockquote > p { margin: 0; }
+.markdown-body blockquote > p + p { margin-top: 1rem; }
+
+.markdown-body .quote-copy-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 2.75rem;
+    margin-top: 1rem;
+    padding: 0.55rem 0.9rem;
+    border: 1px solid color-mix(in srgb, var(--link) 35%, transparent);
+    border-radius: var(--radius-md);
+    background: color-mix(in srgb, var(--link) 9%, var(--panel));
+    color: var(--link);
+    font: inherit;
+    font-size: 0.82rem;
+    font-weight: 700;
+    line-height: 1.2;
+    cursor: pointer;
+    transition: background-color var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast);
+}
+
+.markdown-body .quote-copy-btn:hover {
+    border-color: var(--link);
+    background: color-mix(in srgb, var(--link) 16%, var(--panel));
+    color: var(--link-hover);
+}
+
+.markdown-body .quote-copy-btn:disabled {
+    cursor: wait;
+    opacity: 0.7;
+}
+
+@media (max-width: 640px) {
+    .markdown-body .quote-copy-btn {
+        width: 100%;
+    }
+}
 
 /* === CODE === */
 .markdown-body code {
