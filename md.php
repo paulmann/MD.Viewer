@@ -1,10 +1,14 @@
 <?php
 /**
  * Markdown Viewer
- * Version: 2.9.0
+ * Version: 2.9.2
  * Author: Mikhail Deynekin
  * Site: https://Deynekin.com
  * Email: Mikhail@Deynekin.com
+ *
+ * Changelog v2.9.2:
+ * - FIXED: Mermaid node labels containing parentheses are quoted server-side,
+ *   preventing "Syntax error in text" for legacy diagrams in Mermaid 11.
  *
  * Changelog v2.9.0:
  * - REFACTORED: Code blocks and blockquotes now render the same reusable copy
@@ -1823,6 +1827,85 @@ function renderCopyButton(string $ariaLabel, string $extraClasses = ''): string
         . '</button>';
 }
 
+/**
+ * Quote Mermaid node labels that contain parentheses.
+ *
+ * Mermaid 11 treats an unquoted "(" inside a square or curly node label as the
+ * start of a new shape and aborts parsing with "Syntax error in text".
+ *
+ * @since 2.9.2
+ */
+function normalizeMermaidLine(string $line): string
+{
+    $shapes = [['[[', ']]'], ['[(', ')]'], ['([', '])'], ['[', ']'], ['{{', '}}'], ['{', '}'], ['((', '))']];
+    $result = '';
+    $index  = 0;
+    $length = strlen($line);
+
+    while ($index < $length) {
+        $idMatch = [];
+        if (preg_match('/^[A-Za-z_][\w-]*/', substr($line, $index), $idMatch) !== 1) {
+            $result .= $line[$index];
+            $index++;
+            continue;
+        }
+
+        $nodeId  = $idMatch[0];
+        $afterId = $index + strlen($nodeId);
+        $shape   = null;
+
+        foreach ($shapes as [$open, $close]) {
+            if (substr($line, $afterId, strlen($open)) !== $open) {
+                continue;
+            }
+            $closeIndex = strpos($line, $close, $afterId + strlen($open));
+            if ($closeIndex !== false) {
+                $shape = ['open' => $open, 'close' => $close, 'closeIndex' => $closeIndex];
+                break;
+            }
+        }
+
+        if ($shape === null) {
+            $result .= $nodeId;
+            $index   = $afterId;
+            continue;
+        }
+
+        $labelStart = $afterId + strlen($shape['open']);
+        $rawLabel   = substr($line, $labelStart, $shape['closeIndex'] - $labelStart);
+        $trimmed    = trim($rawLabel);
+        $needsQuote = $trimmed !== ''
+            && !in_array(substr($trimmed, 0, 1), ['"', '`'], true)
+            && (str_contains($trimmed, '(') || str_contains($trimmed, ')'));
+
+        $label   = $needsQuote ? '"' . str_replace('"', '#quot;', $trimmed) . '"' : $rawLabel;
+        $result .= $nodeId . $shape['open'] . $label . $shape['close'];
+        $index   = $shape['closeIndex'] + strlen($shape['close']);
+    }
+
+    return $result;
+}
+
+/**
+ * Normalize a Mermaid diagram for Mermaid 11 compatibility.
+ *
+ * @since 2.9.2
+ */
+function normalizeMermaidSource(string $source): string
+{
+    $source = (string) preg_replace('/<br\s*\/?\s*>/iu', '<br/>', $source);
+    $lines  = explode("\n", $source);
+
+    foreach ($lines as $i => $line) {
+        if (preg_match('/^(style|classDef|class|linkStyle|click|subgraph|end|graph|flowchart|direction|%%)\b/', trim($line)) === 1) {
+            continue;
+        }
+        $lines[$i] = normalizeMermaidLine($line);
+    }
+
+    return implode("\n", $lines);
+}
+
 function renderCodeBlock(string $lang, array $buf): string
 {
     $code = implode("\n", $buf);
@@ -1841,7 +1924,7 @@ function renderCodeBlock(string $lang, array $buf): string
     $html .= '</div>';
     $html .= '<div class="overflow-x-auto px-5 py-4 sm:px-6">';
     if ($isMermaid) {
-        $html .= '<pre class="mermaid text-slate-200 font-mono">' . e($code) . '</pre>';
+        $html .= '<pre class="mermaid text-slate-200 font-mono">' . e(normalizeMermaidSource($code)) . '</pre>';
     } else {
         $codeClass = $hasLang ? 'language-' . e($lang) . ' text-slate-200 font-mono' : 'text-slate-200 font-mono';
         $html .= '<pre class="text-sm leading-6"><code class="' . $codeClass . '">' . e($code) . '</code></pre>';
