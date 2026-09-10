@@ -1,6 +1,6 @@
 <!--
  * MD.Viewer — Documentation
- * Version: 2.8.2
+ * Version: 2.8.5
 -->
 
 # MD.Viewer
@@ -9,7 +9,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://github.com/paulmann/MD.Viewer/blob/main/LICENSE)
 [![PHP](https://img.shields.io/badge/PHP-8.3%2B-777BB4?logo=php&logoColor=white)](https://php.net)
-[![md.php](https://img.shields.io/badge/md.php-v2.8.2-success)](https://github.com/paulmann/MD.Viewer)
+[![md.php](https://img.shields.io/badge/md.php-v2.8.5-success)](https://github.com/paulmann/MD.Viewer)
 [![updater.php](https://img.shields.io/badge/updater.php-v3.8.2-4f46e5)](https://github.com/paulmann/MD.Viewer)
 
 ---
@@ -18,7 +18,7 @@
 
 MD.Viewer is built around **`md.php`**, a single PHP entry point that renders a matching Markdown file, or switches to a recursive Markdown file browser when no matching file exists. The project is designed for simple deployment: copy files to a PHP host, place your `.md` documents nearby, and open `md.php` in a browser.
 
-The viewer focuses on self-hosted documentation without a toolchain. It supports readable typography, heading numbering, automatic table of contents generation, Mermaid rendering, code-copy buttons, glossary tooltips, dark mode, mobile-friendly controls, and a Settings panel that stores viewer preferences locally.
+The viewer focuses on self-hosted documentation without a toolchain. It supports readable typography, heading numbering, automatic table of contents generation, Mermaid rendering, code and quote copy buttons, glossary tooltips, dark mode, mobile-friendly controls, and a Settings panel that stores viewer preferences locally.
 
 **`updater.php`** is a companion self-update and maintenance engine. It checks GitHub raw files using ETag and SHA-256, creates versioned backups before replacement, restores previous versions from the Settings panel or directly via URL, manages an optional `index.php` hard link, handles `.md` file uploads, and supports direct browser-based updates and rollbacks.
 
@@ -146,11 +146,11 @@ MD.Viewer/
 │   └── .state/                # ETag + SHA-256 per-file cache
 ├── assets/
 │   ├── css/
-│   │   ├── md.css             # v2.0.2
+│   │   ├── md.css             # v2.1.0
 │   │   ├── settings.css       # v2.8.1
 │   │   └── tooltips.css       # v2.4.5
 │   └── js/
-│       ├── md.js              # v2.2.2
+│       ├── md.js              # v2.3.0
 │       ├── settings.js        # v2.8.3
 │       ├── tooltips.js        # v2.4.5
 │       └── upload.js          # v2.8.0
@@ -228,6 +228,7 @@ The file browser includes a **Clipboard Preview** button. Paste any Markdown tex
 ### Markdown rendering
 
 - Headings, paragraphs, emphasis, strong text, inline code, blockquotes, horizontal rules, fenced code blocks.
+- Consecutive `>` lines render as one multi-paragraph quote with a single copy button.
 - Ordered and unordered lists, including nested lists.
 - Tables with styled output.
 - Task lists, footnotes, reference-style links.
@@ -370,16 +371,16 @@ https://your-domain.com/updater.php?restore=2.7.0
 All files managed by the updater (checked, downloaded, backed up):
 
 ```
-md.php                    v2.8.2
+md.php                    v2.8.5
 updater.php               v3.8.2
-assets/js/md.js           v2.2.2
-assets/js/settings.js     v2.8.3
+assets/js/md.js           v2.3.0
+assets/js/settings.js     v2.8.7
 assets/js/tooltips.js     v2.4.5
 assets/js/upload.js       v2.8.0
-assets/css/md.css         v2.0.2
+assets/css/md.css         v2.1.0
 assets/css/settings.css   v2.8.1
 assets/css/tooltips.css   v2.4.5
-README.md                 v2.8.1
+README.md                 v2.8.5
 LICENSE                   v1.0.0
 ```
 
