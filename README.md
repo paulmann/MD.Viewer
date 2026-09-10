@@ -9,7 +9,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://github.com/paulmann/MD.Viewer/blob/main/LICENSE)
 [![PHP](https://img.shields.io/badge/PHP-8.3%2B-777BB4?logo=php&logoColor=white)](https://php.net)
-[![md.php](https://img.shields.io/badge/md.php-v2.9.3-success)](https://github.com/paulmann/MD.Viewer)
+[![md.php](https://img.shields.io/badge/md.php-v2.9.5-success)](https://github.com/paulmann/MD.Viewer)
 [![updater.php](https://img.shields.io/badge/updater.php-v3.8.2-4f46e5)](https://github.com/paulmann/MD.Viewer)
 
 ---
