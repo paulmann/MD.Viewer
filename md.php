@@ -1,16 +1,16 @@
 <?php
 /**
  * Markdown Viewer
- * Version: 2.8.5
+ * Version: 2.9.0
  * Author: Mikhail Deynekin
  * Site: https://Deynekin.com
  * Email: Mikhail@Deynekin.com
  *
- * Changelog v2.8.5:
+ * Changelog v2.9.0:
+ * - REFACTORED: Code blocks and blockquotes now render the same reusable copy
+ *   button markup and use one client-side copy handler.
  * - FIXED: Consecutive Markdown blockquote lines are rendered as one blockquote
  *   with preserved paragraph boundaries instead of separate quote elements.
- * - IMPROVED: Multi-line quotes now provide one logical target for the quote
- *   copy control while preserving the existing inline Markdown renderer.
  *
 * Changelog v2.8.4:
  * - FIXED: Removed hardcoded active styles from document width buttons,
@@ -1802,6 +1802,27 @@ function renderTOC(array $headings): string
 
 function isMermaidLanguage(string $lang): bool { return in_array(mb_strtolower(trim($lang), 'UTF-8'), ['mermaid','mmd'], true); }
 
+/**
+ * Render the shared copy button used by code blocks and blockquotes.
+ *
+ * @since 2.9.0
+ */
+function renderCopyButton(string $ariaLabel, string $extraClasses = ''): string
+{
+    $classes = trim(
+        'copy-btn inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium text-slate-400 '
+        . 'transition-all duration-200 hover:bg-slate-800 hover:text-white focus:outline-none '
+        . 'focus:ring-2 focus:ring-blue-500/50 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed '
+        . $extraClasses
+    );
+
+    return '<button type="button" class="' . e($classes) . '" aria-label="' . e($ariaLabel) . '">'
+        . '<svg class="copy-icon h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 002 2z"></path></svg>'
+        . '<svg class="check-icon h-4 w-4 hidden text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>'
+        . '<span class="copy-text">Copy</span><span class="check-text hidden text-green-400">Copied!</span>'
+        . '</button>';
+}
+
 function renderCodeBlock(string $lang, array $buf): string
 {
     $code = implode("\n", $buf);
@@ -1816,11 +1837,8 @@ function renderCodeBlock(string $lang, array $buf): string
     $html .= '<div class="flex gap-1.5" aria-hidden="true"><span class="h-3 w-3 rounded-full bg-red-500/80"></span><span class="h-3 w-3 rounded-full bg-yellow-500/80"></span><span class="h-3 w-3 rounded-full bg-green-500/80"></span></div>';
     $html .= '<span class="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">' . e($langLabel) . '</span>';
     $html .= '</div>';
-    $html .= '<button type="button" class="copy-btn inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium text-slate-400 transition-all duration-200 hover:bg-slate-800 hover:text-white focus:outline-none focus:ring-2 focus:ring-blue-500/50 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed" aria-label="Copy code to clipboard">';
-    $html .= '<svg class="copy-icon h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg>';
-    $html .= '<svg class="check-icon h-4 w-4 hidden text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>';
-    $html .= '<span class="copy-text">Copy</span><span class="check-text hidden text-green-400">Copied!</span>';
-    $html .= '</button></div>';
+    $html .= renderCopyButton('Copy code to clipboard');
+    $html .= '</div>';
     $html .= '<div class="overflow-x-auto px-5 py-4 sm:px-6">';
     if ($isMermaid) {
         $html .= '<pre class="mermaid text-slate-200 font-mono">' . e($code) . '</pre>';
@@ -2196,8 +2214,7 @@ function resolveParagraphGlue(): array
  *  6. Parse block-level elements (headings, lists, tables, code blocks, etc.)
  *  7. Render footnotes section at the end
  *
- * v2.2.9: Group consecutive blockquote lines into one semantic blockquote,
- *         preserving quoted paragraph boundaries and a single copy target.
+ * v2.3.0: Grouped consecutive blockquote lines and added the shared copy control.
  * v2.2.7: Complete rewrite of ref-link/footnote removal logic.
  *         - Replaced DOTALL regex with state machine to prevent content loss
  *         - Added explicit placeholder protection (\x02CB{n}\x03)
@@ -2211,7 +2228,7 @@ function resolveParagraphGlue(): array
  *
  * @since 2.2.5 Setext heading support, ATX regex alignment
  * @since 2.2.7 DOTALL removal, state machine, placeholder protection
- * @since 2.2.9 Consecutive blockquote grouping with paragraph preservation
+ * @since 2.3.0 Consecutive blockquote grouping and shared copy control
  */
 function renderMarkdown(string $md, array $src = [], array $head = []): string
 {
@@ -2346,7 +2363,6 @@ function renderMarkdown(string $md, array $src = [], array $head = []): string
 
         $groups = [];
         $group  = [];
-
         foreach ($qBuf as $quoteLine) {
             if (trim($quoteLine) === '') {
                 if ($group !== []) {
@@ -2355,10 +2371,8 @@ function renderMarkdown(string $md, array $src = [], array $head = []): string
                 }
                 continue;
             }
-
             $group[] = $quoteLine;
         }
-
         if ($group !== []) {
             $groups[] = $group;
         }
@@ -2372,18 +2386,18 @@ function renderMarkdown(string $md, array $src = [], array $head = []): string
                 ),
                 static fn(string $line): bool => $line !== ''
             ));
-
             if ($renderedLines !== []) {
                 $quoteHtml[] = '<p>' . implode("<br>\n", $renderedLines) . '</p>';
             }
         }
 
         if ($quoteHtml !== []) {
+            $copyButton = DISABLE_CLIPBOARD ? '' : renderCopyButton('Copy quote to clipboard', 'quote-copy-btn');
             $html[] = '<blockquote class="border-l-4 border-blue-500 pl-4 py-2 my-4 bg-slate-50/50 dark:bg-slate-800/30 rounded-r-lg">'
                 . implode("\n", $quoteHtml)
+                . $copyButton
                 . '</blockquote>';
         }
-
         $qBuf = [];
     };
 
