@@ -1,6 +1,6 @@
 /**
  * Markdown Viewer — Client-side functionality
- * Version: 2.2.2
+ * Version: 2.3.0
  * Author: Mikhail Deynekin
  * Site: https://Deynekin.com
  * Email: Mikhail@Deynekin.com
@@ -9,9 +9,11 @@
  * - Theme toggle with localStorage persistence + system sync
  * - Width control (reading/article/wide) with persistence
  * - Mermaid diagram initialization
- * - Copy-to-clipboard for code blocks (Clipboard API + fallback)
+ * - Copy-to-clipboard for code blocks and multi-line blockquotes
  * - File browser: debounced search, tri-state sort, click/keyboard open
  *
+ * v2.3.0: Added one accessible copy control per rendered blockquote, preserved
+ *         paragraph boundaries, and enforced the server clipboard lock.
  * v2.2.1: Width selection persisted and re-applied to every width target;
  *         hardened theme/listener guards; const-grouped selectors; safer
  *         clipboard fallback; defensive null checks throughout.
