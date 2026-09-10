@@ -1,5 +1,5 @@
 /* Markdown Viewer — Main Styles
- * Version: 2.2.1
+ * Version: 2.2.2
  * Author: Mikhail Deynekin
  * Site: https://Deynekin.com
  * Email: Mikhail@Deynekin.com
@@ -296,7 +296,7 @@ html[data-theme="dark"] .markdown-body mark {
 }
 
 .markdown-body pre.mermaid-error::before {
-    content: "Mermaid: синтаксическая ошибка — подробности в консоли браузера";
+    content: "Mermaid syntax error — see the browser console for details";
     display: block;
     margin-bottom: 0.75rem;
     color: #fca5a5;
