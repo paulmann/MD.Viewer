@@ -24,7 +24,6 @@
 
     const THEME_KEY = 'radio-viewer-theme';
 
-
     const themeBtn = document.querySelector('[data-theme-toggle]');
     const themeIcon = document.querySelector('[data-theme-icon]');
 
@@ -76,7 +75,6 @@
         media.addListener(onSystemChange);
     }
 
-
 // ============================================================
 // Mermaid diagram initialization (lazy-load)
 // Loads Mermaid only when rendered Markdown contains <pre class="mermaid">.
@@ -120,6 +118,24 @@ const initMermaidIfNeeded = async () => {
         });
     }
 };
+
+/**
+ * Marks each rendered blockquote as one logical quote block.
+ * Markdown paragraph boundaries remain inside the same blockquote, so later
+ * quote controls can operate on the complete multi-line citation.
+ *
+ * Function version: 1.0.0
+ *
+ * @returns {void}
+ */
+const initQuoteBlocks = () => {
+    document.querySelectorAll('blockquote').forEach((blockquote) => {
+        blockquote.classList.add('quote-block');
+        blockquote.setAttribute('data-quote-block', '');
+    });
+};
+
+initQuoteBlocks();
 
 window.addEventListener('load', () => {
     initMermaidIfNeeded();
