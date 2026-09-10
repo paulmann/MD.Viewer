@@ -1,6 +1,6 @@
 /**
  * Markdown Viewer — Client-side functionality
- * Version: 2.4.1
+ * Version: 2.4.2
  * Author: Mikhail Deynekin
  * Site: https://Deynekin.com
  * Email: Mikhail@Deynekin.com
@@ -12,8 +12,8 @@
  * - Unified copy-to-clipboard controls for code blocks and blockquotes
  * - File browser: debounced search, tri-state sort, click/keyboard open
  *
- * v2.4.1: Normalized legacy flowchart labels containing parentheses, validated
- *         diagrams before rendering, and isolated invalid diagrams.
+ * v2.4.2: Added a client-side Mermaid compatibility fallback, per-diagram
+ *         validation, and isolation of invalid diagrams.
  * v2.4.0: Unified code and quote copying behind one copy-btn handler and reused
  *         the server-rendered icon, label, feedback, and fallback behavior.
  * v2.3.0: Added one accessible copy control per rendered blockquote, preserved
@@ -85,9 +85,65 @@
 // Mermaid diagram initialization (lazy-load)
 // Loads Mermaid only when rendered Markdown contains <pre class="mermaid">.
 // ============================================================
+const MERMAID_NODE_SHAPES = [['[[', ']]'], ['[(', ')]'], ['([', '])'], ['[', ']'], ['{{', '}}'], ['{', '}'], ['((', '))']];
+const MERMAID_KEYWORD_LINE = /^(style|classDef|class|linkStyle|click|subgraph|end|graph|flowchart|direction|%%)\b/;
+
 /**
- * Normalizes legacy flowchart labels that Mermaid 11 rejects when unquoted
- * parentheses appear inside square node labels.
+ * Quotes Mermaid node labels that contain parentheses.
+ *
+ * Function version: 1.0.0
+ *
+ * @param {string} line
+ * @returns {string}
+ */
+const normalizeMermaidLine = (line) => {
+    let result = '';
+    let index = 0;
+
+    while (index < line.length) {
+        const idMatch = /^[A-Za-z_][\w-]*/.exec(line.slice(index));
+        if (idMatch === null) {
+            result += line[index];
+            index += 1;
+            continue;
+        }
+
+        const nodeId = idMatch[0];
+        const afterId = index + nodeId.length;
+        let shape = null;
+
+        for (const [open, close] of MERMAID_NODE_SHAPES) {
+            if (!line.startsWith(open, afterId)) {
+                continue;
+            }
+            const closeIndex = line.indexOf(close, afterId + open.length);
+            if (closeIndex !== -1) {
+                shape = { open, close, closeIndex };
+                break;
+            }
+        }
+
+        if (shape === null) {
+            result += nodeId;
+            index = afterId;
+            continue;
+        }
+
+        const rawLabel = line.slice(afterId + shape.open.length, shape.closeIndex);
+        const trimmed = rawLabel.trim();
+        const needsQuotes = trimmed !== '' && !/^["`]/.test(trimmed) && /[()]/.test(trimmed);
+        const label = needsQuotes ? '"' + trimmed.replace(/"/g, '#quot;') + '"' : rawLabel;
+
+        result += nodeId + shape.open + label + shape.close;
+        index = shape.closeIndex + shape.close.length;
+    }
+
+    return result;
+};
+
+/**
+ * Normalizes a Mermaid diagram for Mermaid 11 compatibility. Mirrors the
+ * server-side normalizer so cached pages keep rendering correctly.
  *
  * Function version: 1.0.0
  *
@@ -95,19 +151,10 @@
  * @returns {string}
  */
 const normalizeMermaidSource = (source) => source
-    .replace(/<br\s*>/gi, '<br/>')
-    .replace(/(\b[A-Za-z_][\w-]*)\[([^\]\r\n]*)\]/g, (match, nodeId, label) => {
-        const normalizedLabel = label.trim();
-        if (
-            normalizedLabel === ''
-            || /^["`]/.test(normalizedLabel)
-            || !/[()]/.test(normalizedLabel)
-        ) {
-            return match;
-        }
-
-        return nodeId + '["' + normalizedLabel.replace(/"/g, '#quot;') + '"]';
-    });
+    .replace(/<br\s*\/?\s*>/gi, '<br/>')
+    .split('\n')
+    .map((line) => (MERMAID_KEYWORD_LINE.test(line.trim()) ? line : normalizeMermaidLine(line)))
+    .join('\n');
 
 /**
  * Validates and renders Mermaid blocks independently so one malformed diagram
@@ -125,6 +172,7 @@ const initMermaidIfNeeded = async () => {
 
     try {
         const { default: mermaid } = await import('https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs');
+
         mermaid.initialize({
             startOnLoad: false,
             theme: root.getAttribute('data-theme') === 'dark' ? 'dark' : 'default',
@@ -138,6 +186,7 @@ const initMermaidIfNeeded = async () => {
         });
 
         const renderTargets = [];
+
         for (const [index, node] of mermaidBlocks.entries()) {
             const originalSource = node.textContent || '';
             const normalizedSource = normalizeMermaidSource(originalSource);
@@ -163,18 +212,21 @@ const initMermaidIfNeeded = async () => {
         }
     } catch (error) {
         console.error('Mermaid initialization failed:', error);
-        mermaidBlocks.filter((node) => node.isConnected).forEach((node) => {
-            node.classList.add('mermaid-error');
-            node.setAttribute('data-mermaid-error', 'true');
-        });
+
+        mermaidBlocks
+            .filter((node) => node.isConnected)
+            .forEach((node) => {
+                node.classList.add('mermaid-error');
+                node.setAttribute('data-mermaid-error', 'true');
+            });
     }
 };
 
 /**
  * Returns plain text for an entire quote while preserving top-level paragraph
- * and line boundaries. Interactive quote controls are excluded.
+ * and line boundaries. Interactive controls are excluded.
  *
- * Function version: 1.0.0
+ * Function version: 1.1.0
  *
  * @param {HTMLElement} blockquote
  * @returns {string}
