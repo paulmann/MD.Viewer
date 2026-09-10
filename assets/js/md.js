@@ -1,6 +1,6 @@
 /**
  * Markdown Viewer — Client-side functionality
- * Version: 2.4.2
+ * Version: 2.5.0
  * Author: Mikhail Deynekin
  * Site: https://Deynekin.com
  * Email: Mikhail@Deynekin.com
@@ -10,14 +10,13 @@
  * - Width control (reading/article/wide) with persistence
  * - Mermaid diagram initialization
  * - Unified copy-to-clipboard controls for code blocks and blockquotes
+ * - Mermaid auto-repair with a detailed console report
  * - File browser: debounced search, tri-state sort, click/keyboard open
  *
- * v2.4.2: Added a client-side Mermaid compatibility fallback, per-diagram
- *         validation, and isolation of invalid diagrams.
- * v2.4.0: Unified code and quote copying behind one copy-btn handler and reused
- *         the server-rendered icon, label, feedback, and fallback behavior.
- * v2.3.0: Added one accessible copy control per rendered blockquote, preserved
- *         paragraph boundaries, and enforced the server clipboard lock.
+ * v2.5.0: Added Mermaid auto-repair (literal \n, unclosed <br>, PlantUML return,
+ *         unquoted parentheses) with a grouped console report per diagram.
+ * v2.4.0: Unified code and quote copying behind one copy-btn handler.
+ * v2.3.0: Added one accessible copy control per rendered blockquote.
  * v2.2.1: Width selection persisted and re-applied to every width target;
  *         hardened theme/listener guards; const-grouped selectors; safer
  *         clipboard fallback; defensive null checks throughout.
@@ -87,9 +86,11 @@
 // ============================================================
 const MERMAID_NODE_SHAPES = [['[[', ']]'], ['[(', ')]'], ['([', '])'], ['[', ']'], ['{{', '}}'], ['{', '}'], ['((', '))']];
 const MERMAID_KEYWORD_LINE = /^(style|classDef|class|linkStyle|click|subgraph|end|graph|flowchart|direction|%%)\b/;
+const MERMAID_SEQUENCE_HEADER = /^\s*sequenceDiagram\b/m;
+const MERMAID_SEQUENCE_ARROW = /^\s*([^\s:]+?)\s*(-->>|->>|-->|->|--x|-x|--\)|-\))\s*([^\s:]+?)\s*:/;
 
 /**
- * Quotes Mermaid node labels that contain parentheses.
+ * Quotes flowchart node labels that contain parentheses.
  *
  * Function version: 1.0.0
  *
@@ -142,25 +143,115 @@ const normalizeMermaidLine = (line) => {
 };
 
 /**
- * Normalizes a Mermaid diagram for Mermaid 11 compatibility. Mirrors the
- * server-side normalizer so cached pages keep rendering correctly.
+ * Repairs common Mermaid incompatibilities and reports every applied change.
  *
  * Function version: 1.0.0
  *
  * @param {string} source
- * @returns {string}
+ * @returns {{source: string, fixes: Array<{line: number, rule: string, detail: string, before: string, after: string}>}}
  */
-const normalizeMermaidSource = (source) => source
-    .replace(/<br\s*\/?\s*>/gi, '<br/>')
-    .split('\n')
-    .map((line) => (MERMAID_KEYWORD_LINE.test(line.trim()) ? line : normalizeMermaidLine(line)))
-    .join('\n');
+const repairMermaidSource = (source) => {
+    const fixes = [];
+    const isSequence = MERMAID_SEQUENCE_HEADER.test(source);
+    let lastCaller = null;
+    let lastCallee = null;
+
+    const repaired = source.replace(/\r\n?/g, '\n').split('\n').map((line, position) => {
+        const lineNumber = position + 1;
+        const original = line;
+        let current = line;
+
+        if (current.includes('\\n')) {
+            current = current.split('\\n').join('<br/>');
+            fixes.push({ line: lineNumber, rule: 'literal-newline', detail: 'Литерал \\n заменён на <br/>', before: original.trim(), after: current.trim() });
+        }
+
+        if (/<br\s*>/i.test(current)) {
+            const beforeBr = current;
+            current = current.replace(/<br\s*>/gi, '<br/>');
+            fixes.push({ line: lineNumber, rule: 'unclosed-br', detail: '<br> заменён на <br/>', before: beforeBr.trim(), after: current.trim() });
+        }
+
+        if (isSequence) {
+            const arrow = MERMAID_SEQUENCE_ARROW.exec(current);
+            if (arrow !== null) {
+                lastCaller = arrow[1];
+                lastCallee = arrow[3];
+            }
+
+            const returnMatch = /^(\s*)return\b\s*(.*)$/.exec(current);
+            if (returnMatch !== null) {
+                const indent = returnMatch[1];
+                const message = returnMatch[2].trim();
+                const beforeReturn = current;
+
+                if (lastCaller !== null && lastCallee !== null) {
+                    current = indent + lastCallee + '-->>' + lastCaller + ': ' + (message === '' ? 'return' : message);
+                    fixes.push({ line: lineNumber, rule: 'plantuml-return', detail: 'PlantUML "return" заменён на ответное сообщение ' + lastCallee + '-->>' + lastCaller, before: beforeReturn.trim(), after: current.trim() });
+                } else {
+                    current = indent + '%% ' + beforeReturn.trim();
+                    fixes.push({ line: lineNumber, rule: 'plantuml-return-orphan', detail: 'PlantUML "return" без предшествующего вызова закомментирован', before: beforeReturn.trim(), after: current.trim() });
+                }
+            }
+        } else if (!MERMAID_KEYWORD_LINE.test(current.trim())) {
+            const normalized = normalizeMermaidLine(current);
+            if (normalized !== current) {
+                fixes.push({ line: lineNumber, rule: 'unquoted-parentheses', detail: 'Метка узла со скобками заключена в кавычки', before: current.trim(), after: normalized.trim() });
+                current = normalized;
+            }
+        }
+
+        return current;
+    }).join('\n');
+
+    return { source: repaired, fixes };
+};
 
 /**
- * Validates and renders Mermaid blocks independently so one malformed diagram
- * cannot prevent the remaining diagrams from rendering.
+ * Prints a grouped Mermaid diagnostics report to the browser console.
  *
- * Function version: 2.0.0
+ * Function version: 1.0.0
+ *
+ * @param {number} index
+ * @param {Array<object>} fixes
+ * @param {boolean} isValid
+ * @param {string} source
+ * @returns {void}
+ */
+const reportMermaidDiagnostics = (index, fixes, isValid, source) => {
+    if (fixes.length === 0 && isValid) {
+        return;
+    }
+
+    const label = 'MD.Viewer · Mermaid diagram #' + (index + 1) + (isValid ? ' — исправлено автоматически' : ' — синтаксическая ошибка');
+
+    if (isValid) {
+        console.groupCollapsed(label);
+    } else {
+        console.group(label);
+    }
+
+    if (fixes.length > 0) {
+        console.info('Применённые исправления: ' + fixes.length);
+        console.table(fixes, ['line', 'rule', 'detail', 'before', 'after']);
+    } else {
+        console.info('Автоматические исправления не потребовались.');
+    }
+
+    if (!isValid) {
+        console.error('Диаграмма не прошла проверку mermaid.parse() и оставлена как исходный текст.');
+        console.info('Поддерживаемые ключевые слова sequenceDiagram: participant, actor, loop, alt, else, opt, par, critical, break, rect, activate, deactivate, Note.');
+        console.debug('Итоговый источник после автоисправлений:\n' + source);
+    }
+
+    console.groupEnd();
+};
+
+/**
+ * Validates, repairs and renders Mermaid blocks independently so one malformed
+ * diagram cannot prevent the remaining diagrams from rendering.
+ *
+ * Function version: 3.0.0
  *
  * @returns {Promise<void>}
  */
@@ -189,8 +280,10 @@ const initMermaidIfNeeded = async () => {
 
         for (const [index, node] of mermaidBlocks.entries()) {
             const originalSource = node.textContent || '';
-            const normalizedSource = normalizeMermaidSource(originalSource);
-            const isValid = await mermaid.parse(normalizedSource, { suppressErrors: true });
+            const repair = repairMermaidSource(originalSource);
+            const isValid = await mermaid.parse(repair.source, { suppressErrors: true }) !== false;
+
+            reportMermaidDiagnostics(index, repair.fixes, isValid, repair.source);
 
             if (!isValid) {
                 node.classList.add('mermaid-error');
@@ -200,8 +293,9 @@ const initMermaidIfNeeded = async () => {
 
             const wrapper = document.createElement('div');
             wrapper.className = 'mermaid';
-            wrapper.textContent = normalizedSource;
+            wrapper.textContent = repair.source;
             wrapper.dataset.mermaidSource = originalSource;
+            wrapper.dataset.mermaidFixes = String(repair.fixes.length);
             wrapper.setAttribute('data-mermaid-id', 'mermaid-' + index);
             node.replaceWith(wrapper);
             renderTargets.push(wrapper);
@@ -223,8 +317,7 @@ const initMermaidIfNeeded = async () => {
 };
 
 /**
- * Returns plain text for an entire quote while preserving top-level paragraph
- * and line boundaries. Interactive controls are excluded.
+ * Returns plain text for an entire quote while preserving paragraph boundaries.
  *
  * Function version: 1.1.0
  *
