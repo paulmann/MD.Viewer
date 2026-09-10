@@ -1,5 +1,5 @@
 /* Markdown Viewer — Main Styles
- * Version: 2.2.0
+ * Version: 2.2.1
  * Author: Mikhail Deynekin
  * Site: https://Deynekin.com
  * Email: Mikhail@Deynekin.com
@@ -289,6 +289,21 @@ html[data-theme="dark"] .markdown-body mark {
     background: rgb(15 23 42 / 0.94);
     box-shadow: 0 8px 20px rgb(15 23 42 / 0.22);
     z-index: 1;
+}
+
+.markdown-body pre.mermaid-error {
+    border-left: 3px solid #f87171;
+}
+
+.markdown-body pre.mermaid-error::before {
+    content: "Mermaid: синтаксическая ошибка — подробности в консоли браузера";
+    display: block;
+    margin-bottom: 0.75rem;
+    color: #fca5a5;
+    font-size: 0.78rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
 }
 
 /* === CODE === */
