@@ -120,22 +120,110 @@ const initMermaidIfNeeded = async () => {
 };
 
 /**
- * Marks each rendered blockquote as one logical quote block.
- * Markdown paragraph boundaries remain inside the same blockquote, so later
- * quote controls can operate on the complete multi-line citation.
+ * Returns plain text for an entire quote while preserving top-level paragraph
+ * and line boundaries. Interactive quote controls are excluded.
  *
  * Function version: 1.0.0
+ *
+ * @param {HTMLElement} blockquote
+ * @returns {string}
+ */
+const getQuoteText = (blockquote) => {
+    const clone = blockquote.cloneNode(true);
+    clone.querySelectorAll('.quote-copy-btn').forEach((button) => button.remove());
+
+    return [...clone.childNodes]
+        .map((node) => {
+            const text = node.nodeType === Node.ELEMENT_NODE
+                ? (node.innerText || node.textContent || '')
+                : (node.textContent || '');
+            return text.trim();
+        })
+        .filter(Boolean)
+        .join('\n\n');
+};
+
+/**
+ * Adds one accessible copy control to each rendered blockquote. Every
+ * blockquote remains the authoritative boundary for a multi-line quote.
+ *
+ * Function version: 2.0.0
  *
  * @returns {void}
  */
 const initQuoteBlocks = () => {
+    const clipboardDisabled = window.MDV_CONFIG?.disableClipboard === true;
+
     document.querySelectorAll('blockquote').forEach((blockquote) => {
         blockquote.classList.add('quote-block');
         blockquote.setAttribute('data-quote-block', '');
+
+        if (clipboardDisabled || blockquote.dataset.quoteCopyInitialized === 'true') {
+            return;
+        }
+
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'quote-copy-btn';
+        button.textContent = 'Копировать цитату';
+        button.title = 'Копировать цитату';
+        button.setAttribute('aria-label', 'Копировать цитату');
+        blockquote.appendChild(button);
+        blockquote.dataset.quoteCopyInitialized = 'true';
     });
 };
 
 initQuoteBlocks();
+
+/**
+ * Copies a complete quote and exposes success or failure without changing its
+ * source content.
+ *
+ * Function version: 1.0.0
+ */
+document.addEventListener('click', async (event) => {
+    const button = event.target.closest('.quote-copy-btn');
+    if (!button || button.disabled || window.MDV_CONFIG?.disableClipboard === true) {
+        return;
+    }
+
+    const blockquote = button.closest('blockquote[data-quote-block]');
+    const text = blockquote ? getQuoteText(blockquote) : '';
+    if (!text) {
+        return;
+    }
+
+    const originalText = button.textContent;
+    const statusElement = document.getElementById('copy-status');
+    button.disabled = true;
+
+    try {
+        if (navigator.clipboard && window.isSecureContext) {
+            await navigator.clipboard.writeText(text);
+        } else {
+            fallbackCopy(text);
+        }
+
+        button.textContent = 'Цитата скопирована';
+        if (statusElement) {
+            statusElement.textContent = 'Quote copied to clipboard';
+        }
+    } catch (error) {
+        console.error('Quote copy failed:', error);
+        button.textContent = 'Ошибка копирования';
+        if (statusElement) {
+            statusElement.textContent = 'Failed to copy quote';
+        }
+    } finally {
+        window.setTimeout(() => {
+            button.textContent = originalText;
+            button.disabled = false;
+            if (statusElement) {
+                statusElement.textContent = '';
+            }
+        }, 2000);
+    }
+});
 
 window.addEventListener('load', () => {
     initMermaidIfNeeded();
