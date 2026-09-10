@@ -1,6 +1,6 @@
 /**
  * Markdown Viewer — Client-side functionality
- * Version: 2.3.1
+ * Version: 2.3.2
  * Author: Mikhail Deynekin
  * Site: https://Deynekin.com
  * Email: Mikhail@Deynekin.com
@@ -12,6 +12,7 @@
  * - Copy-to-clipboard for code blocks and multi-line blockquotes
  * - File browser: debounced search, tri-state sort, click/keyboard open
  *
+ * v2.3.2: Shortened the quote copy button accessible label and tooltip to Copy.
  * v2.3.1: Replaced the quote copy text control with an accessible emoji icon
  *         button designed for the lower-right corner of each quote.
  * v2.3.0: Added one accessible copy control per rendered blockquote, preserved
@@ -151,7 +152,7 @@ const getQuoteText = (blockquote) => {
  * Adds one accessible copy control to each rendered blockquote. Every
  * blockquote remains the authoritative boundary for a multi-line quote.
  *
- * Function version: 2.1.0
+ * Function version: 2.2.0
  *
  * @returns {void}
  */
@@ -170,8 +171,8 @@ const initQuoteBlocks = () => {
         const icon = document.createElement('span');
         button.type = 'button';
         button.className = 'quote-copy-btn';
-        button.title = 'Копировать цитату';
-        button.setAttribute('aria-label', 'Копировать цитату');
+        button.title = 'Copy';
+        button.setAttribute('aria-label', 'Copy');
         icon.className = 'quote-copy-icon';
         icon.textContent = '📋';
         icon.setAttribute('aria-hidden', 'true');
