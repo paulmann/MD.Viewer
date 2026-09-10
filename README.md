@@ -1,6 +1,6 @@
 <!--
  * MD.Viewer — Documentation
- * Version: 2.9.0
+ * Version: 2.9.2
 -->
 
 # MD.Viewer
@@ -9,7 +9,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://github.com/paulmann/MD.Viewer/blob/main/LICENSE)
 [![PHP](https://img.shields.io/badge/PHP-8.3%2B-777BB4?logo=php&logoColor=white)](https://php.net)
-[![md.php](https://img.shields.io/badge/md.php-v2.9.0-success)](https://github.com/paulmann/MD.Viewer)
+[![md.php](https://img.shields.io/badge/md.php-v2.9.2-success)](https://github.com/paulmann/MD.Viewer)
 [![updater.php](https://img.shields.io/badge/updater.php-v3.8.2-4f46e5)](https://github.com/paulmann/MD.Viewer)
 
 ---
@@ -150,7 +150,7 @@ MD.Viewer/
 │   │   ├── settings.css       # v2.8.1
 │   │   └── tooltips.css       # v2.4.5
 │   └── js/
-│       ├── md.js              # v2.4.0
+│       ├── md.js              # v2.4.2
 │       ├── settings.js        # v2.8.3
 │       ├── tooltips.js        # v2.4.5
 │       └── upload.js          # v2.8.0
@@ -228,7 +228,8 @@ The file browser includes a **Clipboard Preview** button. Paste any Markdown tex
 ### Markdown rendering
 
 - Headings, paragraphs, emphasis, strong text, inline code, blockquotes, horizontal rules, fenced code blocks.
-- Consecutive `>` lines render as one multi-paragraph quote with the same `Copy` control and feedback used by code blocks.
+- Consecutive `>` lines render as one multi-paragraph quote with the same `Copy` control used by code blocks.
+- Mermaid node labels containing parentheses are quoted automatically for Mermaid 11 compatibility.
 - Ordered and unordered lists, including nested lists.
 - Tables with styled output.
 - Task lists, footnotes, reference-style links.
@@ -371,16 +372,16 @@ https://your-domain.com/updater.php?restore=2.7.0
 All files managed by the updater (checked, downloaded, backed up):
 
 ```
-md.php                    v2.9.0
+md.php                    v2.9.2
 updater.php               v3.8.2
-assets/js/md.js           v2.4.0
+assets/js/md.js           v2.4.2
 assets/js/settings.js     v2.8.7
 assets/js/tooltips.js     v2.4.5
 assets/js/upload.js       v2.8.0
 assets/css/md.css         v2.2.0
 assets/css/settings.css   v2.8.1
 assets/css/tooltips.css   v2.4.5
-README.md                 v2.9.0
+README.md                 v2.9.2
 LICENSE                   v1.0.0
 ```
 
