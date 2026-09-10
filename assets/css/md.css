@@ -1,5 +1,5 @@
 /* Markdown Viewer — Main Styles
- * Version: 2.1.1
+ * Version: 2.2.0
  * Author: Mikhail Deynekin
  * Site: https://Deynekin.com
  * Email: Mikhail@Deynekin.com
@@ -277,58 +277,18 @@ html[data-theme="dark"] .markdown-body mark {
 
 .markdown-body blockquote.quote-block {
     position: relative;
-    padding-bottom: 4.7rem;
+    padding-bottom: 4rem;
 }
 
 .markdown-body .quote-copy-btn {
     position: absolute;
     right: 0.85rem;
     bottom: 0.85rem;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 2.75rem;
-    height: 2.75rem;
-    padding: 0;
-    border: 1px solid #fdba74;
-    border-radius: 0.8rem;
-    background: linear-gradient(145deg, #fb923c 0%, #f97316 55%, #ea580c 100%);
-    box-shadow: 0 8px 18px rgb(234 88 12 / 0.28), inset 0 1px 0 rgb(255 255 255 / 0.3);
-    color: #fff7ed;
-    cursor: pointer;
-    transition: background var(--transition-fast), border-color var(--transition-fast), box-shadow var(--transition-fast), filter var(--transition-fast);
-}
-
-.markdown-body .quote-copy-btn:hover {
-    border-color: #fed7aa;
-    background: linear-gradient(145deg, #fdba74 0%, #fb923c 48%, #f97316 100%);
-    box-shadow: 0 10px 22px rgb(234 88 12 / 0.36), inset 0 1px 0 rgb(255 255 255 / 0.38);
-}
-
-.markdown-body .quote-copy-btn:active {
-    filter: brightness(0.92);
-}
-
-.markdown-body .quote-copy-btn:disabled {
-    cursor: wait;
-    opacity: 0.78;
-}
-
-.markdown-body .quote-copy-btn.is-success {
-    border-color: #86efac;
-    background: linear-gradient(145deg, #4ade80, #16a34a);
-}
-
-.markdown-body .quote-copy-btn.is-error {
-    border-color: #fca5a5;
-    background: linear-gradient(145deg, #f87171, #dc2626);
-}
-
-.markdown-body .quote-copy-icon {
-    display: block;
-    font-family: "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif;
-    font-size: 1.3rem;
-    line-height: 1;
+    min-height: 2.75rem;
+    border: 1px solid rgb(51 65 85 / 0.9);
+    background: rgb(15 23 42 / 0.94);
+    box-shadow: 0 8px 20px rgb(15 23 42 / 0.22);
+    z-index: 1;
 }
 
 /* === CODE === */
