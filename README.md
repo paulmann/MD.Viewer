@@ -1,6 +1,6 @@
 <!--
  * MD.Viewer — Documentation
- * Version: 2.8.7
+ * Version: 2.9.0
 -->
 
 # MD.Viewer
@@ -18,7 +18,7 @@
 
 MD.Viewer is built around **`md.php`**, a single PHP entry point that renders a matching Markdown file, or switches to a recursive Markdown file browser when no matching file exists. The project is designed for simple deployment: copy files to a PHP host, place your `.md` documents nearby, and open `md.php` in a browser.
 
-The viewer focuses on self-hosted documentation without a toolchain. It supports readable typography, heading numbering, automatic table of contents generation, Mermaid rendering, code and quote copy buttons, glossary tooltips, dark mode, mobile-friendly controls, and a Settings panel that stores viewer preferences locally.
+The viewer focuses on self-hosted documentation without a toolchain. It supports readable typography, heading numbering, automatic table of contents generation, Mermaid rendering, shared code and quote copy controls, glossary tooltips, dark mode, mobile-friendly controls, and a Settings panel that stores viewer preferences locally.
 
 **`updater.php`** is a companion self-update and maintenance engine. It checks GitHub raw files using ETag and SHA-256, creates versioned backups before replacement, restores previous versions from the Settings panel or directly via URL, manages an optional `index.php` hard link, handles `.md` file uploads, and supports direct browser-based updates and rollbacks.
 
@@ -146,11 +146,11 @@ MD.Viewer/
 │   └── .state/                # ETag + SHA-256 per-file cache
 ├── assets/
 │   ├── css/
-│   │   ├── md.css             # v2.1.1
+│   │   ├── md.css             # v2.2.0
 │   │   ├── settings.css       # v2.8.1
 │   │   └── tooltips.css       # v2.4.5
 │   └── js/
-│       ├── md.js              # v2.3.2
+│       ├── md.js              # v2.4.0
 │       ├── settings.js        # v2.8.3
 │       ├── tooltips.js        # v2.4.5
 │       └── upload.js          # v2.8.0
@@ -228,7 +228,7 @@ The file browser includes a **Clipboard Preview** button. Paste any Markdown tex
 ### Markdown rendering
 
 - Headings, paragraphs, emphasis, strong text, inline code, blockquotes, horizontal rules, fenced code blocks.
-- Consecutive `>` lines render as one multi-paragraph quote with a single orange `Copy` icon button in the lower-right corner.
+- Consecutive `>` lines render as one multi-paragraph quote with the same `Copy` control and feedback used by code blocks.
 - Ordered and unordered lists, including nested lists.
 - Tables with styled output.
 - Task lists, footnotes, reference-style links.
@@ -373,14 +373,14 @@ All files managed by the updater (checked, downloaded, backed up):
 ```
 md.php                    v2.8.5
 updater.php               v3.8.2
-assets/js/md.js           v2.3.2
+assets/js/md.js           v2.4.0
 assets/js/settings.js     v2.8.7
 assets/js/tooltips.js     v2.4.5
 assets/js/upload.js       v2.8.0
-assets/css/md.css         v2.1.1
+assets/css/md.css         v2.2.0
 assets/css/settings.css   v2.8.1
 assets/css/tooltips.css   v2.4.5
-README.md                 v2.8.7
+README.md                 v2.9.0
 LICENSE                   v1.0.0
 ```
 
