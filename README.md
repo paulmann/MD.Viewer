@@ -1,6 +1,6 @@
 <!--
  * MD.Viewer — Documentation
- * Version: 2.8.5
+ * Version: 2.8.6
 -->
 
 # MD.Viewer
@@ -146,11 +146,11 @@ MD.Viewer/
 │   └── .state/                # ETag + SHA-256 per-file cache
 ├── assets/
 │   ├── css/
-│   │   ├── md.css             # v2.1.0
+│   │   ├── md.css             # v2.1.1
 │   │   ├── settings.css       # v2.8.1
 │   │   └── tooltips.css       # v2.4.5
 │   └── js/
-│       ├── md.js              # v2.3.0
+│       ├── md.js              # v2.3.1
 │       ├── settings.js        # v2.8.3
 │       ├── tooltips.js        # v2.4.5
 │       └── upload.js          # v2.8.0
@@ -228,7 +228,7 @@ The file browser includes a **Clipboard Preview** button. Paste any Markdown tex
 ### Markdown rendering
 
 - Headings, paragraphs, emphasis, strong text, inline code, blockquotes, horizontal rules, fenced code blocks.
-- Consecutive `>` lines render as one multi-paragraph quote with a single copy button.
+- Consecutive `>` lines render as one multi-paragraph quote with a single orange icon copy button positioned in the lower-right corner.
 - Ordered and unordered lists, including nested lists.
 - Tables with styled output.
 - Task lists, footnotes, reference-style links.
@@ -373,14 +373,14 @@ All files managed by the updater (checked, downloaded, backed up):
 ```
 md.php                    v2.8.5
 updater.php               v3.8.2
-assets/js/md.js           v2.3.0
+assets/js/md.js           v2.3.1
 assets/js/settings.js     v2.8.7
 assets/js/tooltips.js     v2.4.5
 assets/js/upload.js       v2.8.0
-assets/css/md.css         v2.1.0
+assets/css/md.css         v2.1.1
 assets/css/settings.css   v2.8.1
 assets/css/tooltips.css   v2.4.5
-README.md                 v2.8.5
+README.md                 v2.8.6
 LICENSE                   v1.0.0
 ```
 
