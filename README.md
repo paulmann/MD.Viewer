@@ -9,7 +9,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://github.com/paulmann/MD.Viewer/blob/main/LICENSE)
 [![PHP](https://img.shields.io/badge/PHP-8.3%2B-777BB4?logo=php&logoColor=white)](https://php.net)
-[![md.php](https://img.shields.io/badge/md.php-v2.8.5-success)](https://github.com/paulmann/MD.Viewer)
+[![md.php](https://img.shields.io/badge/md.php-v2.9.0-success)](https://github.com/paulmann/MD.Viewer)
 [![updater.php](https://img.shields.io/badge/updater.php-v3.8.2-4f46e5)](https://github.com/paulmann/MD.Viewer)
 
 ---
@@ -371,7 +371,7 @@ https://your-domain.com/updater.php?restore=2.7.0
 All files managed by the updater (checked, downloaded, backed up):
 
 ```
-md.php                    v2.8.5
+md.php                    v2.9.0
 updater.php               v3.8.2
 assets/js/md.js           v2.4.0
 assets/js/settings.js     v2.8.7
