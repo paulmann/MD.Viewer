@@ -1,6 +1,6 @@
 /**
  * Markdown Viewer — Client-side functionality
- * Version: 2.5.0
+ * Version: 2.5.1
  * Author: Mikhail Deynekin
  * Site: https://Deynekin.com
  * Email: Mikhail@Deynekin.com
@@ -13,8 +13,10 @@
  * - Mermaid auto-repair with a detailed console report
  * - File browser: debounced search, tri-state sort, click/keyboard open
  *
- * v2.5.0: Added Mermaid auto-repair (literal \n, unclosed <br>, PlantUML return,
- *         unquoted parentheses) with a grouped console report per diagram.
+ * v2.5.1: Made Mermaid diagnostics unconditional, caught parse failures per
+ *         diagram, exposed the repair version in the DOM, and retained repaired
+ *         source text when rendering still fails.
+ * v2.5.0: Added Mermaid auto-repair with a grouped console report per diagram.
  * v2.4.0: Unified code and quote copying behind one copy-btn handler.
  * v2.3.0: Added one accessible copy control per rendered blockquote.
  * v2.2.1: Width selection persisted and re-applied to every width target;
@@ -84,72 +86,39 @@
 // Mermaid diagram initialization (lazy-load)
 // Loads Mermaid only when rendered Markdown contains <pre class="mermaid">.
 // ============================================================
+const MDV_MERMAID_REPAIR_VERSION = '2.5.1';
 const MERMAID_NODE_SHAPES = [['[[', ']]'], ['[(', ')]'], ['([', '])'], ['[', ']'], ['{{', '}}'], ['{', '}'], ['((', '))']];
 const MERMAID_KEYWORD_LINE = /^(style|classDef|class|linkStyle|click|subgraph|end|graph|flowchart|direction|%%)\b/;
 const MERMAID_SEQUENCE_HEADER = /^\s*sequenceDiagram\b/m;
 const MERMAID_SEQUENCE_ARROW = /^\s*([^\s:]+?)\s*(-->>|->>|-->|->|--x|-x|--\)|-\))\s*([^\s:]+?)\s*:/;
 
-/**
- * Quotes flowchart node labels that contain parentheses.
- *
- * Function version: 1.0.0
- *
- * @param {string} line
- * @returns {string}
- */
+document.documentElement.dataset.mdvMermaidRepairVersion = MDV_MERMAID_REPAIR_VERSION;
+console.info('[MD.Viewer] Mermaid repair engine v' + MDV_MERMAID_REPAIR_VERSION + ' loaded');
+
 const normalizeMermaidLine = (line) => {
     let result = '';
     let index = 0;
-
     while (index < line.length) {
         const idMatch = /^[A-Za-z_][\w-]*/.exec(line.slice(index));
-        if (idMatch === null) {
-            result += line[index];
-            index += 1;
-            continue;
-        }
-
+        if (idMatch === null) { result += line[index]; index += 1; continue; }
         const nodeId = idMatch[0];
         const afterId = index + nodeId.length;
         let shape = null;
-
         for (const [open, close] of MERMAID_NODE_SHAPES) {
-            if (!line.startsWith(open, afterId)) {
-                continue;
-            }
+            if (!line.startsWith(open, afterId)) continue;
             const closeIndex = line.indexOf(close, afterId + open.length);
-            if (closeIndex !== -1) {
-                shape = { open, close, closeIndex };
-                break;
-            }
+            if (closeIndex !== -1) { shape = { open, close, closeIndex }; break; }
         }
-
-        if (shape === null) {
-            result += nodeId;
-            index = afterId;
-            continue;
-        }
-
+        if (shape === null) { result += nodeId; index = afterId; continue; }
         const rawLabel = line.slice(afterId + shape.open.length, shape.closeIndex);
         const trimmed = rawLabel.trim();
         const needsQuotes = trimmed !== '' && !/^["`]/.test(trimmed) && /[()]/.test(trimmed);
-        const label = needsQuotes ? '"' + trimmed.replace(/"/g, '#quot;') + '"' : rawLabel;
-
-        result += nodeId + shape.open + label + shape.close;
+        result += nodeId + shape.open + (needsQuotes ? '"' + trimmed.replace(/"/g, '#quot;') + '"' : rawLabel) + shape.close;
         index = shape.closeIndex + shape.close.length;
     }
-
     return result;
 };
 
-/**
- * Repairs common Mermaid incompatibilities and reports every applied change.
- *
- * Function version: 1.0.0
- *
- * @param {string} source
- * @returns {{source: string, fixes: Array<{line: number, rule: string, detail: string, before: string, after: string}>}}
- */
 const repairMermaidSource = (source) => {
     const fixes = [];
     const isSequence = MERMAID_SEQUENCE_HEADER.test(source);
@@ -165,32 +134,25 @@ const repairMermaidSource = (source) => {
             current = current.split('\\n').join('<br/>');
             fixes.push({ line: lineNumber, rule: 'literal-newline', detail: 'Литерал \\n заменён на <br/>', before: original.trim(), after: current.trim() });
         }
-
         if (/<br\s*>/i.test(current)) {
-            const beforeBr = current;
+            const before = current;
             current = current.replace(/<br\s*>/gi, '<br/>');
-            fixes.push({ line: lineNumber, rule: 'unclosed-br', detail: '<br> заменён на <br/>', before: beforeBr.trim(), after: current.trim() });
+            fixes.push({ line: lineNumber, rule: 'unclosed-br', detail: '<br> заменён на <br/>', before: before.trim(), after: current.trim() });
         }
 
         if (isSequence) {
             const arrow = MERMAID_SEQUENCE_ARROW.exec(current);
-            if (arrow !== null) {
-                lastCaller = arrow[1];
-                lastCallee = arrow[3];
-            }
-
+            if (arrow !== null) { lastCaller = arrow[1]; lastCallee = arrow[3]; }
             const returnMatch = /^(\s*)return\b\s*(.*)$/.exec(current);
             if (returnMatch !== null) {
-                const indent = returnMatch[1];
+                const before = current;
                 const message = returnMatch[2].trim();
-                const beforeReturn = current;
-
                 if (lastCaller !== null && lastCallee !== null) {
-                    current = indent + lastCallee + '-->>' + lastCaller + ': ' + (message === '' ? 'return' : message);
-                    fixes.push({ line: lineNumber, rule: 'plantuml-return', detail: 'PlantUML "return" заменён на ответное сообщение ' + lastCallee + '-->>' + lastCaller, before: beforeReturn.trim(), after: current.trim() });
+                    current = returnMatch[1] + lastCallee + '-->>' + lastCaller + ': ' + (message === '' ? 'return' : message);
+                    fixes.push({ line: lineNumber, rule: 'plantuml-return', detail: 'PlantUML "return" заменён на ' + lastCallee + '-->>' + lastCaller, before: before.trim(), after: current.trim() });
                 } else {
-                    current = indent + '%% ' + beforeReturn.trim();
-                    fixes.push({ line: lineNumber, rule: 'plantuml-return-orphan', detail: 'PlantUML "return" без предшествующего вызова закомментирован', before: beforeReturn.trim(), after: current.trim() });
+                    current = returnMatch[1] + '%% ' + before.trim();
+                    fixes.push({ line: lineNumber, rule: 'plantuml-return-orphan', detail: 'PlantUML "return" без вызова закомментирован', before: before.trim(), after: current.trim() });
                 }
             }
         } else if (!MERMAID_KEYWORD_LINE.test(current.trim())) {
@@ -200,91 +162,68 @@ const repairMermaidSource = (source) => {
                 current = normalized;
             }
         }
-
         return current;
     }).join('\n');
-
     return { source: repaired, fixes };
 };
 
-/**
- * Prints a grouped Mermaid diagnostics report to the browser console.
- *
- * Function version: 1.0.0
- *
- * @param {number} index
- * @param {Array<object>} fixes
- * @param {boolean} isValid
- * @param {string} source
- * @returns {void}
- */
-const reportMermaidDiagnostics = (index, fixes, isValid, source) => {
-    if (fixes.length === 0 && isValid) {
-        return;
-    }
+const extractMermaidError = (error) => {
+    if (!error) return { message: 'mermaid.parse() returned false', line: null, token: null };
+    const hash = error.hash || error.error?.hash || null;
+    return {
+        message: error.message || error.str || String(error),
+        line: hash?.loc?.first_line || hash?.line || null,
+        token: hash?.token || hash?.text || null
+    };
+};
 
-    const label = 'MD.Viewer · Mermaid diagram #' + (index + 1) + (isValid ? ' — исправлено автоматически' : ' — синтаксическая ошибка');
-
-    if (isValid) {
-        console.groupCollapsed(label);
-    } else {
-        console.group(label);
-    }
-
-    if (fixes.length > 0) {
-        console.info('Применённые исправления: ' + fixes.length);
-        console.table(fixes, ['line', 'rule', 'detail', 'before', 'after']);
-    } else {
-        console.info('Автоматические исправления не потребовались.');
-    }
-
+const reportMermaidDiagnostics = (index, fixes, isValid, source, parseError = null) => {
+    const label = '[MD.Viewer] Mermaid #' + (index + 1) + (isValid ? ' — готова к рендерингу' : ' — ошибка после автоисправления');
+    console.group(isValid ? label : label);
+    console.info('Repair engine:', MDV_MERMAID_REPAIR_VERSION);
+    console.info('Применено исправлений:', fixes.length);
+    if (fixes.length > 0) console.table(fixes, ['line', 'rule', 'detail', 'before', 'after']);
     if (!isValid) {
-        console.error('Диаграмма не прошла проверку mermaid.parse() и оставлена как исходный текст.');
-        console.info('Поддерживаемые ключевые слова sequenceDiagram: participant, actor, loop, alt, else, opt, par, critical, break, rect, activate, deactivate, Note.');
-        console.debug('Итоговый источник после автоисправлений:\n' + source);
+        const details = extractMermaidError(parseError);
+        console.error('Mermaid parse failed:', details.message);
+        if (details.line !== null) console.error('Строка:', details.line, 'Токен:', details.token);
+        console.debug('Итоговый источник после исправлений:\n' + source);
     }
-
     console.groupEnd();
 };
 
-/**
- * Validates, repairs and renders Mermaid blocks independently so one malformed
- * diagram cannot prevent the remaining diagrams from rendering.
- *
- * Function version: 3.0.0
- *
- * @returns {Promise<void>}
- */
 const initMermaidIfNeeded = async () => {
     const mermaidBlocks = [...document.querySelectorAll('pre.mermaid')];
-    if (mermaidBlocks.length === 0) {
-        return;
-    }
+    console.info('[MD.Viewer] Mermaid blocks found:', mermaidBlocks.length);
+    if (mermaidBlocks.length === 0) return;
 
     try {
         const { default: mermaid } = await import('https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs');
-
         mermaid.initialize({
             startOnLoad: false,
             theme: root.getAttribute('data-theme') === 'dark' ? 'dark' : 'default',
             securityLevel: 'loose',
             suppressErrorRendering: true,
-            flowchart: {
-                useMaxWidth: true,
-                htmlLabels: true,
-                curve: 'basis'
-            }
+            flowchart: { useMaxWidth: true, htmlLabels: true, curve: 'basis' }
         });
-
-        const renderTargets = [];
 
         for (const [index, node] of mermaidBlocks.entries()) {
             const originalSource = node.textContent || '';
             const repair = repairMermaidSource(originalSource);
-            const isValid = await mermaid.parse(repair.source, { suppressErrors: true }) !== false;
+            node.dataset.mermaidRepairVersion = MDV_MERMAID_REPAIR_VERSION;
+            node.dataset.mermaidFixes = String(repair.fixes.length);
+            node.dataset.mermaidSource = originalSource;
+            node.textContent = repair.source;
 
-            reportMermaidDiagnostics(index, repair.fixes, isValid, repair.source);
+            let isValid = false;
+            let parseError = null;
+            try {
+                isValid = await mermaid.parse(repair.source, { suppressErrors: true }) !== false;
+            } catch (error) {
+                parseError = error;
+            }
 
+            reportMermaidDiagnostics(index, repair.fixes, isValid, repair.source, parseError);
             if (!isValid) {
                 node.classList.add('mermaid-error');
                 node.setAttribute('data-mermaid-error', 'true');
@@ -296,56 +235,34 @@ const initMermaidIfNeeded = async () => {
             wrapper.textContent = repair.source;
             wrapper.dataset.mermaidSource = originalSource;
             wrapper.dataset.mermaidFixes = String(repair.fixes.length);
+            wrapper.dataset.mermaidRepairVersion = MDV_MERMAID_REPAIR_VERSION;
             wrapper.setAttribute('data-mermaid-id', 'mermaid-' + index);
             node.replaceWith(wrapper);
-            renderTargets.push(wrapper);
-        }
 
-        if (renderTargets.length > 0) {
-            await mermaid.run({ nodes: renderTargets, suppressErrors: true });
-        }
-    } catch (error) {
-        console.error('Mermaid initialization failed:', error);
-
-        mermaidBlocks
-            .filter((node) => node.isConnected)
-            .forEach((node) => {
+            try {
+                await mermaid.run({ nodes: [wrapper], suppressErrors: true });
+                console.info('[MD.Viewer] Mermaid #' + (index + 1) + ' rendered successfully');
+            } catch (error) {
+                console.error('[MD.Viewer] Mermaid #' + (index + 1) + ' render failed:', error);
+                wrapper.replaceWith(node);
                 node.classList.add('mermaid-error');
                 node.setAttribute('data-mermaid-error', 'true');
-            });
+            }
+        }
+    } catch (error) {
+        console.error('[MD.Viewer] Mermaid module initialization failed:', error);
     }
 };
 
-/**
- * Returns plain text for an entire quote while preserving paragraph boundaries.
- *
- * Function version: 1.1.0
- *
- * @param {HTMLElement} blockquote
- * @returns {string}
- */
 const getQuoteText = (blockquote) => {
     const clone = blockquote.cloneNode(true);
     clone.querySelectorAll('.copy-btn').forEach((button) => button.remove());
-
-    return [...clone.childNodes]
-        .map((node) => {
-            const text = node.nodeType === Node.ELEMENT_NODE
-                ? (node.innerText || node.textContent || '')
-                : (node.textContent || '');
-            return text.trim();
-        })
-        .filter(Boolean)
-        .join('\n\n');
+    return [...clone.childNodes].map((node) => {
+        const text = node.nodeType === Node.ELEMENT_NODE ? (node.innerText || node.textContent || '') : (node.textContent || '');
+        return text.trim();
+    }).filter(Boolean).join('\n\n');
 };
 
-/**
- * Marks server-rendered blockquotes as copy targets.
- *
- * Function version: 3.0.0
- *
- * @returns {void}
- */
 const initQuoteBlocks = () => {
     document.querySelectorAll('blockquote').forEach((blockquote) => {
         blockquote.classList.add('quote-block');
@@ -389,16 +306,11 @@ window.addEventListener('load', () => {
 
         const quote = btn.closest('blockquote[data-quote-block]');
         const wrapper = btn.closest('.code-block-wrapper');
-        const mermaidElement = wrapper?.querySelector('.mermaid[data-mermaid-source]');
+        const mermaidElement = wrapper?.querySelector('.mermaid[data-mermaid-source], pre.mermaid[data-mermaid-source]');
         const codeElement = wrapper?.querySelector('pre code, pre.mermaid');
-        const text = quote
-            ? getQuoteText(quote)
-            : (mermaidElement?.dataset.mermaidSource || codeElement?.textContent || '');
+        const text = quote ? getQuoteText(quote) : (mermaidElement?.dataset.mermaidSource || codeElement?.textContent || '');
         const subject = quote ? 'Quote' : 'Code';
-
-        if (!text) {
-            return;
-        }
+        if (!text) return;
         const copyIcon = btn.querySelector('.copy-icon');
         const checkIcon = btn.querySelector('.check-icon');
         const copyText = btn.querySelector('.copy-text');
