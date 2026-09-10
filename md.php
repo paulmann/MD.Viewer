@@ -1,20 +1,15 @@
 <?php
 /**
  * Markdown Viewer
- * Version: 2.9.2
+ * Version: 2.9.3
  * Author: Mikhail Deynekin
  * Site: https://Deynekin.com
  * Email: Mikhail@Deynekin.com
  *
- * Changelog v2.9.2:
- * - FIXED: Mermaid node labels containing parentheses are quoted server-side,
- *   preventing "Syntax error in text" for legacy diagrams in Mermaid 11.
- *
- * Changelog v2.9.0:
- * - REFACTORED: Code blocks and blockquotes now render the same reusable copy
- *   button markup and use one client-side copy handler.
- * - FIXED: Consecutive Markdown blockquote lines are rendered as one blockquote
- *   with preserved paragraph boundaries instead of separate quote elements.
+ * Changelog v2.9.3:
+ * - FIXED: Mermaid node labels containing parentheses are quoted server-side.
+ * - REFACTORED: Code blocks and blockquotes share one copy button renderer.
+ * - FIXED: Consecutive blockquote lines render as one blockquote.
  *
 * Changelog v2.8.4:
  * - FIXED: Removed hardcoded active styles from document width buttons,
@@ -1830,9 +1825,6 @@ function renderCopyButton(string $ariaLabel, string $extraClasses = ''): string
 /**
  * Quote Mermaid node labels that contain parentheses.
  *
- * Mermaid 11 treats an unquoted "(" inside a square or curly node label as the
- * start of a new shape and aborts parsing with "Syntax error in text".
- *
  * @since 2.9.2
  */
 function normalizeMermaidLine(string $line): string
@@ -1894,8 +1886,12 @@ function normalizeMermaidLine(string $line): string
 function normalizeMermaidSource(string $source): string
 {
     $source = (string) preg_replace('/<br\s*\/?\s*>/iu', '<br/>', $source);
-    $lines  = explode("\n", $source);
 
+    if (preg_match('/^\s*sequenceDiagram\b/mu', $source) === 1) {
+        return $source;
+    }
+
+    $lines = explode("\n", $source);
     foreach ($lines as $i => $line) {
         if (preg_match('/^(style|classDef|class|linkStyle|click|subgraph|end|graph|flowchart|direction|%%)\b/', trim($line)) === 1) {
             continue;
