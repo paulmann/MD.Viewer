@@ -1,10 +1,16 @@
 <?php
 /**
  * Markdown Viewer
- * Version: 2.8.4
+ * Version: 2.8.5
  * Author: Mikhail Deynekin
  * Site: https://Deynekin.com
  * Email: Mikhail@Deynekin.com
+ *
+ * Changelog v2.8.5:
+ * - FIXED: Consecutive Markdown blockquote lines are rendered as one blockquote
+ *   with preserved paragraph boundaries instead of separate quote elements.
+ * - IMPROVED: Multi-line quotes now provide one logical target for the quote
+ *   copy control while preserving the existing inline Markdown renderer.
  *
 * Changelog v2.8.4:
  * - FIXED: Removed hardcoded active styles from document width buttons,
@@ -2190,6 +2196,8 @@ function resolveParagraphGlue(): array
  *  6. Parse block-level elements (headings, lists, tables, code blocks, etc.)
  *  7. Render footnotes section at the end
  *
+ * v2.2.9: Group consecutive blockquote lines into one semantic blockquote,
+ *         preserving quoted paragraph boundaries and a single copy target.
  * v2.2.7: Complete rewrite of ref-link/footnote removal logic.
  *         - Replaced DOTALL regex with state machine to prevent content loss
  *         - Added explicit placeholder protection (\x02CB{n}\x03)
@@ -2203,6 +2211,7 @@ function resolveParagraphGlue(): array
  *
  * @since 2.2.5 Setext heading support, ATX regex alignment
  * @since 2.2.7 DOTALL removal, state machine, placeholder protection
+ * @since 2.2.9 Consecutive blockquote grouping with paragraph preservation
  */
 function renderMarkdown(string $md, array $src = [], array $head = []): string
 {
@@ -2263,6 +2272,7 @@ function renderMarkdown(string $md, array $src = [], array $head = []): string
     $fenceChar = '';   // fence character: '`' or '~'
     $fenceLen  = 0;    // fence length: 3 for ```, 4 for ````, etc.
     $tBuf   = [];
+    $qBuf   = [];
 
     // ── Helper: Flush accumulated paragraph lines ──
     $flushPara = static function () use (&$para, &$html, &$pc, &$src, &$refs, &$fn): void {
@@ -2328,6 +2338,55 @@ function renderMarkdown(string $md, array $src = [], array $head = []): string
         }
     };
 
+    // ── Helper: Flush accumulated blockquote lines ──
+    $flushQuote = static function () use (&$qBuf, &$html, &$src, &$refs, &$fn): void {
+        if ($qBuf === []) {
+            return;
+        }
+
+        $groups = [];
+        $group  = [];
+
+        foreach ($qBuf as $quoteLine) {
+            if (trim($quoteLine) === '') {
+                if ($group !== []) {
+                    $groups[] = $group;
+                    $group = [];
+                }
+                continue;
+            }
+
+            $group[] = $quoteLine;
+        }
+
+        if ($group !== []) {
+            $groups[] = $group;
+        }
+
+        $quoteHtml = [];
+        foreach ($groups as $linesGroup) {
+            $renderedLines = array_values(array_filter(
+                array_map(
+                    static fn($text): string => inlineMarkdown(trim(toStr($text)), $src, $refs, $fn),
+                    $linesGroup
+                ),
+                static fn(string $line): bool => $line !== ''
+            ));
+
+            if ($renderedLines !== []) {
+                $quoteHtml[] = '<p>' . implode("<br>\n", $renderedLines) . '</p>';
+            }
+        }
+
+        if ($quoteHtml !== []) {
+            $html[] = '<blockquote class="border-l-4 border-blue-500 pl-4 py-2 my-4 bg-slate-50/50 dark:bg-slate-800/30 rounded-r-lg">'
+                . implode("\n", $quoteHtml)
+                . '</blockquote>';
+        }
+
+        $qBuf = [];
+    };
+
     // ── Helper: Render heading with auto-numbering logic ──
     $renderHeading = static function (
         int    $lvl,
@@ -2358,6 +2417,19 @@ function renderMarkdown(string $md, array $src = [], array $head = []): string
     // ── Main parsing loop ──
     foreach ($lines as $idx => $raw) {
         $line = toStr($raw);
+
+        // ── Blockquote accumulation: consecutive > lines form one block ──
+        $qm = [];
+        if (!$inCode && preg_match('/^>\s?(.*)$/u', $line, $qm) === 1) {
+            if ($qBuf === []) {
+                $flushPara();
+                $closeList();
+                $flushTable();
+            }
+            $qBuf[] = toStr($qm[1] ?? '');
+            continue;
+        }
+        $flushQuote();
 
 // ── Fenced code block detection ────────────────────────────────────────────
 //
@@ -2450,17 +2522,6 @@ if (preg_match('/^ {0,3}(`{3,}|~{3,})\s*([\w+.-]*)\s*$/u', $line, $fm) === 1) {
             }
         }
 
-        // ── Blockquote: > text ──
-        $qm = [];
-        if (preg_match('/^>\s?(.*)$/u', $line, $qm) === 1) {
-            $flushPara();
-            $closeList();
-            $html[] = '<blockquote class="border-l-4 border-blue-500 pl-4 py-2 my-4 bg-slate-50/50 dark:bg-slate-800/30 rounded-r-lg"><p>'
-                . inlineMarkdown(trim(toStr($qm[1] ?? '')), $src, $refs, $fn)
-                . '</p></blockquote>';
-            continue;
-        }
-
         // ── Task list: - [x] text or - [ ] text ──
         if (FEATURE_TASK_LISTS) {
             $tm = [];
@@ -2538,6 +2599,7 @@ if (preg_match('/^\s*<\/?[a-zA-Z][^>]*>/u', $line)) {
     if ($inCode) {
         $html[] = renderCodeBlock($cLang, $cBuf);
     }
+    $flushQuote();
 	$flushPara();
 	$closeList();
 	$flushTable();
