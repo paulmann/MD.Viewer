@@ -1,6 +1,6 @@
 /**
  * Markdown Viewer — Client-side functionality
- * Version: 2.4.0
+ * Version: 2.4.1
  * Author: Mikhail Deynekin
  * Site: https://Deynekin.com
  * Email: Mikhail@Deynekin.com
@@ -12,11 +12,10 @@
  * - Unified copy-to-clipboard controls for code blocks and blockquotes
  * - File browser: debounced search, tri-state sort, click/keyboard open
  *
- * v2.4.0: Unified code and quote copying behind one copy-btn handler and
- *         reused the existing icon, label, feedback, and fallback behavior.
- * v2.3.2: Shortened the quote copy button accessible label and tooltip to Copy.
- * v2.3.1: Replaced the quote copy text control with an accessible emoji icon
- *         button designed for the lower-right corner of each quote.
+ * v2.4.1: Normalized legacy flowchart labels containing parentheses, validated
+ *         diagrams before rendering, and isolated invalid diagrams.
+ * v2.4.0: Unified code and quote copying behind one copy-btn handler and reused
+ *         the server-rendered icon, label, feedback, and fallback behavior.
  * v2.3.0: Added one accessible copy control per rendered blockquote, preserved
  *         paragraph boundaries, and enforced the server clipboard lock.
  * v2.2.1: Width selection persisted and re-applied to every width target;
@@ -86,20 +85,51 @@
 // Mermaid diagram initialization (lazy-load)
 // Loads Mermaid only when rendered Markdown contains <pre class="mermaid">.
 // ============================================================
+/**
+ * Normalizes legacy flowchart labels that Mermaid 11 rejects when unquoted
+ * parentheses appear inside square node labels.
+ *
+ * Function version: 1.0.0
+ *
+ * @param {string} source
+ * @returns {string}
+ */
+const normalizeMermaidSource = (source) => source
+    .replace(/<br\s*>/gi, '<br/>')
+    .replace(/(\b[A-Za-z_][\w-]*)\[([^\]\r\n]*)\]/g, (match, nodeId, label) => {
+        const normalizedLabel = label.trim();
+        if (
+            normalizedLabel === ''
+            || /^["`]/.test(normalizedLabel)
+            || !/[()]/.test(normalizedLabel)
+        ) {
+            return match;
+        }
+
+        return nodeId + '["' + normalizedLabel.replace(/"/g, '#quot;') + '"]';
+    });
+
+/**
+ * Validates and renders Mermaid blocks independently so one malformed diagram
+ * cannot prevent the remaining diagrams from rendering.
+ *
+ * Function version: 2.0.0
+ *
+ * @returns {Promise<void>}
+ */
 const initMermaidIfNeeded = async () => {
     const mermaidBlocks = [...document.querySelectorAll('pre.mermaid')];
-
     if (mermaidBlocks.length === 0) {
         return;
     }
 
     try {
         const { default: mermaid } = await import('https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs');
-
         mermaid.initialize({
             startOnLoad: false,
             theme: root.getAttribute('data-theme') === 'dark' ? 'dark' : 'default',
             securityLevel: 'loose',
+            suppressErrorRendering: true,
             flowchart: {
                 useMaxWidth: true,
                 htmlLabels: true,
@@ -107,19 +137,33 @@ const initMermaidIfNeeded = async () => {
             }
         });
 
-        mermaidBlocks.forEach((node, index) => {
+        const renderTargets = [];
+        for (const [index, node] of mermaidBlocks.entries()) {
+            const originalSource = node.textContent || '';
+            const normalizedSource = normalizeMermaidSource(originalSource);
+            const isValid = await mermaid.parse(normalizedSource, { suppressErrors: true });
+
+            if (!isValid) {
+                node.classList.add('mermaid-error');
+                node.setAttribute('data-mermaid-error', 'true');
+                continue;
+            }
+
             const wrapper = document.createElement('div');
             wrapper.className = 'mermaid';
-            wrapper.textContent = node.textContent || '';
+            wrapper.textContent = normalizedSource;
+            wrapper.dataset.mermaidSource = originalSource;
             wrapper.setAttribute('data-mermaid-id', 'mermaid-' + index);
             node.replaceWith(wrapper);
-        });
+            renderTargets.push(wrapper);
+        }
 
-        await mermaid.run({ querySelector: '.mermaid' });
+        if (renderTargets.length > 0) {
+            await mermaid.run({ nodes: renderTargets, suppressErrors: true });
+        }
     } catch (error) {
         console.error('Mermaid initialization failed:', error);
-
-        mermaidBlocks.forEach((node) => {
+        mermaidBlocks.filter((node) => node.isConnected).forEach((node) => {
             node.classList.add('mermaid-error');
             node.setAttribute('data-mermaid-error', 'true');
         });
@@ -137,7 +181,7 @@ const initMermaidIfNeeded = async () => {
  */
 const getQuoteText = (blockquote) => {
     const clone = blockquote.cloneNode(true);
-    clone.querySelectorAll('.quote-copy-btn').forEach((button) => button.remove());
+    clone.querySelectorAll('.copy-btn').forEach((button) => button.remove());
 
     return [...clone.childNodes]
         .map((node) => {
@@ -151,33 +195,16 @@ const getQuoteText = (blockquote) => {
 };
 
 /**
- * Adds one accessible copy control to each rendered blockquote. Every
- * blockquote remains the authoritative boundary for a multi-line quote.
+ * Marks server-rendered blockquotes as copy targets.
  *
  * Function version: 3.0.0
  *
  * @returns {void}
  */
 const initQuoteBlocks = () => {
-    const clipboardDisabled = window.MDV_CONFIG?.disableClipboard === true;
-
     document.querySelectorAll('blockquote').forEach((blockquote) => {
         blockquote.classList.add('quote-block');
         blockquote.setAttribute('data-quote-block', '');
-
-        if (clipboardDisabled || blockquote.dataset.quoteCopyInitialized === 'true') {
-            return;
-        }
-
-        const button = document.createElement('button');
-        button.type = 'button';
-        button.className = 'copy-btn quote-copy-btn inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium text-slate-400 transition-all duration-200 hover:bg-slate-800 hover:text-white focus:outline-none focus:ring-2 focus:ring-blue-500/50 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed';
-        button.setAttribute('aria-label', 'Copy quote to clipboard');
-        button.innerHTML = '<svg class="copy-icon h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg>'
-            + '<svg class="check-icon h-4 w-4 hidden text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>'
-            + '<span class="copy-text">Copy</span><span class="check-text hidden text-green-400">Copied!</span>';
-        blockquote.appendChild(button);
-        blockquote.dataset.quoteCopyInitialized = 'true';
     });
 };
 
@@ -217,10 +244,11 @@ window.addEventListener('load', () => {
 
         const quote = btn.closest('blockquote[data-quote-block]');
         const wrapper = btn.closest('.code-block-wrapper');
+        const mermaidElement = wrapper?.querySelector('.mermaid[data-mermaid-source]');
         const codeElement = wrapper?.querySelector('pre code, pre.mermaid');
         const text = quote
             ? getQuoteText(quote)
-            : (codeElement?.textContent || '');
+            : (mermaidElement?.dataset.mermaidSource || codeElement?.textContent || '');
         const subject = quote ? 'Quote' : 'Code';
 
         if (!text) {
