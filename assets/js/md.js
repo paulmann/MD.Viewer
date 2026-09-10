@@ -1,6 +1,6 @@
 /**
  * Markdown Viewer — Client-side functionality
- * Version: 2.5.1
+ * Version: 2.5.2
  * Author: Mikhail Deynekin
  * Site: https://Deynekin.com
  * Email: Mikhail@Deynekin.com
@@ -10,12 +10,11 @@
  * - Width control (reading/article/wide) with persistence
  * - Mermaid diagram initialization
  * - Unified copy-to-clipboard controls for code blocks and blockquotes
- * - Mermaid auto-repair with a detailed console report
+ * - Mermaid auto-repair with English console diagnostics
  * - File browser: debounced search, tri-state sort, click/keyboard open
  *
- * v2.5.1: Made Mermaid diagnostics unconditional, caught parse failures per
- *         diagram, exposed the repair version in the DOM, and retained repaired
- *         source text when rendering still fails.
+ * v2.5.2: Added classDiagram note conversion, made every application and
+ *         console message English, and made Mermaid diagnostics unconditional.
  * v2.5.0: Added Mermaid auto-repair with a grouped console report per diagram.
  * v2.4.0: Unified code and quote copying behind one copy-btn handler.
  * v2.3.0: Added one accessible copy control per rendered blockquote.
@@ -57,7 +56,7 @@
 
         themeBtn?.setAttribute(
             'aria-label',
-            theme === 'dark' ? 'Включить светлую тему' : 'Включить темную тему'
+            theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'
         );
     };
 
@@ -86,14 +85,18 @@
 // Mermaid diagram initialization (lazy-load)
 // Loads Mermaid only when rendered Markdown contains <pre class="mermaid">.
 // ============================================================
-const MDV_MERMAID_REPAIR_VERSION = '2.5.1';
+const MDV_MERMAID_REPAIR_VERSION = '2.5.2';
 const MERMAID_NODE_SHAPES = [['[[', ']]'], ['[(', ')]'], ['([', '])'], ['[', ']'], ['{{', '}}'], ['{', '}'], ['((', '))']];
 const MERMAID_KEYWORD_LINE = /^(style|classDef|class|linkStyle|click|subgraph|end|graph|flowchart|direction|%%)\b/;
-const MERMAID_SEQUENCE_HEADER = /^\s*sequenceDiagram\b/m;
 const MERMAID_SEQUENCE_ARROW = /^\s*([^\s:]+?)\s*(-->>|->>|-->|->|--x|-x|--\)|-\))\s*([^\s:]+?)\s*:/;
 
 document.documentElement.dataset.mdvMermaidRepairVersion = MDV_MERMAID_REPAIR_VERSION;
 console.info('[MD.Viewer] Mermaid repair engine v' + MDV_MERMAID_REPAIR_VERSION + ' loaded');
+
+const getMermaidDiagramType = (source) => {
+    const header = source.split('\n').map((line) => line.trim()).find((line) => line !== '' && !line.startsWith('%%')) || '';
+    return header.split(/\s+/)[0];
+};
 
 const normalizeMermaidLine = (line) => {
     let result = '';
@@ -119,25 +122,72 @@ const normalizeMermaidLine = (line) => {
     return result;
 };
 
+const repairClassDiagramNotes = (source, fixes) => {
+    const lines = source.split('\n');
+    const result = [];
+
+    for (let index = 0; index < lines.length; index += 1) {
+        const match = /^(\s*)note\s+(?:right|left)\s+of\s+([A-Za-z_][\w-]*)\s*$/.exec(lines[index]);
+        if (match === null) {
+            result.push(lines[index]);
+            continue;
+        }
+
+        const noteLines = [];
+        let endIndex = index + 1;
+        while (endIndex < lines.length && !/^\s*end\s+note\s*$/.test(lines[endIndex])) {
+            const text = lines[endIndex].trim();
+            if (text !== '') noteLines.push(text);
+            endIndex += 1;
+        }
+
+        if (endIndex >= lines.length) {
+            result.push(lines[index]);
+            continue;
+        }
+
+        const noteText = noteLines.join('<br/>').replace(/"/g, '#quot;');
+        const replacement = match[1] + 'note for ' + match[2] + ' "' + noteText + '"';
+        fixes.push({
+            line: index + 1,
+            rule: 'plantuml-class-note',
+            detail: 'PlantUML note block converted to Mermaid note-for syntax',
+            before: lines[index].trim() + ' ... end note',
+            after: replacement.trim()
+        });
+        result.push(replacement);
+        index = endIndex;
+    }
+
+    return result.join('\n');
+};
+
 const repairMermaidSource = (source) => {
     const fixes = [];
-    const isSequence = MERMAID_SEQUENCE_HEADER.test(source);
+    const diagramType = getMermaidDiagramType(source);
+    const isSequence = diagramType === 'sequenceDiagram';
+    const isFlowchart = diagramType === 'graph' || diagramType === 'flowchart';
+    let prepared = source.replace(/\r\n?/g, '\n');
+
+    if (diagramType === 'classDiagram') {
+        prepared = repairClassDiagramNotes(prepared, fixes);
+    }
+
     let lastCaller = null;
     let lastCallee = null;
-
-    const repaired = source.replace(/\r\n?/g, '\n').split('\n').map((line, position) => {
+    const repaired = prepared.split('\n').map((line, position) => {
         const lineNumber = position + 1;
         const original = line;
         let current = line;
 
         if (current.includes('\\n')) {
             current = current.split('\\n').join('<br/>');
-            fixes.push({ line: lineNumber, rule: 'literal-newline', detail: 'Литерал \\n заменён на <br/>', before: original.trim(), after: current.trim() });
+            fixes.push({ line: lineNumber, rule: 'literal-newline', detail: 'Literal \\n replaced with <br/>', before: original.trim(), after: current.trim() });
         }
         if (/<br\s*>/i.test(current)) {
             const before = current;
             current = current.replace(/<br\s*>/gi, '<br/>');
-            fixes.push({ line: lineNumber, rule: 'unclosed-br', detail: '<br> заменён на <br/>', before: before.trim(), after: current.trim() });
+            fixes.push({ line: lineNumber, rule: 'unclosed-br', detail: '<br> replaced with <br/>', before: before.trim(), after: current.trim() });
         }
 
         if (isSequence) {
@@ -149,45 +199,42 @@ const repairMermaidSource = (source) => {
                 const message = returnMatch[2].trim();
                 if (lastCaller !== null && lastCallee !== null) {
                     current = returnMatch[1] + lastCallee + '-->>' + lastCaller + ': ' + (message === '' ? 'return' : message);
-                    fixes.push({ line: lineNumber, rule: 'plantuml-return', detail: 'PlantUML "return" заменён на ' + lastCallee + '-->>' + lastCaller, before: before.trim(), after: current.trim() });
+                    fixes.push({ line: lineNumber, rule: 'plantuml-return', detail: 'PlantUML return converted to ' + lastCallee + '-->>' + lastCaller, before: before.trim(), after: current.trim() });
                 } else {
                     current = returnMatch[1] + '%% ' + before.trim();
-                    fixes.push({ line: lineNumber, rule: 'plantuml-return-orphan', detail: 'PlantUML "return" без вызова закомментирован', before: before.trim(), after: current.trim() });
+                    fixes.push({ line: lineNumber, rule: 'plantuml-return-orphan', detail: 'Orphan PlantUML return commented out', before: before.trim(), after: current.trim() });
                 }
             }
-        } else if (!MERMAID_KEYWORD_LINE.test(current.trim())) {
+        } else if (isFlowchart && !MERMAID_KEYWORD_LINE.test(current.trim())) {
             const normalized = normalizeMermaidLine(current);
             if (normalized !== current) {
-                fixes.push({ line: lineNumber, rule: 'unquoted-parentheses', detail: 'Метка узла со скобками заключена в кавычки', before: current.trim(), after: normalized.trim() });
+                fixes.push({ line: lineNumber, rule: 'unquoted-parentheses', detail: 'Node label containing parentheses was quoted', before: current.trim(), after: normalized.trim() });
                 current = normalized;
             }
         }
         return current;
     }).join('\n');
-    return { source: repaired, fixes };
+
+    return { source: repaired, fixes, diagramType };
 };
 
 const extractMermaidError = (error) => {
     if (!error) return { message: 'mermaid.parse() returned false', line: null, token: null };
     const hash = error.hash || error.error?.hash || null;
-    return {
-        message: error.message || error.str || String(error),
-        line: hash?.loc?.first_line || hash?.line || null,
-        token: hash?.token || hash?.text || null
-    };
+    return { message: error.message || error.str || String(error), line: hash?.loc?.first_line || hash?.line || null, token: hash?.token || hash?.text || null };
 };
 
-const reportMermaidDiagnostics = (index, fixes, isValid, source, parseError = null) => {
-    const label = '[MD.Viewer] Mermaid #' + (index + 1) + (isValid ? ' — готова к рендерингу' : ' — ошибка после автоисправления');
-    console.group(isValid ? label : label);
+const reportMermaidDiagnostics = (index, repair, isValid, parseError = null) => {
+    const label = '[MD.Viewer] Mermaid #' + (index + 1) + ' (' + repair.diagramType + ')' + (isValid ? ' — ready' : ' — syntax error after auto-repair');
+    console.group(label);
     console.info('Repair engine:', MDV_MERMAID_REPAIR_VERSION);
-    console.info('Применено исправлений:', fixes.length);
-    if (fixes.length > 0) console.table(fixes, ['line', 'rule', 'detail', 'before', 'after']);
+    console.info('Applied fixes:', repair.fixes.length);
+    if (repair.fixes.length > 0) console.table(repair.fixes, ['line', 'rule', 'detail', 'before', 'after']);
     if (!isValid) {
         const details = extractMermaidError(parseError);
         console.error('Mermaid parse failed:', details.message);
-        if (details.line !== null) console.error('Строка:', details.line, 'Токен:', details.token);
-        console.debug('Итоговый источник после исправлений:\n' + source);
+        if (details.line !== null) console.error('Line:', details.line, 'Token:', details.token);
+        console.debug('Repaired source:\n' + repair.source);
     }
     console.groupEnd();
 };
@@ -199,13 +246,7 @@ const initMermaidIfNeeded = async () => {
 
     try {
         const { default: mermaid } = await import('https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs');
-        mermaid.initialize({
-            startOnLoad: false,
-            theme: root.getAttribute('data-theme') === 'dark' ? 'dark' : 'default',
-            securityLevel: 'loose',
-            suppressErrorRendering: true,
-            flowchart: { useMaxWidth: true, htmlLabels: true, curve: 'basis' }
-        });
+        mermaid.initialize({ startOnLoad: false, theme: root.getAttribute('data-theme') === 'dark' ? 'dark' : 'default', securityLevel: 'loose', suppressErrorRendering: true, flowchart: { useMaxWidth: true, htmlLabels: true, curve: 'basis' } });
 
         for (const [index, node] of mermaidBlocks.entries()) {
             const originalSource = node.textContent || '';
@@ -217,13 +258,10 @@ const initMermaidIfNeeded = async () => {
 
             let isValid = false;
             let parseError = null;
-            try {
-                isValid = await mermaid.parse(repair.source, { suppressErrors: true }) !== false;
-            } catch (error) {
-                parseError = error;
-            }
+            try { isValid = await mermaid.parse(repair.source, { suppressErrors: true }) !== false; }
+            catch (error) { parseError = error; }
+            reportMermaidDiagnostics(index, repair, isValid, parseError);
 
-            reportMermaidDiagnostics(index, repair.fixes, isValid, repair.source, parseError);
             if (!isValid) {
                 node.classList.add('mermaid-error');
                 node.setAttribute('data-mermaid-error', 'true');
