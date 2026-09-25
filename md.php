@@ -1,10 +1,16 @@
 <?php
 /**
  * Markdown Viewer
- * Version: 2.9.3
+ * Version: 2.9.4
  * Author: Mikhail Deynekin
  * Site: https://Deynekin.com
  * Email: Mikhail@Deynekin.com
+ *
+ * Changelog v2.9.4:
+ * - REFACTORED: Front-end assets moved out of the assets/ directory. JavaScript
+ *   now lives in js/md/ and CSS in css/md/. Every <link> and <script> tag plus
+ *   the cache-busting $assetVersion() paths were updated to match. Rendering
+ *   behaviour is unchanged.
  *
  * Changelog v2.9.3:
  * - FIXED: Mermaid node labels containing parentheses are quoted server-side.
@@ -176,7 +182,7 @@
  * - FEATURE: Sortable columns (File, Dir, Created, Modified, Size)
  * - FEATURE: Instant search with debounce
  * - FEATURE: Click-to-open in new tab via GET parameter
- * - REFACTOR: All JavaScript moved to /assets/js/md.js
+ * - REFACTOR: All JavaScript moved to /js/md/md.js
  *
  * Changelog v2.1.0:
  * - FEATURE: Dynamic markdown file loading from PHP script name
@@ -3005,8 +3011,8 @@ render_page:
     <meta name="color-scheme" content="light dark">
 
     <!-- Critical styles -->
-    <link rel="stylesheet" href="/assets/css/tooltips.css">
-    <link rel="stylesheet" href="/assets/css/md.css">
+    <link rel="stylesheet" href="/css/md/tooltips.css">
+    <link rel="stylesheet" href="/css/md/md.css">
 
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -3928,34 +3934,34 @@ render_page:
 
     <link
         rel="stylesheet"
-        href="/assets/css/settings.css<?= e(
-            $assetVersion('/assets/css/settings.css')
+        href="/css/md/settings.css<?= e(
+            $assetVersion('/css/md/settings.css')
         ) ?>"
     >
 
     <script
-        src="/assets/js/settings.js<?= e(
-            $assetVersion('/assets/js/settings.js')
+        src="/js/md/settings.js<?= e(
+            $assetVersion('/js/md/settings.js')
         ) ?>"
     ></script>
 
     <script
-        src="/assets/js/upload.js<?= e(
-            $assetVersion('/assets/js/upload.js')
+        src="/js/md/upload.js<?= e(
+            $assetVersion('/js/md/upload.js')
         ) ?>"
     ></script>
 
     <script
-        src="/assets/js/tooltips.js<?= e(
-            $assetVersion('/assets/js/tooltips.js')
+        src="/js/md/tooltips.js<?= e(
+            $assetVersion('/js/md/tooltips.js')
         ) ?>"
         defer
     ></script>
 
     <script
         type="module"
-        src="/assets/js/md.js<?= e(
-            $assetVersion('/assets/js/md.js')
+        src="/js/md/md.js<?= e(
+            $assetVersion('/js/md/md.js')
         ) ?>"
     ></script>
 </body>

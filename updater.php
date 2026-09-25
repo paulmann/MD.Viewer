@@ -1,7 +1,7 @@
 <?php
 /**
  * Markdown Viewer — Self-Updater
- * Version: 3.8.2
+ * Version: 3.9.0
  * Author: Mikhail Deynekin
  * Site: https://Deynekin.com
  * Email: Mikhail@Deynekin.com
@@ -27,14 +27,33 @@
  *   backups  GET  — list available backup versions
  *   version  GET  — local version of md.php (Settings badge)
  *
+ * Machine API (JSON only, API-key protected — API_KEY in .md.ini):
+ *   status    GET  — local install state, no network I/O
+ *   conflicts GET  — pre-install conflict report, never writes
+ *   install   POST — install/update with a pre-write conflict guard
+ *
+ *   updater.php?api_key=<API_KEY>&action=status|conflicts|install&format=json
+ *   install also accepts &dry_run=1 (report only) and &force=1 (ignore local
+ *   state: overwrite foreign files and bypass the ETag/SHA-256 cache).
+ *   The key is generated on first run and stored in .md.ini. A valid key
+ *   authorises the machine API; ALLOW_UPDATE / ALLOW_RESTORE keep controlling
+ *   the browser modes (?update=true, ?restore=) exactly as before.
+ *
  * Rules:
  *   - Never deletes local files absent from remote.
+ *   - Foreign files sitting at a tracked path are never overwritten silently:
+ *     they are skipped and reported until force=1 is requested.
  *   - Same-origin CORS guard; POST required for mutating actions.
  *   - cURL required (curl extension).
+ *   - The machine API emits strictly JSON: no HTML, no PHP notices in the body.
  *   - updater.php updates itself safely: rename() is atomic on the same filesystem,
  *     and PHP has already loaded the current script into memory/opcache for the
  *     running request. The new version takes effect from the next request onward.
  *
+ * v3.9.0: Machine JSON API — ?api_key=<key>&action=status|conflicts|install&format=json.
+ *         Pre-write conflict report (exact path / same name elsewhere) with dry run
+ *         and force override; API_KEY auto-created in .md.ini; assets relocated
+ *         from assets/js|assets/css to js/md|css/md.
  * v2.0.0: Raw Range requests, no API/tokens.
  * v2.1.0: Backup-before-replace, restore-from-backup.
  * v3.8.2: doBackups() guarded with requireAllowRestore() — no info leak.
@@ -63,18 +82,26 @@ const TRACKED_FILES = [
     'md.php',
     'updater.php',
     // JavaScript
-    'assets/js/md.js',
-    'assets/js/settings.js',
-    'assets/js/tooltips.js',
-    'assets/js/upload.js',
+    'js/md/md.js',
+    'js/md/settings.js',
+    'js/md/tooltips.js',
+    'js/md/upload.js',
     // CSS
-    'assets/css/md.css',
-    'assets/css/settings.css',
-    'assets/css/tooltips.css',
+    'css/md/md.css',
+    'css/md/settings.css',
+    'css/md/tooltips.css',
     // Docs (read-only: never backed up, never force-replaced if local edits exist)
     'README.md',
     'LICENSE',
 ];
+
+// Directories skipped when looking for "same file name, different place"
+// conflicts. VCS metadata and the updater's own runtime directories are never
+// treated as clashes.
+const CONFLICT_SCAN_SKIP_DIRS = ['.git', 'md.backup', 'node_modules', 'vendor'];
+
+// Upper bound for the conflict scan traversal (DoS guard, mirrors md.php).
+const CONFLICT_SCAN_MAX_FILES = 20000;
 
 // ── RawFileUpdater ────────────────────────────────────────────────────────────
 
@@ -191,10 +218,19 @@ final class RawFileUpdater
      * Apply update. Downloads and atomically replaces the local file.
      * Backs up the old file to md.backup/{version}/ before replacing.
      *
+     * Pre-write guard: a file that does not look like an MD.Viewer file is never
+     * replaced unless $force is set, so installs cannot silently overwrite
+     * foreign files (see writeBlockedReason()).
+     *
      * @return array{status: string, error: ?string}
      */
     public function apply(string $backupVersion = '', bool $force = false): array
     {
+        $blocked = writeBlockedReason($this->localPath, $force);
+        if ($blocked !== null) {
+            return ['status' => 'blocked', 'error' => $blocked];
+        }
+
         $result = $this->check();
 
         if ($result['status'] === 'error') {
@@ -384,7 +420,11 @@ function readIni(): array
         $default .= "; Allow restoring a backup via updater.php?restore=latest or ?restore=[version]\n";
         $default .= "ALLOW_RESTORE = false\n\n";
         $default .= "; Allow creating/removing the index.php hard link from the Settings panel\n";
-        $default .= "ALLOW_CREATE_INDEX_PHP_LINK = true\n";
+        $default .= "ALLOW_CREATE_INDEX_PHP_LINK = true\n\n";
+        $default .= "; Machine API key - used by external clients (e.g. RevoAp) for\n";
+        $default .= "; updater.php?api_key=<value>&action=status|conflicts|install&format=json\n";
+        $default .= "; Keep it secret: it authorises file installs. Rotate by editing this line.\n";
+        $default .= "API_KEY = " . generateApiKey() . "\n";
         @file_put_contents($path, $default, LOCK_EX);
     }
 
@@ -421,6 +461,24 @@ function readIni(): array
         $appendIni .= "\n; Disable the Save to File button in clipboard preview\n";
         $appendIni .= "DISABLE_SAVE_CLIPBOARD_TO_FILE = true\n";
         $cache['DISABLE_SAVE_CLIPBOARD_TO_FILE'] = true;
+    }
+
+    // Machine API key - created once, then reused as-is. It is never regenerated
+    // silently, because a rotation would break every configured client.
+    if (!array_key_exists('API_KEY', $cache) || !is_string($cache['API_KEY']) || $cache['API_KEY'] === '') {
+        $iniRaw = @file_get_contents($path) ?: '';
+        if (preg_match('/^[ \t]*API_KEY[ \t]*=/mi', $iniRaw)) {
+            // The key is present in the file but unreadable (INI syntax error).
+            // Do not append a second one - report the situation to the caller.
+            $cache['API_KEY'] = '';
+        } else {
+            $newApiKey = generateApiKey();
+            $appendIni .= "\n; Machine API key - used by external clients (e.g. RevoAp) for\n";
+            $appendIni .= "; updater.php?api_key=<value>&action=status|conflicts|install&format=json\n";
+            $appendIni .= "; Keep it secret: it authorises file installs. Rotate by editing this line.\n";
+            $appendIni .= "API_KEY = " . $newApiKey . "\n";
+            $cache['API_KEY'] = $newApiKey;
+        }
     }
     if ($appendIni !== '') {
         @file_put_contents($path, $appendIni, FILE_APPEND | LOCK_EX);
@@ -476,7 +534,7 @@ function stateDir(): string
 
 function stateFile(string $file): string
 {
-    // Convert path to flat filename: "assets/js/md.js" → "assets_js_md.js.json"
+    // Convert path to flat filename: "js/md/md.js" → "js_md_md.js.json"
     $slug = str_replace(['/', '\\'], '_', $file);
     return stateDir() . '/' . $slug . '.json';
 }
@@ -542,6 +600,644 @@ function jsonError(int $code, string $msg): never
     exit;
 }
 
+// ── Install manifest, conflict detection, write guard ─────────────────────────
+
+/**
+ * Fresh machine-API credential: "mdv_" + 48 hex characters (192 bits).
+ *
+ * The "mdv_" prefix keeps the value a string for INI_SCANNER_TYPED — a bare hex
+ * value made only of digits would otherwise be parsed as an integer.
+ */
+function generateApiKey(): string
+{
+    return 'mdv_' . bin2hex(random_bytes(24));
+}
+
+/** Requested API key: ?api_key=, POST api_key, or the X-API-Key request header. */
+function apiKeyFromRequest(): string
+{
+    foreach ([$_GET['api_key'] ?? null, $_POST['api_key'] ?? null, $_SERVER['HTTP_X_API_KEY'] ?? null] as $candidate) {
+        if (is_string($candidate) && $candidate !== '') return $candidate;
+    }
+    return '';
+}
+
+/**
+ * True when the request belongs to the JSON machine API: format=json was asked
+ * for, or a key was sent. Legacy actions are unaffected by this test.
+ */
+function jsonApiRequested(): bool
+{
+    if (strtolower(trim((string)($_GET['format'] ?? ''))) === 'json') return true;
+    return apiKeyFromRequest() !== '';
+}
+
+/**
+ * GET/POST parameter for the machine API. Cookies and the environment are never
+ * consulted, so a stray cookie cannot flip dry_run or force.
+ */
+function apiParam(string $name): mixed
+{
+    if (array_key_exists($name, $_POST)) return $_POST[$name];
+    if (array_key_exists($name, $_GET)) return $_GET[$name];
+    return null;
+}
+
+/** Truthy parser for 1/true/yes/on (query and POST values). */
+function isTruthy(mixed $value): bool
+{
+    if (is_bool($value)) return $value;
+    if (is_int($value)) return $value !== 0;
+    if (!is_string($value)) return false;
+    return in_array(strtolower(trim($value)), ['1', 'true', 'yes', 'on'], true);
+}
+
+/** Viewer version reported by the API (falls back to updater.php's own version). */
+function mdViewerVersion(): string
+{
+    $version = localVersion('md.php');
+    return $version !== '' ? $version : localVersion('updater.php');
+}
+
+/** Files the installer would write, relative to the target directory. */
+function installManifest(): array
+{
+    return TRACKED_FILES;
+}
+
+/**
+ * Ownership test for a file that already exists in the target directory.
+ *
+ * Every MD.Viewer file carries a " * Version: X.Y.Z" marker in its first 1000
+ * bytes — the same marker localVersion() reads — so the version extractor doubles
+ * as the ownership check. Anything else is a foreign file: the write paths refuse
+ * to replace it until force is requested.
+ */
+function isManagedFile(string $absPath): bool
+{
+    if (!is_file($absPath)) return false;
+    $fh = @fopen($absPath, 'rb');
+    if ($fh === false) return false;
+    $head = (string) @fread($fh, 1000);
+    @fclose($fh);
+    return extractVersion($head) !== '';
+}
+
+/**
+ * Pre-write guard shared by every write path (install, action=apply, ?update=true).
+ * Never deletes or moves anything; it only refuses a replacement.
+ *
+ * @param string $absPath Absolute path of the destination file.
+ * @return string|null Reason why the write must be refused, or null when allowed.
+ */
+function writeBlockedReason(string $absPath, bool $force): ?string
+{
+    if ($force || !file_exists($absPath)) return null;
+    $name = basename($absPath);
+    if (!is_file($absPath)) {
+        return 'Target path ' . $name . ' is a directory — skipped';
+    }
+    if (isManagedFile($absPath)) return null;
+    return 'Existing ' . $name . ' is not an MD.Viewer file — skipped (force to overwrite)';
+}
+
+/**
+ * Index every file below the target directory by lower-case basename.
+ *
+ * Used to spot "same file name, different place" clashes before writing.
+ * Dot-directories (.git, .state...), the updater's runtime directories and
+ * symlinked entries are skipped: they cannot be a meaningful clash.
+ *
+ * @return array<string, list<string>> basename (lower-case) => relative paths
+ */
+function indexTargetFileNames(): array
+{
+    $root  = docRoot();
+    $index = [];
+    if (!is_dir($root)) return $index;
+
+    try {
+        $iterator = new RecursiveIteratorIterator(
+            new RecursiveDirectoryIterator(
+                $root,
+                FilesystemIterator::SKIP_DOTS | FilesystemIterator::CURRENT_AS_FILEINFO
+            ),
+            RecursiveIteratorIterator::LEAVES_ONLY,
+            RecursiveIteratorIterator::CATCH_GET_CHILD
+        );
+
+        $seen = 0;
+        foreach ($iterator as $entry) {
+            /** @var SplFileInfo $entry */
+            if (!$entry->isFile() || $entry->isLink()) continue;
+            if (++$seen > CONFLICT_SCAN_MAX_FILES) break;   // DoS guard, same idea as md.php
+
+            // Never count hidden files or files inside dot-directories
+            $subPathname = $iterator->getSubPathname();
+            if (preg_match('#(^|[\\\\/])\.#', $subPathname)) continue;
+
+            // Skip the updater's own runtime directories (md.backup, ...)
+            $parts = explode('/', str_replace('\\', '/', $subPathname));
+            if (array_intersect(array_slice($parts, 0, -1), CONFLICT_SCAN_SKIP_DIRS) !== []) continue;
+
+            $index[strtolower($entry->getFilename())][] = str_replace('\\', '/', $subPathname);
+        }
+    } catch (UnexpectedValueException) {
+        // Unreadable subtree — index whatever could be read.
+    }
+
+    return $index;
+}
+
+/**
+ * Compare the install manifest with what already exists in the target directory.
+ *
+ * Read-only by design: it backs both the dry-run report (action=conflicts) and the
+ * decisions taken by action=install. Nothing is ever written here.
+ *
+ * @return list<array{path: string, status: string, existing_path: string,
+ *                    size_bytes: int, managed: bool}>
+ *   status: ok                  target path is free and the basename is unique
+ *           exists              the exact relative path exists and would be replaced
+ *           same_name_elsewhere target path is free, but the same file name exists
+ *                               somewhere else in the target directory
+ *   existing_path  relative path of the file that was found ('' when status=ok)
+ *   size_bytes     size of that file in bytes (0 when status=ok)
+ *   managed        true when the existing file looks like an MD.Viewer file
+ */
+function detectInstallConflicts(): array
+{
+    $root   = docRoot();
+    $index  = indexTargetFileNames();
+    $report = [];
+
+    foreach (installManifest() as $file) {
+        $abs      = localPath($file);
+        $status   = 'ok';
+        $existing = '';
+        $size     = 0;
+        $managed  = false;
+
+        if (file_exists($abs)) {
+            $status   = 'exists';
+            $existing = $file;
+            $managed  = isManagedFile($abs);
+            $size     = is_file($abs) ? (int) (@filesize($abs) ?: 0) : 0;
+        } else {
+            $clashes = $index[strtolower(basename($file))] ?? [];
+            if ($clashes !== []) {
+                $status   = 'same_name_elsewhere';
+                $existing = $clashes[0];
+                $size     = (int) (@filesize($root . '/' . $clashes[0]) ?: 0);
+            }
+        }
+
+        $report[] = [
+            'path'          => $file,
+            'status'        => $status,
+            'existing_path' => $existing,
+            'size_bytes'    => $size,
+            'managed'       => $managed,
+        ];
+    }
+
+    return $report;
+}
+
+/** Per-status counters for a conflict report. */
+function conflictCounts(array $report): array
+{
+    $counts = ['total' => count($report), 'ok' => 0, 'exists' => 0, 'same_name_elsewhere' => 0];
+    foreach ($report as $entry) {
+        $status = (string)($entry['status'] ?? 'ok');
+        $counts[$status] = ($counts[$status] ?? 0) + 1;
+    }
+    return $counts;
+}
+
+/** One-line conflict summary, e.g. "11 entries: 7 ok, 1 exists, 3 same_name_elsewhere". */
+function conflictSummary(array $counts): string
+{
+    return sprintf(
+        '%d entries: %d ok, %d exists, %d same_name_elsewhere',
+        $counts['total'] ?? 0,
+        $counts['ok'] ?? 0,
+        $counts['exists'] ?? 0,
+        $counts['same_name_elsewhere'] ?? 0
+    );
+}
+
+/**
+ * Reporting counterpart of writeBlockedReason(): what install() will do with one
+ * manifest entry. Foreign files are never replaced silently — they are skipped
+ * until force is requested.
+ *
+ * @param array $entry Conflict report entry from detectInstallConflicts().
+ * @return array{write: bool, decision: string, reason: string}
+ */
+function installDecision(array $entry, bool $force): array
+{
+    $status = (string)($entry['status'] ?? 'ok');
+
+    if ($status === 'ok') {
+        return ['write' => true, 'decision' => 'create', 'reason' => 'Target path is free'];
+    }
+
+    if ($status === 'same_name_elsewhere') {
+        return [
+            'write'    => true,
+            'decision' => 'create_name_clash',
+            'reason'   => 'Same file name already exists at ' . (string)($entry['existing_path'] ?? ''),
+        ];
+    }
+
+    // status === 'exists' — the exact path is occupied.
+    if (!empty($entry['managed'])) {
+        return ['write' => true, 'decision' => 'update', 'reason' => 'Existing MD.Viewer file at the same path'];
+    }
+    if ($force) {
+        return ['write' => true, 'decision' => 'overwrite_forced', 'reason' => 'Foreign file replaced because force=1'];
+    }
+
+    return [
+        'write'    => false,
+        'decision' => 'skipped_conflict',
+        'reason'   => 'Existing file is not an MD.Viewer file — skipped (force=1 to overwrite)',
+    ];
+}
+
+/** One machine-API step record: {step, status, ms, detail}. */
+function apiStep(string $step, string $status, string $detail, int $ms = 0): array
+{
+    return ['step' => $step, 'status' => $status, 'ms' => $ms, 'detail' => $detail];
+}
+
+/** Milliseconds elapsed since $startedAt (a microtime(true) value). */
+function elapsedMs(float $startedAt): int
+{
+    return (int) round((microtime(true) - $startedAt) * 1000);
+}
+
+// ── Machine API (JSON only, API-key protected) ────────────────────────────────
+
+// Contract (stable, client-facing):
+//   GET  updater.php?api_key=K&action=status&format=json
+//   GET  updater.php?api_key=K&action=conflicts&format=json
+//   POST updater.php?api_key=K&action=install&format=json[&dry_run=1][&force=1]
+//
+//   {"ok":bool,"action":"...","version":"...",
+//    "steps":[{"step","status","ms","detail"}],
+//    "files":[{"path","status","version"}],
+//    "conflicts":[{"path","status","existing_path","size_bytes"}],
+//    "errors":[{"path","error"}]}
+//
+//   Envelope extras: dry_run, force, counts, installed, updater_version, ini,
+//                    allowed, error, detail, from_version, conflict_status,
+//                    decision, managed.
+//   step status: ok | dry-run | skip | warn | error  (+ file outcome names)
+//   file status: present | missing | updated | created | force-updated | current |
+//                skipped | would_write | error
+//   HTTP codes:  200 completed (per-file failures keep "ok": false in the body),
+//                400 unknown action, 403 unauthorized / api_key_unavailable,
+//                405 install without POST, 500 internal error.
+
+/** Emit a machine-API response. Stray output (notices, warnings) is discarded. */
+function jsonApiSend(array $payload, int $code = 200): never
+{
+    while (ob_get_level() > 0) { @ob_end_clean(); }
+    if (!headers_sent()) {
+        header('Content-Type: application/json; charset=utf-8');
+        header('X-Content-Type-Options: nosniff');
+        header('Cache-Control: no-store');
+        http_response_code($code);
+    }
+    echo json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+    exit;
+}
+
+/**
+ * Machine-API entry point. Always answers JSON: HTML, notices and warnings can
+ * never reach the body. Never returns.
+ */
+function handleJsonApi(): never
+{
+    @ini_set('display_errors', '0');
+    @ini_set('html_errors', '0');
+    @ob_start();
+
+    try {
+        [$payload, $code] = jsonApiDispatch();
+    } catch (Throwable $e) {
+        @error_log('MD.Viewer machine API error: ' . $e->getMessage());
+        [$payload, $code] = [[
+            'ok'        => false,
+            'error'     => 'internal_error',
+            'action'    => 'unknown',
+            'version'   => '',
+            'steps'     => [],
+            'files'     => [],
+            'conflicts' => [],
+            'errors'    => [['path' => '', 'error' => 'internal_error']],
+        ], 500];
+    }
+
+    jsonApiSend($payload, $code);
+}
+
+/**
+ * Authenticate and route a machine-API request.
+ *
+ * @return array{0: array<string, mixed>, 1: int} JSON payload and HTTP status.
+ */
+function jsonApiDispatch(): array
+{
+    $configured = readIni()['API_KEY'] ?? '';
+    $configured = is_string($configured) ? $configured : '';
+    $provided   = apiKeyFromRequest();
+
+    // .md.ini is missing, unreadable, or its API_KEY line is broken. Say so
+    // explicitly instead of failing silently; no paths or versions are disclosed.
+    if ($configured === '') {
+        return [['ok' => false, 'error' => 'api_key_unavailable'], 403];
+    }
+
+    // Wrong or absent key: identical answer either way, nothing else is revealed.
+    if ($provided === '' || !hash_equals($configured, $provided)) {
+        return [['ok' => false, 'error' => 'unauthorized'], 403];
+    }
+
+    $action = strtolower(trim((string)(apiParam('action') ?? 'status')));
+
+    if (!in_array($action, ['status', 'conflicts', 'install'], true)) {
+        return [[
+            'ok'        => false,
+            'error'     => 'unknown_action',
+            'action'    => $action,
+            'allowed'   => ['status', 'conflicts', 'install'],
+            'version'   => mdViewerVersion(),
+            'steps'     => [],
+            'files'     => [],
+            'conflicts' => [],
+            'errors'    => [],
+        ], 400];
+    }
+
+    // install is the only mutating action, so it always requires POST.
+    if ($action === 'install' && ($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') {
+        return [[
+            'ok'        => false,
+            'error'     => 'method_not_allowed',
+            'action'    => $action,
+            'detail'    => 'install requires POST (dry_run included)',
+            'version'   => mdViewerVersion(),
+            'steps'     => [],
+            'files'     => [],
+            'conflicts' => [],
+            'errors'    => [],
+        ], 405];
+    }
+
+    $envelope = [
+        'ok'        => true,
+        'action'    => $action,
+        'version'   => mdViewerVersion(),
+        'steps'     => [],
+        'files'     => [],
+        'conflicts' => [],
+        'errors'    => [],
+    ];
+
+    return match ($action) {
+        'status'    => jsonApiStatus($envelope),
+        'conflicts' => jsonApiConflicts($envelope),
+        default     => jsonApiInstall($envelope),
+    };
+}
+
+/** Local install state. No network I/O, so it answers instantly and offline. */
+function jsonApiStatus(array $envelope): array
+{
+    $started = microtime(true);
+    $ini     = readIni();
+    $files   = [];
+    $missing = 0;
+
+    foreach (installManifest() as $file) {
+        $exists = is_file(localPath($file));
+        if (!$exists) $missing++;
+        $files[] = [
+            'path'    => $file,
+            'status'  => $exists ? 'present' : 'missing',
+            'version' => $exists ? localVersion($file) : '',
+        ];
+    }
+
+    $envelope['files']           = $files;
+    $envelope['updater_version'] = localVersion('updater.php');
+    $envelope['installed']       = $missing === 0;
+    $envelope['counts']          = [
+        'tracked' => count($files),
+        'present' => count($files) - $missing,
+        'missing' => $missing,
+    ];
+    $envelope['ini'] = [
+        'file'          => '.md.ini',
+        'api_key'       => 'configured',
+        'allow_update'  => (bool)($ini['ALLOW_UPDATE'] ?? false),
+        'allow_restore' => (bool)($ini['ALLOW_RESTORE'] ?? false),
+        // A valid API_KEY authorises action=install even while ALLOW_UPDATE stays
+        // false (that flag keeps governing the browser modes ?update=/?restore=).
+        'api_install'   => true,
+    ];
+    $envelope['steps'][] = apiStep(
+        'status',
+        'ok',
+        $missing === 0 ? 'All tracked files present' : $missing . ' tracked file(s) missing',
+        elapsedMs($started)
+    );
+
+    return [$envelope, 200];
+}
+
+/** Pre-install conflict report. Always a dry run — nothing is ever written. */
+function jsonApiConflicts(array $envelope): array
+{
+    $started = microtime(true);
+    $report  = detectInstallConflicts();
+    $counts  = conflictCounts($report);
+    $clashes = $counts['exists'] + $counts['same_name_elsewhere'];
+
+    $envelope['conflicts'] = $report;
+    $envelope['counts']    = $counts;
+    $envelope['dry_run']   = true;
+    $envelope['force']     = false;
+    $envelope['steps'][]   = apiStep(
+        'conflicts',
+        $clashes > 0 ? 'warn' : 'ok',
+        conflictSummary($counts),
+        elapsedMs($started)
+    );
+
+    return [$envelope, 200];
+}
+
+/**
+ * Install or update every tracked file with a pre-write conflict guard.
+ *
+ * dry_run=1 stops after the conflict report: no file is fetched and nothing is
+ * written. force=1 replaces files that do not look like MD.Viewer files and
+ * bypasses the ETag/SHA-256 cache for this run.
+ */
+function jsonApiInstall(array $envelope): array
+{
+    $started = microtime(true);
+    $dryRun  = isTruthy(apiParam('dry_run'));
+    $force   = isTruthy(apiParam('force'));
+
+    $report = detectInstallConflicts();
+    $counts = conflictCounts($report);
+
+    $envelope['dry_run']   = $dryRun;
+    $envelope['force']     = $force;
+    $envelope['conflicts'] = array_values(array_filter(
+        $report,
+        static fn(array $entry): bool => ($entry['status'] ?? 'ok') !== 'ok'
+    ));
+    $envelope['steps'][] = apiStep(
+        'scan',
+        ($counts['exists'] + $counts['same_name_elsewhere']) > 0 ? 'warn' : 'ok',
+        conflictSummary($counts),
+        elapsedMs($started)
+    );
+
+    $backupVer = localVersion('md.php');
+    $docsFiles = ['README.md', 'LICENSE'];
+    $written   = 0;
+    $skipped   = 0;
+
+    foreach ($report as $entry) {
+        $file      = (string)$entry['path'];
+        $decision  = installDecision($entry, $force);
+        $isDoc     = in_array($file, $docsFiles, true);
+        $before    = localVersion($file);
+        $stepStart = microtime(true);
+
+        if (!$decision['write']) {
+            $skipped++;
+            $envelope['files'][] = [
+                'path'            => $file,
+                'status'          => 'skipped',
+                'version'         => $before,
+                'conflict_status' => $entry['status'],
+                'decision'        => $decision['decision'],
+                'existing_path'   => $entry['existing_path'],
+            ];
+            $envelope['steps'][] = apiStep(
+                'install:' . $file,
+                'skip',
+                $decision['reason'],
+                elapsedMs($stepStart)
+            );
+            continue;
+        }
+
+        if ($dryRun) {
+            // Report only — the file is neither fetched nor written.
+            $envelope['files'][] = [
+                'path'            => $file,
+                'status'          => 'would_write',
+                'version'         => $before,
+                'conflict_status' => $entry['status'],
+                'decision'        => $decision['decision'],
+                'existing_path'   => $entry['existing_path'],
+            ];
+            $envelope['steps'][] = apiStep(
+                'install:' . $file,
+                'dry-run',
+                $decision['reason'],
+                elapsedMs($stepStart)
+            );
+            continue;
+        }
+
+        try {
+            $updater = makeUpdater($file);
+            $res     = $updater->apply(backupVersion: $isDoc ? '' : $backupVer, force: $force);
+            $status  = (string)($res['status'] ?? 'error');
+            $after   = localVersion($file);
+            $error   = $res['error'] ?? null;
+
+            if ($status === 'error' || $status === 'blocked') {
+                $envelope['errors'][] = ['path' => $file, 'error' => (string)($error ?? 'unknown error')];
+                $envelope['steps'][]  = apiStep(
+                    'install:' . $file,
+                    'error',
+                    (string)($error ?? 'unknown error'),
+                    elapsedMs($stepStart)
+                );
+            } else {
+                if (in_array($status, ['updated', 'created', 'force-updated'], true)) $written++;
+                if ($status === 'current') $skipped++;
+
+                $detail = ($before !== '' && $after !== '' && $before !== $after)
+                    ? $before . ' → ' . $after
+                    : $decision['reason'] . ' — ' . $status;
+
+                $envelope['steps'][] = apiStep(
+                    'install:' . $file,
+                    $status === 'current' ? 'skip' : 'ok',
+                    $detail,
+                    elapsedMs($stepStart)
+                );
+            }
+
+            $envelope['files'][] = [
+                'path'            => $file,
+                'status'          => $status,
+                'version'         => $after,
+                'from_version'    => $before,
+                'conflict_status' => $entry['status'],
+                'decision'        => $decision['decision'],
+                'error'           => $error,
+            ];
+        } catch (Throwable $e) {
+            $envelope['errors'][] = ['path' => $file, 'error' => $e->getMessage()];
+            $envelope['steps'][]  = apiStep('install:' . $file, 'error', $e->getMessage(), elapsedMs($stepStart));
+            $envelope['files'][]  = [
+                'path'            => $file,
+                'status'          => 'error',
+                'version'         => $before,
+                'from_version'    => $before,
+                'conflict_status' => $entry['status'],
+                'decision'        => $decision['decision'],
+                'error'           => $e->getMessage(),
+            ];
+        }
+    }
+
+    $envelope['ok']      = $envelope['errors'] === [];
+    $envelope['version'] = mdViewerVersion();
+    $envelope['counts']  = $counts + [
+        'written' => $written,
+        'skipped' => $skipped,
+        'errors'  => count($envelope['errors']),
+    ];
+    $envelope['steps'][] = apiStep(
+        $dryRun ? 'dry-run' : 'install',
+        $envelope['ok'] ? 'ok' : 'error',
+        sprintf(
+            '%s: %d written, %d skipped, %d error(s)',
+            $dryRun ? 'Dry run' : 'Install',
+            $written,
+            $skipped,
+            count($envelope['errors'])
+        ),
+        elapsedMs($started)
+    );
+
+    return [$envelope, 200];
+}
+
 // ── Bootstrap ─────────────────────────────────────────────────────────────────
 
 
@@ -591,7 +1287,9 @@ if (isset($_GET['update']) && $_GET['update'] === 'true') {
             exit;
         }
 
-        // updater.php was already current — fall through to phase 2 directly
+        // updater.php was already current — or the existing file is not an
+        // MD.Viewer file and was therefore skipped — fall through to phase 2,
+        // which reports it as 'skipped (conflict)'.
         $phase = 2;
     }
 
@@ -604,11 +1302,14 @@ if (isset($_GET['update']) && $_GET['update'] === 'true') {
         $force     = isset($_GET['force']) && $_GET['force'] === 'true';
         foreach (TRACKED_FILES as $file) {
             if ($file === 'updater.php') {
-                // Already handled in phase 1 — show its current local version
-                $rows[] = [
+                // Already handled in phase 1 — show its current local version,
+                // or the reason phase 1 refused to replace it.
+                $selfNote = writeBlockedReason(localPath($file), $force);
+                $rows[]   = [
                     'file'   => $file,
-                    'status' => 'current (updated in phase 1)',
-                    'to'     => localVersion($file),
+                    'status' => $selfNote === null ? 'current (updated in phase 1)' : 'skipped (conflict)',
+                    'to'     => $selfNote === null ? localVersion($file) : null,
+                    'error'  => $selfNote,
                 ];
                 continue;
             }
@@ -888,27 +1589,41 @@ if ($reqOrigin !== '') {
     }
 }
 
-$action = $_REQUEST['action'] ?? 'check';
-$method = $_SERVER['REQUEST_METHOD'];
-if (in_array($action, ['apply', 'restore', 'index_create', 'index_remove', 'upload_md', 'save_clipboard'], true) && $method !== 'POST') {
-    http_response_code(405);
-    echo json_encode(['error' => 'POST required for ' . $action]);
-    exit;
+// Machine API — JSON only, API-key protected. It owns its own actions and always
+// answers JSON, so it must run before the legacy dispatch below. Legacy actions
+// (check/apply/backups/version/index_*/upload_md/save_clipboard) are untouched:
+// they are only routed here when format=json or an api_key is present.
+if (jsonApiRequested()) {
+    handleJsonApi();
 }
 
-match ($action) {
-    'check'        => doCheck(),
-    'apply'        => doApply(),
-    'restore'      => doRestore(),
-    'backups'      => doBackups(),
-    'version'      => doVersion(),
-    'index_status' => doIndexStatus(),
-    'index_create' => doIndexCreate(),
-    'index_remove' => doIndexRemove(),
-    'upload_md'       => doUploadMd(),
-    'save_clipboard'  => doSaveClipboard(),
-    default           => jsonError(400, 'Unknown action'),
-};
+// Explicit action parameter: the legacy JSON API (check/apply/backups/version/
+// index_*/upload_md/save_clipboard). A request without an action parameter is a
+// plain browser hit and falls through to the default landing page at the end of
+// this file, which is the documented behaviour for opening updater.php directly.
+if (isset($_REQUEST['action'])) {
+    $action = (string) $_REQUEST['action'];
+    $method = $_SERVER['REQUEST_METHOD'];
+    if (in_array($action, ['apply', 'restore', 'index_create', 'index_remove', 'upload_md', 'save_clipboard'], true) && $method !== 'POST') {
+        http_response_code(405);
+        echo json_encode(['error' => 'POST required for ' . $action]);
+        exit;
+    }
+
+    match ($action) {
+        'check'        => doCheck(),
+        'apply'        => doApply(),
+        'restore'      => doRestore(),
+        'backups'      => doBackups(),
+        'version'      => doVersion(),
+        'index_status' => doIndexStatus(),
+        'index_create' => doIndexCreate(),
+        'index_remove' => doIndexRemove(),
+        'upload_md'       => doUploadMd(),
+        'save_clipboard'  => doSaveClipboard(),
+        default           => jsonError(400, 'Unknown action'),
+    };
+}
 
 // ── Actions ───────────────────────────────────────────────────────────────────
 
@@ -1011,6 +1726,7 @@ function doApply(): never
     $updated   = [];
     $skipped   = [];
     $failed    = [];
+    $conflicts = [];
     $backupVer = localVersion('md.php');
 
     $docsFiles = ['README.md', 'LICENSE'];
@@ -1020,6 +1736,13 @@ function doApply(): never
         $locVerBefore = localVersion($file); // always read — works for README/LICENSE too
         $updater      = makeUpdater($file);
         $result       = $updater->apply(backupVersion: $isDoc ? '' : $backupVer, force: $force);
+
+        if ($result['status'] === 'blocked') {
+            // Foreign file at a tracked path - reported, never replaced silently.
+            $skipped[]   = $file;
+            $conflicts[] = ['path' => $file, 'reason' => $result['error'] ?? 'conflict'];
+            continue;
+        }
 
         match ($result['status']) {
             'current' => $skipped[] = $file,
@@ -1039,6 +1762,7 @@ function doApply(): never
         'success'    => empty($failed),
         'updated'    => $updated,
         'skipped'    => $skipped,
+        'conflicts'  => $conflicts,
         'failed'     => $failed,
         'backupVer'  => $backupVer,
         'newVersion' => localVersion('md.php'),
@@ -1403,7 +2127,7 @@ echo '<style>
 
 echo '<div class="card">';
 echo '<div class="card-head"><h1>MD.Viewer Updater</h1>';
-echo '<p>v' . htmlspecialchars(RAW_BASE !== '' ? (localVersion('updater.php') ?: '—') : '—') . ' · ' . htmlspecialchars(realpath(docRoot())) . '</p>';
+echo '<p>v' . htmlspecialchars(localVersion('updater.php') ?: '—') . '</p>';
 echo '</div>';
 
 // ── File status table ─────────────────────────────────────────────────────────
@@ -1431,11 +2155,36 @@ if ($allowUpdate) {
     echo '<p style="font-size:.85rem;color:#15803d">✓ ALLOW_UPDATE = true — update system enabled</p>';
 } else {
     echo '<div class="notice">⚠ <strong>ALLOW_UPDATE = false</strong> in <code>.md.ini</code>. ';
-    echo 'To enable updates, edit <code>' . htmlspecialchars($iniPath) . '</code> and set <code>ALLOW_UPDATE = true</code>.</div>';
+    echo 'To enable updates, edit <code>.md.ini</code> and set <code>ALLOW_UPDATE = true</code>.</div>';
 }
 if ($allowRestore) {
     echo '<p style="font-size:.85rem;color:#15803d;margin-top:.5rem">✓ ALLOW_RESTORE = true — restore system enabled</p>';
 }
+echo '</div>';
+
+// ── Machine API status ─────────────────────────────────────────────────────────
+// The key value itself is never printed — only whether it is configured.
+$apiReady = false;
+if (is_file($iniPath)) {
+    $iniRaw   = (string) @file_get_contents($iniPath);
+    $apiReady = (bool) preg_match('/^[ \t]*API_KEY[ \t]*=[ \t]*\S/mi', $iniRaw);
+}
+echo '<div class="section"><h2>Machine API (JSON)</h2>';
+if ($apiReady) {
+    echo '<p style="font-size:.85rem;color:#15803d">✓ API_KEY is configured in <code>.md.ini</code> — installs via the JSON API are enabled</p>';
+} else {
+    echo '<div class="notice">⚠ No <strong>API_KEY</strong> found in <code>.md.ini</code>. ';
+    echo 'Open this page once to generate it, or set <code>API_KEY = your-value</code> yourself.</div>';
+}
+echo '<p style="font-size:.8rem;color:#64748b;margin-top:.5rem;line-height:1.6">';
+echo '<code>?api_key=&lt;key&gt;&amp;action=status&amp;format=json</code><br>';
+echo '<code>?api_key=&lt;key&gt;&amp;action=conflicts&amp;format=json</code><br>';
+echo '<code>POST ?api_key=&lt;key&gt;&amp;action=install&amp;format=json&amp;dry_run=1</code>';
+echo '</p>';
+echo '<p style="font-size:.8rem;color:#64748b;margin-top:.5rem">';
+echo 'The API answers JSON only and needs no <code>ALLOW_UPDATE</code> flag — the key itself is the install credential. ';
+echo 'Browser modes above keep honouring <code>ALLOW_UPDATE</code> / <code>ALLOW_RESTORE</code>.';
+echo '</p>';
 echo '</div>';
 
 // ── Actions ───────────────────────────────────────────────────────────────────

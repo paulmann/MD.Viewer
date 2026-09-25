@@ -1,6 +1,6 @@
 <!--
  * MD.Viewer — Documentation
- * Version: 2.9.5
+ * Version: 2.9.6
 -->
 
 # MD.Viewer
@@ -9,8 +9,8 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://github.com/paulmann/MD.Viewer/blob/main/LICENSE)
 [![PHP](https://img.shields.io/badge/PHP-8.3%2B-777BB4?logo=php&logoColor=white)](https://php.net)
-[![md.php](https://img.shields.io/badge/md.php-v2.9.5-success)](https://github.com/paulmann/MD.Viewer)
-[![updater.php](https://img.shields.io/badge/updater.php-v3.8.2-4f46e5)](https://github.com/paulmann/MD.Viewer)
+[![md.php](https://img.shields.io/badge/md.php-v2.9.4-success)](https://github.com/paulmann/MD.Viewer)
+[![updater.php](https://img.shields.io/badge/updater.php-v3.9.0-4f46e5)](https://github.com/paulmann/MD.Viewer)
 
 ---
 
@@ -41,7 +41,7 @@ echo "# Hello, World\n\nThis is my documentation." > /var/www/html/docs/md.md
 
 Minimal setup:
 
-- Place **`md.php`** (and the `assets/` folder) next to **`md.md`**.
+- Place **`md.php`** (with the `js/md/` and `css/md/` folders) next to **`md.md`**.
 - Open **`md.php`** in a browser.
 - The script automatically looks for a Markdown file with the same base name.
 
@@ -55,17 +55,21 @@ Optional:
 The fastest way to install is to upload **only `updater.php`** to your server, then open it in a browser with `?update=true`. It will:
 
 1. Create `.md.ini` with safe defaults automatically.
-2. Download all tracked files (`md.php`, `assets/js/*`, `assets/css/*`, `README.md`, `LICENSE`) from GitHub.
-3. Create all required subdirectories (`assets/js/`, `assets/css/`) with `0755` permissions if they do not exist.
+2. Download all tracked files (`md.php`, `js/md/*`, `css/md/*`, `README.md`, `LICENSE`) from GitHub.
+3. Create all required subdirectories (`js/md/`, `css/md/`) with `0755` permissions if they do not exist.
 4. Place itself in the final list and show a full result page.
 
-**Requirement:** `ALLOW_UPDATE = true` must be set in `.md.ini` before running (or add it manually to the auto-created `.md.ini` and reload).
+**Requirement:** for the browser mode, `ALLOW_UPDATE = true` must be set in `.md.ini` before running (or add it manually to the auto-created `.md.ini` and reload). For the machine API, `API_KEY` from `.md.ini` is the credential instead — see [Machine API](#4-machine-api-json-for-external-clients).
 
 ```bash
 # Upload only updater.php, then:
 curl -o updater.php https://raw.githubusercontent.com/paulmann/MD.Viewer/main/updater.php
 # Edit .md.ini (auto-created on first hit) and set ALLOW_UPDATE = true
 # Then open: https://your-domain.com/updater.php?update=true
+#
+# Or drive it over the machine API (no ALLOW_UPDATE needed, key from .md.ini):
+curl "https://your-domain.com/updater.php?api_key=<key>&action=conflicts&format=json"
+curl -X POST "https://your-domain.com/updater.php?api_key=<key>&action=install&format=json&dry_run=1"
 ```
 
 ---
@@ -91,7 +95,7 @@ cd MD.Viewer
 ### Manual install
 
 1. Download the repository or release archive.
-2. Copy `md.php`, `updater.php`, `assets/`, and optionally `README.md` into your target directory.
+2. Copy `md.php`, `updater.php`, `js/`, `css/`, and optionally `README.md` into your target directory.
 3. Add your Markdown files in the same directory tree.
 4. Open `md.php` in a browser. `.md.ini` is created automatically on first load.
 
@@ -101,8 +105,10 @@ cd MD.Viewer
 2. Open `updater.php` once in a browser — it auto-creates `.md.ini` with `ALLOW_UPDATE = false`.
 3. Edit `.md.ini` on the server: set `ALLOW_UPDATE = true`.
 4. Open `https://your-domain.com/updater.php?update=true`.
-5. The updater downloads all files, creates `assets/js/` and `assets/css/` directories as needed, and shows a result page.
+5. The updater downloads all files, creates `js/md/` and `css/md/` directories as needed, and shows a result page.
 6. Open `md.php` — your MD.Viewer is ready.
+7. Optional: install without touching `ALLOW_UPDATE` by calling the machine API with 
+   `API_KEY` from `.md.ini` (see [Machine API](#4-machine-api-json-for-external-clients)).
 
 ### PHP built-in server
 
@@ -135,8 +141,8 @@ server {
 
 ```text
 MD.Viewer/
-├── md.php                     # Main viewer / browser script       v2.8.2
-├── updater.php                # Self-updater, backup, upload        v3.8.2
+├── md.php                     # Main viewer / browser script       v2.9.4
+├── updater.php                # Self-updater, backup, upload        v3.9.0
 ├── .md.ini                    # Server-side config (auto-created)
 ├── md.md                      # Default Markdown file for md.php
 ├── uploads.md/                # Created automatically for uploaded/saved files
@@ -144,18 +150,19 @@ MD.Viewer/
 │   ├── 2.8.2/
 │   ├── 2.8.2-pre-restore/     # Auto-created before each rollback
 │   └── .state/                # ETag + SHA-256 per-file cache
-├── assets/
-│   ├── css/
-│   │   ├── md.css             # v2.2.2
-│   │   ├── settings.css       # v2.8.1
-│   │   └── tooltips.css       # v2.4.5
-│   └── js/
+├── css/
+│   └── md/
+│       ├── md.css             # v2.2.2
+│       ├── settings.css       # v2.8.1
+│       └── tooltips.css       # v2.4.5
+├── js/
+│   └── md/
 │       ├── md.js              # v2.5.2
-│       ├── settings.js        # v2.8.3
+│       ├── settings.js        # v2.8.7
 │       ├── tooltips.js        # v2.4.5
 │       └── upload.js          # v2.8.0
 ├── LICENSE                    # v1.0.0
-└── README.md                  # v2.8.1
+└── README.md                  # v2.9.6
 ```
 
 Key naming rule: `md.php` looks for `md.md`, `docs.php` looks for `docs.md`. Multiple independent viewer instances can share one directory tree without extra routing.
@@ -186,12 +193,17 @@ ALLOW_RESTORE = false
 
 ; Allow creating/removing the index.php hard link from the Settings panel
 ALLOW_CREATE_INDEX_PHP_LINK = true
+
+; Machine API key used by external clients (e.g. RevoAp)
+; Generated automatically on first run. Send it as ?api_key=<value>.
+API_KEY = mdv_0123456789abcdef0123456789abcdef0123456789abcdef
 ```
 
 | Key | Default | Effect |
 |---|---|---|
 | `DISABLE_UPLOAD` | `true` | Hides and disables the Upload button |
 | `DISABLE_CLIPBOARD` | `false` | Hides and disables the Clipboard Preview button |
+| `API_KEY` | auto-generated | Secret key for the machine API (`?api_key=`); required for JSON installs |
 | `DISABLE_SAVE_CLIPBOARD_TO_FILE` | `true` | Hides Save to File in clipboard preview |
 | `ALLOW_UPDATE` | `false` | Enables update system (Settings panel + `?update=true`) |
 | `ALLOW_RESTORE` | `false` | Enables Backup & Restore section and `?restore=` URL mode |
@@ -251,7 +263,7 @@ The file browser includes a **Clipboard Preview** button. Paste any Markdown tex
 
 ### Glossary tooltips
 
-Inline glossary tooltips via `assets/js/tooltips.js` and `assets/css/tooltips.css`. Terms show a tooltip on hover; the engine resolves variant spellings to the same definition. Includes touch support, 2-second grace period, and smart viewport-aware positioning.
+Inline glossary tooltips via `js/md/tooltips.js` and `css/md/tooltips.css`. Terms show a tooltip on hover; the engine resolves variant spellings to the same definition. Includes touch support, 2-second grace period, and smart viewport-aware positioning.
 
 ### Settings panel — feature tooltips
 
@@ -291,7 +303,7 @@ The Settings panel (opened from the header gear icon) includes:
 
 ## Built-in updater
 
-`updater.php` provides three ways to update and manage files.
+`updater.php` provides four ways to update and manage files.
 
 ### Updater landing page
 
@@ -332,7 +344,7 @@ https://your-domain.com/updater.php?update=true&force=true   ← force reinstall
 
 **Directory auto-creation:**
 
-The updater creates any missing subdirectories (`assets/js/`, `assets/css/`) with `0755` permissions before writing files. This makes `?update=true` work from a one-file install.
+The updater creates any missing subdirectories (`js/md/`, `css/md/`) with `0755` permissions before writing files. This makes `?update=true` and the machine API work from a one-file install.
 
 **Result page:**
 
@@ -364,6 +376,52 @@ https://your-domain.com/updater.php?restore=2.7.0
 5. Invalidates per-file ETag cache (`.state/`) so next update check does a full fetch.
 6. Outputs HTML result page with `restored` / `skipped` / `error` badges, version delta, and clickable file links.
 
+### 4. Machine API (JSON, for external clients)
+
+A key-protected JSON API lets another program (for example RevoAp) drive the install and 
+render its progress step by step. It never returns HTML, and PHP notices or warnings never 
+leak into the response body.
+
+`API_KEY` is generated on the first request and stored in `.md.ini`. Set your own value 
+there before deploying if you want to automate the bootstrap without reading the file later.
+
+```
+GET  updater.php?api_key=<key>&action=status&format=json
+GET  updater.php?api_key=<key>&action=conflicts&format=json
+POST updater.php?api_key=<key>&action=install&format=json[&dry_run=1][&force=1]
+```
+
+| Action | Method | Purpose |
+|---|---|---|
+| `status` | GET | Local install state per file (present / missing / version). No network I/O. |
+| `conflicts` | GET | Dry-run conflict report. Never writes anything. |
+| `install` | POST | Fetch and write files through the pre-write conflict guard. |
+
+Response envelope:
+
+```json
+{
+  "ok": true,
+  "action": "install",
+  "version": "2.9.4",
+  "steps":     [{"step": "install:css/md/md.css", "status": "ok", "ms": 143, "detail": "2.2.2 → 2.2.2"}],
+  "files":     [{"path": "css/md/md.css", "status": "current", "version": "2.2.2"}],
+  "conflicts": [{"path": "css/md/settings.css", "status": "same_name_elsewhere",
+                 "existing_path": "legacy/components/settings.css", "size_bytes": 1932}],
+  "errors":    []
+}
+```
+
+- `conflicts[].status`: `ok` | `exists` (the exact path already exists) | `same_name_elsewhere`
+- `files[].status`: `present` | `missing` | `updated` | `created` | `force-updated` | `current` | `skipped` | `would_write` | `error`
+- `steps[].status`: `ok` | `dry-run` | `skip` | `warn` | `error`
+- HTTP codes: `200` completed (per-file failures keep `"ok": false` in the body), `400` unknown action, `403` `unauthorized` or `api_key_unavailable`, `405` `install` without POST
+
+`dry_run=1` stops after the conflict report: nothing is fetched and nothing is written. 
+`force=1` also replaces a file at a tracked path that does not look like an MD.Viewer file 
+(otherwise it is skipped and reported in `conflicts`) and bypasses the ETag/SHA-256 cache. 
+The browser modes above keep honouring `ALLOW_UPDATE` / `ALLOW_RESTORE`; the API key is its 
+own credential for the JSON actions.
 ---
 
 ## Tracked files
@@ -371,16 +429,16 @@ https://your-domain.com/updater.php?restore=2.7.0
 All files managed by the updater (checked, downloaded, backed up):
 
 ```
-md.php                    v2.9.3
-updater.php               v3.8.2
-assets/js/md.js           v2.5.2
-assets/js/settings.js     v2.8.7
-assets/js/tooltips.js     v2.4.5
-assets/js/upload.js       v2.8.0
-assets/css/md.css         v2.2.2
-assets/css/settings.css   v2.8.1
-assets/css/tooltips.css   v2.4.5
-README.md                 v2.9.5
+md.php                    v2.9.4
+updater.php               v3.9.0
+js/md/md.js               v2.5.2
+js/md/settings.js         v2.8.7
+js/md/tooltips.js         v2.4.5
+js/md/upload.js           v2.8.0
+css/md/md.css             v2.2.2
+css/md/settings.css       v2.8.1
+css/md/tooltips.css       v2.4.5
+README.md                 v2.9.6
 LICENSE                   v1.0.0
 ```
 
@@ -406,6 +464,7 @@ All security-sensitive actions are protected at **three independent levels**: se
 | Index status | `ALLOW_CREATE_INDEX_PHP_LINK` | Returns `{disabled:true}` | Not called when false |
 | File upload | `DISABLE_UPLOAD` | 403 if true | Button hidden |
 | Save clipboard | `DISABLE_SAVE_CLIPBOARD_TO_FILE` | 403 if true | Button hidden |
+| Machine API (`status`, `conflicts`, `install`) | `API_KEY` | 403 `unauthorized` | Not callable without the key |
 
 Additional protections:
 
@@ -415,6 +474,8 @@ Additional protections:
 - **CORS guard** in `updater.php` rejects cross-origin requests.
 - **All mutating actions** require `POST` (except direct URL modes which require their respective `ALLOW_*` flags).
 - **Version strings** in `?restore=` are validated against `[a-zA-Z0-9.\-]` only.
+- **Machine API** answers JSON only (`format=json`), requires `API_KEY`, and reports every 
+  skipped foreign file instead of overwriting it.
 
 ---
 
