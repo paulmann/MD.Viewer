@@ -1,8 +1,11 @@
 /**
  * MD.Viewer — Settings Panel Engine
- * Version: 2.8.7
+ * Version: 2.8.8
  * Auto-extracted from md.php inline <script> block.
  * Requires window.MDV_CONFIG to be set before this script loads.
+ *
+ * v2.8.8: Relative updater URL fallback, so the panel works from a
+ *         subdirectory install.
  *
  * v2.8.7: Removed the obsolete resize-time default-width fallback and legacy
  *         mobile forced-Wide behavior; toolbar resizing now delegates width changes
@@ -29,7 +32,7 @@
         const PREFIX       = 'mdv_';
         const FEAT         = 'mdv_feat_';
         // ── Global flags (needed before sub-sections init) ────────────────────
-        const UPDATER_URL   = CFG.updaterUrl || '/updater.php';
+        const UPDATER_URL   = CFG.updaterUrl || 'updater.php';
         const ALLOW_UPDATE  = !!CFG.allowUpdate;
         const ALLOW_RESTORE = !!CFG.allowRestore;
         const ALLOW_INDEX   = CFG.allowCreateIndexPhpLink !== false;

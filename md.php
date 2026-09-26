@@ -1,12 +1,18 @@
 <?php
 /**
  * Markdown Viewer
- * Version: 2.9.4
+ * Version: 2.9.5
  * Author: Mikhail Deynekin
  * Site: https://Deynekin.com
  * Email: Mikhail@Deynekin.com
  *
- * Changelog v2.9.4:
+ * Changelog v2.9.5:
+* - FIXED: Stylesheet, script and updater URLs are now relative to the
+*   directory the page is served from. MD.Viewer installed in a
+*   subdirectory (for example /extensions/md-viewer/) no longer requests
+*   css/md/*.css and js/md/*.js from the site root and no longer 404s.
+*
+* Changelog v2.9.4:
  * - REFACTORED: Front-end assets moved out of the assets/ directory. JavaScript
  *   now lives in js/md/ and CSS in css/md/. Every <link> and <script> tag plus
  *   the cache-busting $assetVersion() paths were updated to match. Rendering
@@ -3011,8 +3017,8 @@ render_page:
     <meta name="color-scheme" content="light dark">
 
     <!-- Critical styles -->
-    <link rel="stylesheet" href="/css/md/tooltips.css">
-    <link rel="stylesheet" href="/css/md/md.css">
+    <link rel="stylesheet" href="css/md/tooltips.css">
+    <link rel="stylesheet" href="css/md/md.css">
 
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -3098,7 +3104,7 @@ render_page:
             'allowUpdate'                => ALLOW_UPDATE,
             'allowRestore'               => ALLOW_RESTORE,
             'allowCreateIndexPhpLink'    => ALLOW_CREATE_INDEX_PHP_LINK,
-            'updaterUrl'                 => '/updater.php',
+            'updaterUrl'                 => 'updater.php',
         ], JSON_THROW_ON_ERROR); ?>;
     </script>
 </head>
@@ -3934,34 +3940,34 @@ render_page:
 
     <link
         rel="stylesheet"
-        href="/css/md/settings.css<?= e(
-            $assetVersion('/css/md/settings.css')
+        href="css/md/settings.css<?= e(
+            $assetVersion('css/md/settings.css')
         ) ?>"
     >
 
     <script
-        src="/js/md/settings.js<?= e(
-            $assetVersion('/js/md/settings.js')
+        src="js/md/settings.js<?= e(
+            $assetVersion('js/md/settings.js')
         ) ?>"
     ></script>
 
     <script
-        src="/js/md/upload.js<?= e(
-            $assetVersion('/js/md/upload.js')
+        src="js/md/upload.js<?= e(
+            $assetVersion('js/md/upload.js')
         ) ?>"
     ></script>
 
     <script
-        src="/js/md/tooltips.js<?= e(
-            $assetVersion('/js/md/tooltips.js')
+        src="js/md/tooltips.js<?= e(
+            $assetVersion('js/md/tooltips.js')
         ) ?>"
         defer
     ></script>
 
     <script
         type="module"
-        src="/js/md/md.js<?= e(
-            $assetVersion('/js/md/md.js')
+        src="js/md/md.js<?= e(
+            $assetVersion('js/md/md.js')
         ) ?>"
     ></script>
 </body>

@@ -1,8 +1,8 @@
 /**
  * MD.Viewer — File Browser Upload & Clipboard Preview
- * Version: 2.8.0
+ * Version: 2.8.1
  * Auto-extracted from md.php inline <script> block.
- * Requires window.MDV_CONFIG (disableUpload, disableClipboard) and ((window.MDV_CONFIG || {}).updaterUrl || '/updater.php').
+ * Requires window.MDV_CONFIG (disableUpload, disableClipboard) and ((window.MDV_CONFIG || {}).updaterUrl || 'updater.php').
  */
 'use strict';
 
@@ -82,7 +82,7 @@
                     const fd = new FormData();
                     fd.append('md_file', file, file.name);
 
-                    fetch(((window.MDV_CONFIG || {}).updaterUrl || '/updater.php') + '?action=upload_md', { method: 'POST', body: fd })
+                    fetch(((window.MDV_CONFIG || {}).updaterUrl || 'updater.php') + '?action=upload_md', { method: 'POST', body: fd })
                         .then(function (r) { return r.json(); })
                         .then(function (d) {
                             if (d.error) {
@@ -195,7 +195,7 @@
                 btnSave.disabled = true;
                 setStatus('Saving…', '');
 
-                const updaterUrl = cfg.updaterUrl || '/updater.php';
+                const updaterUrl = cfg.updaterUrl || 'updater.php';
                 const fd = new FormData();
                 fd.append('content',  mdText);
                 fd.append('filename', name);
