@@ -1,10 +1,17 @@
 <?php
 /**
  * Markdown Viewer
- * Version: 2.10.0
+ * Version: 2.11.0
  * Author: Mikhail Deynekin
  * Site: https://Deynekin.com
  * Email: Mikhail@Deynekin.com
+ *
+ * Changelog v2.11.0:
+ * - DOCS: The .md.ini key reference and the generated template now state that
+ *   "Upload .md" and "Save to File" write into BROWSE_DIR when it is configured,
+ *   and fall back to uploads.md/ next to md.php when it is not. The matching
+ *   updater.php v3.10.0 change makes that behaviour real; viewer logic is
+ *   unchanged in this release.
  *
  * Changelog v2.10.0:
  * - FEATURE: New optional .md.ini key BROWSE_DIR. A viewer installed in a
@@ -228,9 +235,11 @@ declare(strict_types=1);
 //   AUTO_NUMBERING    = true|false   — override rendering feature
 //   AUTO_TOC          = true|false
 //   ... (any key matching a feature constant above)
-//   BROWSE_DIR        = /share/       directory whose .md files are listed
-//                                     (default: empty or absent = directory
-//                                     of md.php). Absolute values, values
+//   BROWSE_DIR        = /share/       directory whose .md files are listed and
+//                                     where "Upload .md" / "Save to File" write
+//                                     (default: empty or absent = the directory
+//                                     of md.php, and uploads fall back to
+//                                     uploads.md/ there). Absolute values, values
 //                                     relative to DOCUMENT_ROOT and values
 //                                     relative to the md.php directory are
 //                                     supported; the first readable one wins.
@@ -250,7 +259,7 @@ DISABLE_UPLOAD    = true
 ; Disable the "Preview Clipboard" button in the file browser
 DISABLE_CLIPBOARD = false
 
-; Disable the "Save to File" button in clipboard preview (saves to uploads.md/)
+; Disable the "Save to File" button in clipboard preview (saves to BROWSE_DIR, or to uploads.md/ when it is unset)
 DISABLE_SAVE_CLIPBOARD_TO_FILE = true
 
 ; Allow updating files via updater.php?update=true or the Settings panel
@@ -269,6 +278,8 @@ ALLOW_CREATE_INDEX_PHP_LINK = true
 ; site root). Resolution order: the value itself when absolute, then
 ; DOCUMENT_ROOT + value, then the md.php directory + value; the first one
 ; that exists and is readable wins. Empty or absent = md.php directory.
+; "Upload .md" and "Save to File" write into the same directory; when this key
+; is unset they fall back to uploads.md/ next to md.php.
 ; BROWSE_DIR = /share/
 INI;
         @file_put_contents($iniPath, $default);

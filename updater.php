@@ -1,7 +1,7 @@
 <?php
 /**
  * Markdown Viewer — Self-Updater
- * Version: 3.9.0
+ * Version: 3.10.1
  * Author: Mikhail Deynekin
  * Site: https://Deynekin.com
  * Email: Mikhail@Deynekin.com
@@ -50,6 +50,16 @@
  *     and PHP has already loaded the current script into memory/opcache for the
  *     running request. The new version takes effect from the next request onward.
  *
+ * v3.10.1: .md.ini, md.php and the companion files are resolved in the directory
+ *          that contains updater.php instead of DOCUMENT_ROOT. An install under
+ *          /extensions/md-viewer/ (RevoAp) therefore reads the very file the
+ *          installer writes, so upload_md and save_clipboard get the settings the
+ *          panel shows and the machine API key matches again. A one-file install
+ *          in the document root behaves exactly as before.
+ * v3.10.0: upload_md and save_clipboard now honour .md.ini BROWSE_DIR - uploaded
+ *          and saved documents land in the directory the viewer browses instead
+ *          of uploads.md/. Without a usable BROWSE_DIR the classic uploads.md/
+ *          behaviour is unchanged.
  * v3.9.0: Machine JSON API — ?api_key=<key>&action=status|conflicts|install&format=json.
  *         Pre-write conflict report (exact path / same name elsewhere) with dry run
  *         and force override; API_KEY auto-created in .md.ini; assets relocated
@@ -392,9 +402,30 @@ final class RawFileUpdater
 
 // ── Procedural helpers ────────────────────────────────────────────────────────
 
+/**
+ * Directory that holds md.php, .md.ini and the companion files (v3.10.1).
+ *
+ * The directory of updater.php comes first: the installer writes .md.ini next
+ * to md.php, so reading it from DOCUMENT_ROOT silently used a different file
+ * (or created a stray one there) whenever MD.Viewer was installed in a
+ * subdirectory. When md.php is absent - a one-file install - the document root
+ * is used, which keeps the classic layout working.
+ */
 function docRoot(): string
 {
-    return rtrim($_SERVER['DOCUMENT_ROOT'] ?: dirname(__FILE__), '/\\');
+    static $root = null;
+    if ($root !== null) {
+        return $root;
+    }
+    $self = rtrim(dirname(__FILE__), '/\\');
+    if (is_file($self . '/md.php')) {
+        return $root = $self;
+    }
+    $doc = rtrim((string) ($_SERVER['DOCUMENT_ROOT'] ?? ''), '/\\');
+    if ($doc !== '' && is_file($doc . '/md.php')) {
+        return $root = $doc;
+    }
+    return $root = $self;
 }
 
 function readIni(): array
@@ -514,6 +545,119 @@ function requireAllowIndexLink(): void
 function localPath(string $file): string
 {
     return docRoot() . '/' . ltrim($file, '/\\');
+}
+
+/**
+ * Normalised .md.ini BROWSE_DIR value (v3.10.0).
+ *
+ * Same rule as md.php: trimmed, optional surrounding quotes stripped, values
+ * longer than 255 bytes or containing a null byte discarded. Returns '' when the
+ * key is absent, empty or unusable.
+ *
+ * @param array<string, mixed> $ini Parsed .md.ini values.
+ */
+function browseDirValue(array $ini): string
+{
+    $value = $ini['BROWSE_DIR'] ?? '';
+    if (is_array($value)) {
+        $value = ''; // guard against key[] syntax in .md.ini
+    }
+    $value = trim((string) $value);
+    if (strlen($value) >= 2) {
+        $first = $value[0];
+        $last  = $value[strlen($value) - 1];
+        if (($first === '"' && $last === '"') || ($first === "'" && $last === "'")) {
+            $value = trim(substr($value, 1, -1));
+        }
+    }
+    if ($value === '') return '';
+    if (strlen($value) > 255 || str_contains($value, "\0")) {
+        error_log('[MD.Viewer updater] .md.ini BROWSE_DIR ignored: value is too long or contains a null byte.');
+        return '';
+    }
+    return $value;
+}
+
+/**
+ * Destination directory configured through .md.ini BROWSE_DIR (v3.10.0).
+ *
+ * Resolution order mirrors md.php: an absolute value as-is, then
+ * DOCUMENT_ROOT + value, then the md.php directory + value. The first candidate
+ * that exists, is a directory and is writable wins. Returns the absolute
+ * directory plus the client-facing label (the configured value with a trailing
+ * "/"), or null when BROWSE_DIR is absent, empty or resolves to nothing usable.
+ * The label is what the JSON answer reports - never a server absolute path.
+ *
+ * @param array<string, mixed> $ini Parsed .md.ini values.
+ * @return array{0: string, 1: string}|null
+ */
+function resolveBrowseDir(array $ini): ?array
+{
+    $value = browseDirValue($ini);
+    if ($value === '') return null;
+
+    $candidates = [];
+    if (str_starts_with($value, '/')
+        || str_starts_with($value, '\\')
+        || preg_match('#^[A-Za-z]:[\\\\/]#', $value) === 1) {
+        $candidates[] = $value; // absolute path as-is
+    }
+    $docRoot = (string) ($_SERVER['DOCUMENT_ROOT'] ?? '');
+    if ($docRoot !== '') {
+        $candidates[] = rtrim($docRoot, '/\\') . '/' . ltrim($value, '/\\');
+    }
+    $candidates[] = dirname(localPath('md.php')) . '/' . ltrim($value, '/\\');
+
+    foreach ($candidates as $candidate) {
+        $real = @realpath($candidate);
+        if ($real !== false && is_dir($real) && is_writable($real)) {
+            return [$real, rtrim($value, '/\\') . '/'];
+        }
+    }
+
+    error_log('[MD.Viewer updater] .md.ini BROWSE_DIR "' . $value
+        . '" cannot be resolved to a writable directory.');
+    return null;
+}
+
+/**
+ * Directory uploads and "Save to File" write into (v3.10.0).
+ *
+ * BROWSE_DIR resolved to a writable directory -> write there, creating it when
+ * missing. BROWSE_DIR absent -> the classic uploads.md/ next to md.php, byte for
+ * byte the previous code path. BROWSE_DIR set but unusable -> a clear JSON error
+ * instead of silently dropping the document into a directory the viewer does not
+ * list.
+ *
+ * @param array<string, mixed> $ini Parsed .md.ini values.
+ * @return array{0: string, 1: string} Absolute destination directory and its label.
+ */
+function destinationDir(array $ini): array
+{
+    $browse = resolveBrowseDir($ini);
+
+    if ($browse !== null) {
+        $dir   = $browse[0];
+        $label = $browse[1];
+        if (!is_dir($dir) && !@mkdir($dir, 0755, true)) {
+            jsonError(500, 'Could not create ' . $label . ' directory. Check permissions.');
+        }
+        if (!is_writable($dir)) {
+            jsonError(500, 'Directory ' . $label . ' is not writable. Check permissions.');
+        }
+    } elseif (browseDirValue($ini) === '') {
+        $dir   = dirname(localPath('md.php')) . '/uploads.md';
+        $label = 'uploads.md/';
+        if (!is_dir($dir)) {
+            if (!@mkdir($dir, 0755, true)) {
+                jsonError(500, 'Could not create uploads.md/ directory. Check permissions.');
+            }
+        }
+    } else {
+        jsonError(500, 'BROWSE_DIR in .md.ini does not point to a writable directory. Fix the value or its permissions.');
+    }
+
+    return [$dir, $label];
 }
 
 function backupRoot(): string
@@ -1974,13 +2118,8 @@ function doUploadMd(): never
         jsonError(400, 'File too large (max 2 MB).');
     }
 
-    // ── 4. Ensure uploads.md/ directory exists ──────────────────────────────
-    $uploadsDir = dirname(localPath('md.php')) . '/uploads.md';
-    if (!is_dir($uploadsDir)) {
-        if (!@mkdir($uploadsDir, 0755, true)) {
-            jsonError(500, 'Could not create uploads.md/ directory. Check permissions.');
-        }
-    }
+    // ── 4. Ensure destination directory exists ──────────────────────────────
+    [$uploadsDir, $uploadsLabel] = destinationDir($ini);
 
     // ── 5. Destination path ───────────────────────────────────────────────────
     $dest = $uploadsDir . '/' . $name;
@@ -1995,7 +2134,7 @@ function doUploadMd(): never
         jsonError(500, 'Could not save the file. Check directory permissions.');
     }
 
-    echo json_encode(['success' => true, 'filename' => $name, 'path' => 'uploads.md/' . $name]);
+    echo json_encode(['success' => true, 'filename' => $name, 'path' => $uploadsLabel . $name]);
     exit;
 }
 
@@ -2041,13 +2180,8 @@ function doSaveClipboard(): never
     }
     $name = preg_replace('/\.md$/i', '.md', $rawName);
 
-    // ── 3. Ensure uploads.md/ directory exists ───────────────────────────────
-    $uploadsDir = dirname(localPath('md.php')) . '/uploads.md';
-    if (!is_dir($uploadsDir)) {
-        if (!@mkdir($uploadsDir, 0755, true)) {
-            jsonError(500, 'Could not create uploads.md/ directory. Check permissions.');
-        }
-    }
+    // ── 3. Ensure destination directory exists ───────────────────────────────
+    [$uploadsDir, $uploadsLabel] = destinationDir($ini);
 
     $dest = $uploadsDir . '/' . $name;
 
@@ -2056,7 +2190,7 @@ function doSaveClipboard(): never
         jsonError(500, 'Could not write file. Check directory permissions.');
     }
 
-    echo json_encode(['success' => true, 'filename' => $name, 'path' => 'uploads.md/' . $name]);
+    echo json_encode(['success' => true, 'filename' => $name, 'path' => $uploadsLabel . $name]);
     exit;
 }
 
