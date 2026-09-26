@@ -194,7 +194,7 @@ ALLOW_RESTORE = false
 ; Allow creating/removing the index.php hard link from the Settings panel
 ALLOW_CREATE_INDEX_PHP_LINK = true
 
-; Machine API key used by external clients (e.g. RevoAp)
+; Machine API key used by external clients (a control panel, an installer)
 ; Generated automatically on first run. Send it as ?api_key=<value>.
 API_KEY = mdv_0123456789abcdef0123456789abcdef0123456789abcdef
 ```
@@ -225,7 +225,7 @@ When no matching Markdown file exists, MD.Viewer switches to a recursive Markdow
 
 ### Clipboard preview mode
 
-The file browser includes a **Clipboard Preview** button. Paste any Markdown text into the textarea and click Preview — the content is rendered in viewer mode. If `DISABLE_SAVE_CLIPBOARD_TO_FILE = false`, a **Save to File** bar appears with a filename input and Save button that writes to `uploads.md/`.
+The file browser includes a **Clipboard Preview** button. Paste any Markdown text into the textarea and click Preview — the content is rendered in viewer mode. If `DISABLE_SAVE_CLIPBOARD_TO_FILE = false`, a **Save to File** bar appears with a filename input and Save button that writes into `BROWSE_DIR` (falling back to `uploads.md/` next to `md.php` when that key is unset).
 
 ### URL parameters
 
@@ -278,7 +278,7 @@ Every toggle in the **Features** section of the Settings panel shows a detailed 
 
 ### File upload
 
-If `DISABLE_UPLOAD = false` in `.md.ini`, the file browser shows an **Upload .md** button. Uploaded files are saved to `uploads.md/`. Upload protection is three-layered:
+If `DISABLE_UPLOAD = false` in `.md.ini`, the file browser shows an **Upload .md** button. Uploaded files are saved into `BROWSE_DIR`, or into `uploads.md/` next to `md.php` when that key is unset. Upload protection is three-layered:
 
 1. UI button hidden/disabled when `DISABLE_UPLOAD = true`.
 2. JS click handler early-returns if `MDV_CONFIG.disableUpload` is true.
@@ -378,7 +378,7 @@ https://your-domain.com/updater.php?restore=2.7.0
 
 ### 4. Machine API (JSON, for external clients)
 
-A key-protected JSON API lets another program (for example RevoAp) drive the install and 
+A key-protected JSON API lets another program (a control panel, an installer) drive the install and 
 render its progress step by step. It never returns HTML, and PHP notices or warnings never 
 leak into the response body.
 

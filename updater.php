@@ -1,7 +1,7 @@
 <?php
 /**
  * Markdown Viewer — Self-Updater
- * Version: 3.10.1
+ * Version: 3.11.0
  * Author: Mikhail Deynekin
  * Site: https://Deynekin.com
  * Email: Mikhail@Deynekin.com
@@ -50,12 +50,23 @@
  *     and PHP has already loaded the current script into memory/opcache for the
  *     running request. The new version takes effect from the next request onward.
  *
+ * v3.11.0: every state-changing entry point - the legacy actions (apply, restore,
+ *          index_create, index_remove, upload_md, save_clipboard), the machine
+ *          install and the browser
+ *          ?update=true / ?restore= modes - refuses cross-site requests: a request
+ *          whose Origin (and, for these actions, Referer) names another host is
+ *          answered with 403 before anything is read or written. Read-only
+ *          requests keep the previous policy of checking Origin alone, so a page
+ *          opened from a link on another site still works. Clients that send
+ *          neither header (CLI tools, server-side integrations) are unaffected.
+ *          The host comparison is now port-insensitive: the old machine-API check
+ *          compared the port as well and rejected same-origin requests that used
+ *          a non-standard port.
  * v3.10.1: .md.ini, md.php and the companion files are resolved in the directory
- *          that contains updater.php instead of DOCUMENT_ROOT. An install under
- *          /extensions/md-viewer/ (RevoAp) therefore reads the very file the
- *          installer writes, so upload_md and save_clipboard get the settings the
- *          panel shows and the machine API key matches again. A one-file install
- *          in the document root behaves exactly as before.
+ *          that contains updater.php instead of DOCUMENT_ROOT, so an install in a
+ *          subdirectory reads the very file the installer writes: upload_md and
+ *          save_clipboard get the settings the panel shows and the machine API
+ *          key matches again. A one-file install in the document root is unchanged.
  * v3.10.0: upload_md and save_clipboard now honour .md.ini BROWSE_DIR - uploaded
  *          and saved documents land in the directory the viewer browses instead
  *          of uploads.md/. Without a usable BROWSE_DIR the classic uploads.md/
@@ -452,7 +463,7 @@ function readIni(): array
         $default .= "ALLOW_RESTORE = false\n\n";
         $default .= "; Allow creating/removing the index.php hard link from the Settings panel\n";
         $default .= "ALLOW_CREATE_INDEX_PHP_LINK = true\n\n";
-        $default .= "; Machine API key - used by external clients (e.g. RevoAp) for\n";
+        $default .= "; Machine API key - used by external clients (e.g. a control panel) for\n";
         $default .= "; updater.php?api_key=<value>&action=status|conflicts|install&format=json\n";
         $default .= "; Keep it secret: it authorises file installs. Rotate by editing this line.\n";
         $default .= "API_KEY = " . generateApiKey() . "\n";
@@ -504,7 +515,7 @@ function readIni(): array
             $cache['API_KEY'] = '';
         } else {
             $newApiKey = generateApiKey();
-            $appendIni .= "\n; Machine API key - used by external clients (e.g. RevoAp) for\n";
+            $appendIni .= "\n; Machine API key - used by external clients (e.g. a control panel) for\n";
             $appendIni .= "; updater.php?api_key=<value>&action=status|conflicts|install&format=json\n";
             $appendIni .= "; Keep it secret: it authorises file installs. Rotate by editing this line.\n";
             $appendIni .= "API_KEY = " . $newApiKey . "\n";
@@ -1397,6 +1408,7 @@ function jsonApiInstall(array $envelope): array
 // Requires ALLOW_UPDATE = true in .md.ini.
 
 if (isset($_GET['update']) && $_GET['update'] === 'true') {
+    requireSameOrigin(false, true);
 
     $ini = @parse_ini_file(docRoot() . '/.md.ini', false, INI_SCANNER_TYPED) ?: [];
     if (!(bool)($ini['ALLOW_UPDATE'] ?? false)) {
@@ -1491,6 +1503,7 @@ if (isset($_GET['update']) && $_GET['update'] === 'true') {
 // Outputs a standalone HTML result page.
 
 if (isset($_GET['restore'])) {
+    requireSameOrigin(false, true);
 
     $ini = readIni();
     if (!(bool)($ini['ALLOW_RESTORE'] ?? false)) {
@@ -1722,15 +1735,93 @@ header('Content-Type: application/json; charset=utf-8');
 header('X-Content-Type-Options: nosniff');
 header('Cache-Control: no-store');
 
-$reqOrigin  = $_SERVER['HTTP_ORIGIN'] ?? '';
-$serverHost = $_SERVER['HTTP_HOST']   ?? '';
-if ($reqOrigin !== '') {
-    $originHost = parse_url($reqOrigin, PHP_URL_HOST) ?? '';
-    if ($originHost !== $serverHost) {
-        http_response_code(403);
+/**
+ * Cross-site guard shared by every state-changing entry point (v3.11.0).
+ *
+ * A browser request carries Origin (fetch/XHR, form POST) and usually Referer.
+ * When that host differs from the host this script was reached on, the request
+ * comes from another site and is refused before anything is read or written.
+ * Clients that send neither header - CLI tools, server-side integrations, plain
+ * links opened from the panel - are not cross-site browser requests and stay
+ * allowed.
+ */
+function hostFromUrl(string $url): string
+{
+    if ($url === '') {
+        return '';
+    }
+    $host = parse_url($url, PHP_URL_HOST);
+    return is_string($host) ? strtolower($host) : '';
+}
+
+/** Request host without a port; an IPv6 literal loses its brackets. */
+function requestHost(): string
+{
+    $host = (string) ($_SERVER['HTTP_HOST'] ?? '');
+    if ($host === '') {
+        $host = (string) ($_SERVER['SERVER_NAME'] ?? '');
+    }
+    if (strncmp($host, '[', 1) === 0) {
+        $end = strpos($host, ']');
+        if ($end !== false) {
+            $host = substr($host, 1, $end - 1);
+        }
+    } elseif (($colon = strpos($host, ':')) !== false) {
+        $host = substr($host, 0, $colon);
+    }
+    return strtolower($host);
+}
+
+function sameOriginViolation(bool $strict): bool
+{
+    // A browser sends Origin on cross-site requests; Referer catches the same
+    // attempt from older clients. The Referer check is only safe for
+    // state-changing requests: a plain page view may legitimately arrive with a
+    // foreign Referer, for example from a link on another site.
+    $headers = $strict ? ['HTTP_ORIGIN', 'HTTP_REFERER'] : ['HTTP_ORIGIN'];
+    foreach ($headers as $header) {
+        $value = (string) ($_SERVER[$header] ?? '');
+        if ($value === '') {
+            continue;
+        }
+        $host = hostFromUrl($value);
+        if ($host === '') {
+            continue; // opaque origin ("null") - nothing to compare with
+        }
+        return $host !== requestHost();
+    }
+    return false;
+}
+
+/**
+ * Refuse a cross-site request. $json picks the error representation, $strict
+ * adds the Referer check, which only state-changing entry points use.
+ */
+function requireSameOrigin(bool $json = true, bool $strict = false): void
+{
+    if (!sameOriginViolation($strict)) {
+        return;
+    }
+    http_response_code(403);
+    if ($json) {
+        header('Content-Type: application/json; charset=utf-8');
         echo json_encode(['error' => 'Forbidden origin']);
         exit;
     }
+    header('Content-Type: text/html; charset=utf-8');
+    echo '<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">'
+        . '<title>Forbidden origin</title></head><body>'
+        . '<h1>Forbidden origin</h1>'
+        . '<p>This request came from another site and was refused.</p>'
+        . '</body></html>';
+    exit;
+}
+
+requireSameOrigin();
+
+// Installing writes files, so the machine install gets the strict check too.
+if (jsonApiRequested() && ($_REQUEST['action'] ?? '') === 'install') {
+    requireSameOrigin(true, true);
 }
 
 // Machine API — JSON only, API-key protected. It owns its own actions and always
@@ -1748,7 +1839,12 @@ if (jsonApiRequested()) {
 if (isset($_REQUEST['action'])) {
     $action = (string) $_REQUEST['action'];
     $method = $_SERVER['REQUEST_METHOD'];
-    if (in_array($action, ['apply', 'restore', 'index_create', 'index_remove', 'upload_md', 'save_clipboard'], true) && $method !== 'POST') {
+    $mutating = ['apply', 'restore', 'index_create', 'index_remove', 'upload_md', 'save_clipboard'];
+    if (in_array($action, $mutating, true)) {
+        // Refuse a cross-site request before the action reads or writes anything.
+        requireSameOrigin(true, true);
+    }
+    if (in_array($action, $mutating, true) && $method !== 'POST') {
         http_response_code(405);
         echo json_encode(['error' => 'POST required for ' . $action]);
         exit;
