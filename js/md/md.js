@@ -1,6 +1,6 @@
 /**
  * Markdown Viewer — Client-side functionality
- * Version: 2.5.2
+ * Version: 2.5.3
  * Author: Mikhail Deynekin
  * Site: https://Deynekin.com
  * Email: Mikhail@Deynekin.com
@@ -13,6 +13,11 @@
  * - Mermaid auto-repair with English console diagnostics
  * - File browser: debounced search, tri-state sort, click/keyboard open
  *
+ * v2.5.3: File rows open an absolute URL spelled out from the page origin with
+ *         duplicate slashes in the path collapsed. A page opened at a path such
+ *         as //extensions/... used to produce a link starting with //, which the
+ *         browser read as a protocol-relative URL and treated as host
+ *         "extensions", so the opened document lost the real domain.
  * v2.5.2: Added classDiagram note conversion, made every application and
  *         console message English, and made Mermaid diagnostics unconditional.
  * v2.5.0: Added Mermaid auto-repair with a grouped console report per diagram.
@@ -27,6 +32,14 @@
     'use strict';
 
     const root = document.documentElement;
+
+    // Absolute URL of this page: the origin the page was opened from plus its
+    // path with duplicate slashes collapsed. Spelling the origin out keeps
+    // generated links on the real host; a bare pathname such as
+    // //extensions/... would be read as a protocol-relative URL and the first
+    // path segment would become the host.
+        const pageUrl = () => window.location.origin
+            + window.location.pathname.replace(/\/{2,}/g, '/');
 
     const THEME_KEY = 'radio-viewer-theme';
 
@@ -521,7 +534,7 @@ window.addEventListener('load', () => {
         if (/[\x00-\x1F\x7F]/.test(path) || /\.\.(?:\/|$)|^\//.test(path)) {
             return;
         }
-        const url = window.location.pathname + '?file=' + encodeURIComponent(path);
+        const url = pageUrl() + '?file=' + encodeURIComponent(path);
         window.open(url, '_blank', 'noopener,noreferrer');
     });
 

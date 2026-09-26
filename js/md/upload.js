@@ -1,9 +1,12 @@
 /**
  * MD.Viewer — File Browser Upload & Clipboard Preview
- * Version: 2.9.0
+ * Version: 2.9.1
  * Auto-extracted from md.php inline <script> block.
  * Requires window.MDV_CONFIG (disableUpload, disableClipboard, currentDir) and ((window.MDV_CONFIG || {}).updaterUrl || 'updater.php').
  *
+ * v2.9.1: the clipboard preview form posts to an absolute URL built from the
+ *         page origin, so the preview keeps the host the page was opened from
+ *         even at a path with duplicate slashes.
  * v2.9.0: the upload and save requests carry MDV_CONFIG.currentDir as "dir"
  *         when it is a non-empty string, so the .md.ini of the directory being
  *         viewed decides the flags and receives the file (updater.php v3.12.0).
@@ -123,7 +126,10 @@
                             // POST to md.php itself — the preview handler runs and returns a full page
                             const form = document.createElement('form');
                             form.method = 'POST';
-                            form.action = window.location.pathname;
+                            // Absolute target: the preview keeps the host this page was opened
+                            // from, even at a path with duplicate slashes collapsed to one here.
+                            form.action = window.location.origin
+                                + window.location.pathname.replace(/\/{2,}/g, '/');
                             form.target = '_blank';
                             form.style.display = 'none';
 
