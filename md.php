@@ -1,10 +1,27 @@
 <?php
 /**
  * Markdown Viewer
- * Version: 2.9.5
+ * Version: 2.10.0
  * Author: Mikhail Deynekin
  * Site: https://Deynekin.com
  * Email: Mikhail@Deynekin.com
+ *
+ * Changelog v2.10.0:
+ * - FEATURE: New optional .md.ini key BROWSE_DIR. A viewer installed in a
+ *   subdirectory can now list and open documents that live in another
+ *   directory (for example /share/ in the site root) instead of the
+ *   directory md.php itself sits in.
+ * - FEATURE: BROWSE_DIR accepts an absolute path, a DOCUMENT_ROOT-relative
+ *   path or an md.php-relative path. The value is trimmed, optional
+ *   surrounding quotes are stripped, and the first candidate that resolves
+ *   to an existing readable directory wins (checked in that order: the value
+ *   as-is when absolute, DOCUMENT_ROOT + value, md.php directory + value).
+ * - SAFETY: An empty or missing BROWSE_DIR keeps the previous behaviour.
+ *   A value longer than 255 bytes or containing a null byte is discarded.
+ *   When nothing resolves, the viewer writes a warning to the error log and
+ *   falls back to the md.php directory. The directory-containment
+ *   (realpath whitelist) check in validateRequestedFile() is unchanged, so
+ *   path traversal stays blocked.
  *
  * Changelog v2.9.5:
 * - FIXED: Stylesheet, script and updater URLs are now relative to the
@@ -211,6 +228,12 @@ declare(strict_types=1);
 //   AUTO_NUMBERING    = true|false   — override rendering feature
 //   AUTO_TOC          = true|false
 //   ... (any key matching a feature constant above)
+//   BROWSE_DIR        = /share/       directory whose .md files are listed
+//                                     (default: empty or absent = directory
+//                                     of md.php). Absolute values, values
+//                                     relative to DOCUMENT_ROOT and values
+//                                     relative to the md.php directory are
+//                                     supported; the first readable one wins.
 (static function () {
     $iniPath = __DIR__ . '/.md.ini';
 
@@ -239,6 +262,14 @@ ALLOW_RESTORE = false
 
 ; Allow creating/removing the index.php hard link from the Settings panel
 ALLOW_CREATE_INDEX_PHP_LINK = true
+
+; Optional: browse .md documents from another directory instead of the
+; directory that contains md.php. Handy when the viewer is installed in a
+; subdirectory and the documents live elsewhere (for example /share/ in the
+; site root). Resolution order: the value itself when absolute, then
+; DOCUMENT_ROOT + value, then the md.php directory + value; the first one
+; that exists and is readable wins. Empty or absent = md.php directory.
+; BROWSE_DIR = /share/
 INI;
         @file_put_contents($iniPath, $default);
     }
@@ -294,6 +325,54 @@ INI;
     define('ALLOW_UPDATE',      (bool)($ini['ALLOW_UPDATE']      ?? false));
     define('ALLOW_RESTORE',              (bool)($ini['ALLOW_RESTORE']              ?? false));
     define('ALLOW_CREATE_INDEX_PHP_LINK',(bool)($ini['ALLOW_CREATE_INDEX_PHP_LINK'] ?? true));
+
+    // BROWSE_DIR (v2.10.0) - optional directory the viewer browses.
+    // Empty or absent value = classic behaviour (the md.php directory).
+    $browseValue = $ini['BROWSE_DIR'] ?? '';
+    if (is_array($browseValue)) {
+        $browseValue = ''; // guard against key[] syntax in .md.ini
+    }
+    $browseValue = trim((string) $browseValue);
+    if (strlen($browseValue) >= 2) {
+        $browseFirst = $browseValue[0];
+        $browseLast  = $browseValue[strlen($browseValue) - 1];
+        if (($browseFirst === '"' && $browseLast === '"')
+            || ($browseFirst === "'" && $browseLast === "'")) {
+            $browseValue = trim(substr($browseValue, 1, -1));
+        }
+    }
+    if (strlen($browseValue) > 255 || str_contains($browseValue, "\0")) {
+        error_log('[MarkdownViewer] .md.ini BROWSE_DIR ignored: value is too long or contains a null byte.');
+        $browseValue = '';
+    }
+
+    $browseResolved = '';
+    if ($browseValue !== '') {
+        $browseCandidates = [];
+        if (str_starts_with($browseValue, '/')
+            || str_starts_with($browseValue, '\\')
+            || preg_match('#^[A-Za-z]:[\\\\/]#', $browseValue) === 1) {
+            $browseCandidates[] = $browseValue; // absolute path as-is
+        }
+        $browseDocRoot = (string) ($_SERVER['DOCUMENT_ROOT'] ?? '');
+        if ($browseDocRoot !== '') {
+            $browseCandidates[] = rtrim($browseDocRoot, '/\\') . '/' . ltrim($browseValue, '/\\');
+        }
+        $browseCandidates[] = __DIR__ . '/' . ltrim($browseValue, '/\\');
+
+        foreach ($browseCandidates as $browseCandidate) {
+            $browseReal = @realpath($browseCandidate);
+            if ($browseReal !== false && is_dir($browseReal) && is_readable($browseReal)) {
+                $browseResolved = $browseReal;
+                break;
+            }
+        }
+        if ($browseResolved === '') {
+            error_log('[MarkdownViewer] .md.ini BROWSE_DIR "' . $browseValue
+                . '" cannot be resolved to a readable directory; falling back to ' . __DIR__);
+        }
+    }
+    define('BROWSE_DIR', $browseResolved);
 })();
 
 // ── Feature toggle resolver (v2.5.1) ────────────────────────────────────────
@@ -346,7 +425,7 @@ const MAX_FILE_PARAM_LENGTH = 255;
 const MAX_SCAN_DEPTH = 3;
 const MAX_FILES_SCAN = 10000;
 
-$baseDir = __DIR__;
+$baseDir = BROWSE_DIR !== '' ? BROWSE_DIR : __DIR__;
 $baseName = pathinfo(__FILE__, PATHINFO_FILENAME);
 $defaultMarkdownFile = $baseDir . '/' . $baseName . '.md';
 
