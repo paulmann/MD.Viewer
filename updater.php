@@ -1,7 +1,7 @@
 <?php
 /**
  * Markdown Viewer — Self-Updater
- * Version: 3.11.0
+ * Version: 3.12.0
  * Author: Mikhail Deynekin
  * Site: https://Deynekin.com
  * Email: Mikhail@Deynekin.com
@@ -50,6 +50,17 @@
  *     and PHP has already loaded the current script into memory/opcache for the
  *     running request. The new version takes effect from the next request onward.
  *
+ * v3.12.0: per-directory .md.ini. upload_md and save_clipboard accept an optional
+ *          "dir" parameter naming a directory below the browse root. The
+ *          DISABLE_* settings of that directory decide whether the action is
+ *          allowed and the file is written there (the directory is created when
+ *          missing). Only DISABLE_UPLOAD, DISABLE_CLIPBOARD and
+ *          DISABLE_SAVE_CLIPBOARD_TO_FILE are read from such files;
+ *          installation-level keys are ignored and reported. A directory whose
+ *          realpath() escapes realpath(BROWSE_DIR), or a "dir" value carrying
+ *          traversal segments, an absolute path or a null byte, is refused with
+ *          400 before anything is read or written. Without the parameter the
+ *          previous behaviour is untouched.
  * v3.11.0: every state-changing entry point - the legacy actions (apply, restore,
  *          index_create, index_remove, upload_md, save_clipboard), the machine
  *          install and the browser
@@ -671,6 +682,325 @@ function destinationDir(array $ini): array
     return [$dir, $label];
 }
 
+// ----------------------------------------------------------------------------
+// Per-directory .md.ini (v3.12.0)
+// ----------------------------------------------------------------------------
+//
+// The .md.ini next to md.php holds the installation-level settings. Any
+// directory inside the browse root may add its own .md.ini: the effective
+// settings of a directory are the base file with every .md.ini found from the
+// browse root down to that directory applied on top, so a deeper file wins over
+// a shallower one.
+//
+// upload_md and save_clipboard accept an optional "dir" parameter naming a
+// directory below the browse root. The settings of that directory decide
+// whether the action is allowed and the file is written there (the directory is
+// created when missing). Without the parameter the classic rules are untouched.
+//
+// Only DISABLE_UPLOAD, DISABLE_CLIPBOARD and DISABLE_SAVE_CLIPBOARD_TO_FILE are
+// honoured in a directory file. BROWSE_DIR, API_KEY, ALLOW_UPDATE,
+// ALLOW_RESTORE and ALLOW_CREATE_INDEX_PHP_LINK stay installation-level: they
+// are ignored and reported to the error log.
+//
+// A value is parsed with the same strictness as the base file (trimmed,
+// optional paired quotes stripped, a value containing a null byte, a newline, a
+// carriage return or more than 255 bytes discarded). An unreadable file or an
+// unusable value is skipped with a log entry - never a fatal error.
+//
+// Security: a .md.ini is only read when its directory realpath() is still
+// inside realpath(browse root); a "dir" value that climbs out with "..", an
+// absolute path or a null byte is refused with 400 before anything is opened.
+
+const MDV_PER_DIR_KEYS = ['DISABLE_UPLOAD', 'DISABLE_CLIPBOARD', 'DISABLE_SAVE_CLIPBOARD_TO_FILE'];
+
+const MDV_INSTALL_KEYS = ['BROWSE_DIR', 'API_KEY', 'ALLOW_UPDATE', 'ALLOW_RESTORE', 'ALLOW_CREATE_INDEX_PHP_LINK'];
+
+const MDV_FLAG_DEFAULTS = [
+    'DISABLE_UPLOAD'                 => true,
+    'DISABLE_CLIPBOARD'              => false,
+    'DISABLE_SAVE_CLIPBOARD_TO_FILE' => true,
+];
+
+/** Longest accepted "dir" value, in bytes - mirrors the viewer's limit. */
+const MDV_DIR_MAX_LENGTH = 255;
+
+/** Deepest accepted "dir" value - mirrors the viewer's scan depth. */
+const MDV_DIR_MAX_DEPTH = 3;
+
+/** True when $path is $root itself or lives below it (both realpath'd). */
+function insideRoot(string $path, string $root): bool
+{
+    if ($path === $root) {
+        return true;
+    }
+    return str_starts_with($path, rtrim($root, '/\\') . DIRECTORY_SEPARATOR);
+}
+
+/**
+ * Split a client-supplied relative directory into path segments (v3.12.0).
+ * Returns [] for the browse root itself, null when the value must be refused.
+ * Same defences as md.php validateRequestedFile(): no absolute path, no
+ * traversal, no null byte or control character, a length and depth limit and a
+ * strict whitelist.
+ *
+ * @return array<int, string>|null
+ */
+function dirSegments(string $dir): ?array
+{
+    $dir = trim($dir);
+    if ($dir === '') {
+        return [];
+    }
+    if (strlen($dir) > MDV_DIR_MAX_LENGTH || str_contains($dir, "\0")) {
+        return null;
+    }
+    if (preg_match('/[\x00-\x1F\x7F]/', $dir) === 1) {
+        return null;
+    }
+    $decoded = urldecode($dir);
+    if (preg_match('/[\x00-\x1F\x7F]/', $decoded) === 1) {
+        return null;
+    }
+    if (str_starts_with($decoded, '/') || str_starts_with($decoded, '\\')
+        || str_starts_with($decoded, '//') || preg_match('/^[A-Za-z]:/', $decoded) === 1) {
+        return null;
+    }
+    $normalized = str_replace(['\\', '//'], '/', $decoded);
+    if (preg_match('#(?:^|/)\.\.(?:/|$)|\.\.$#', $normalized) === 1) {
+        return null;
+    }
+    if (substr_count($normalized, '/') > MDV_DIR_MAX_DEPTH) {
+        return null;
+    }
+    $normalized = trim($normalized, '/');
+    if ($normalized === '' || $normalized === '.') {
+        return [];
+    }
+    if (preg_match('#^[A-Za-z0-9._\-/]+$#', $normalized) !== 1) {
+        return null;
+    }
+    $segments = [];
+    foreach (explode('/', $normalized) as $segment) {
+        if ($segment === '' || $segment === '.') {
+            continue;
+        }
+        $segments[] = $segment;
+    }
+    return $segments;
+}
+
+/**
+ * Read one directory's .md.ini and return the per-directory keys it sets.
+ * Never throws: a missing, unreadable or broken file yields an empty array.
+ * Installation-level keys found here are ignored and reported.
+ *
+ * @return array<string, bool>
+ */
+function dirIniValues(string $dir): array
+{
+    $path = rtrim($dir, '/\\') . '/.md.ini';
+    if (!is_file($path)) {
+        return [];
+    }
+    if (!is_readable($path)) {
+        error_log('[MD.Viewer updater] .md.ini in ' . $dir . ' is not readable; ignored.');
+        return [];
+    }
+    $raw = @parse_ini_file($path, false, INI_SCANNER_TYPED);
+    if (!is_array($raw)) {
+        error_log('[MD.Viewer updater] .md.ini in ' . $dir . ' could not be parsed; ignored.');
+        return [];
+    }
+    foreach (MDV_INSTALL_KEYS as $key) {
+        if (array_key_exists($key, $raw)) {
+            error_log('[MD.Viewer updater] .md.ini key ' . $key . ' in ' . $dir
+                . ' ignored: installation-level setting.');
+        }
+    }
+
+    $applied = [];
+    foreach (MDV_PER_DIR_KEYS as $key) {
+        if (!array_key_exists($key, $raw)) {
+            continue;
+        }
+        $value = $raw[$key];
+        if (is_bool($value)) {
+            $applied[$key] = $value;
+            continue;
+        }
+        if (!is_string($value) && !is_int($value) && !is_float($value)) {
+            error_log('[MD.Viewer updater] .md.ini key ' . $key . ' in ' . $dir . ' ignored: invalid value.');
+            continue;
+        }
+        $text = trim((string) $value);
+        if (strlen($text) >= 2) {
+            $first = $text[0];
+            $last  = $text[strlen($text) - 1];
+            if (($first === '"' && $last === '"') || ($first === "'" && $last === "'")) {
+                $text = trim(substr($text, 1, -1));
+            }
+        }
+        if ($text === '' || strlen($text) > MDV_DIR_MAX_LENGTH
+            || str_contains($text, "\0") || str_contains($text, "\n") || str_contains($text, "\r")) {
+            error_log('[MD.Viewer updater] .md.ini key ' . $key . ' in ' . $dir . ' ignored: invalid value.');
+            continue;
+        }
+        $applied[$key] = (bool) $text;
+    }
+
+    return $applied;
+}
+
+/**
+ * Effective DISABLE_* flags for a directory inside the browse root (v3.12.0).
+ *
+ * The base .md.ini is read first, then every .md.ini found from the browse root
+ * down to the target directory; each one shadows the previous. The directory
+ * that holds the base file is skipped, because its file is already applied. A
+ * directory whose realpath() escapes realpath($root) is skipped with a note,
+ * and its file is never read.
+ *
+ * @param array<string, mixed> $baseIni  Base .md.ini values.
+ * @param string               $root     Browse root directory.
+ * @param array<int, string>   $segments Validated segments below the root.
+ * @return array<string, bool>
+ */
+function effectiveFlags(array $baseIni, string $root, array $segments): array
+{
+    $flags = [];
+    foreach (MDV_FLAG_DEFAULTS as $key => $default) {
+        $flags[$key] = (bool) ($baseIni[$key] ?? $default);
+    }
+
+    $realRoot = realpath($root);
+    if ($realRoot === false) {
+        return $flags;
+    }
+
+    $realBaseDir = realpath(docRoot());
+    $chain       = [$realRoot];
+
+    // Collect the chain: the browse root itself, then every existing directory
+    // below it down to the requested one. The root's own file is part of the
+    // chain - it governs every directory that does not override it.
+    $current = rtrim($realRoot, '/\\');
+
+    foreach ($segments as $segment) {
+        $current = $current . DIRECTORY_SEPARATOR . $segment;
+        if (!is_dir($current)) {
+            break;
+        }
+        $real = realpath($current);
+        if ($real === false) {
+            break;
+        }
+        if (!insideRoot($real, $realRoot)) {
+            error_log('[MD.Viewer updater] .md.ini in ' . $real . ' ignored: outside the browse root.');
+            break;
+        }
+        $chain[] = $real;
+    }
+
+    // Apply them in order, the deepest last, so it wins. The directory that
+    // holds the base file is skipped - its file is already applied.
+    foreach ($chain as $real) {
+        if ($realBaseDir !== false && $real === $realBaseDir) {
+            continue;
+        }
+        $flags = array_merge($flags, dirIniValues($real));
+    }
+
+    return $flags;
+}
+
+/**
+ * Browse root used for uploads and clipboard saves (v3.12.0).
+ *
+ * A BROWSE_DIR that resolves to a writable directory wins. Without the key the
+ * directory of md.php is the root - the directory the viewer browses in that
+ * configuration. A BROWSE_DIR that is set but unusable is a configuration error
+ * and answered with 500, exactly as destinationDir() already did.
+ *
+ * @param array<string, mixed> $ini Base .md.ini values.
+ * @return array{0: string, 1: string} Absolute root directory and its label.
+ */
+function writeRoot(array $ini): array
+{
+    if (browseDirValue($ini) === '') {
+        return [dirname(localPath('md.php')), ''];
+    }
+    $browse = resolveBrowseDir($ini);
+    if ($browse === null) {
+        jsonError(500, 'BROWSE_DIR in .md.ini does not point to a writable directory. Fix the value or its permissions.');
+    }
+    return [$browse[0], $browse[1]];
+}
+
+/**
+ * The optional "dir" parameter of upload_md / save_clipboard (v3.12.0).
+ *
+ * Returns null when the parameter was not sent - the caller then keeps the
+ * classic behaviour. A parameter that is not a usable relative directory below
+ * the browse root is refused with 400 before anything is read or written.
+ *
+ * @return array<int, string>|null Validated segments; null = parameter absent.
+ */
+function requestDirSegments(): ?array
+{
+    static $checked  = false;
+    static $segments = null;
+
+    if (!$checked) {
+        $checked = true;
+        $value   = $_REQUEST['dir'] ?? null;
+        if ($value !== null) {
+            if (!is_string($value)) {
+                jsonError(400, 'Invalid dir parameter.');
+            }
+            $segments = dirSegments($value);
+            if ($segments === null) {
+                jsonError(400, 'Invalid dir parameter.');
+            }
+        }
+    }
+
+    return $segments;
+}
+
+/**
+ * Absolute directory a "dir" request writes into, created when missing and
+ * checked for writability like the classic destinations (v3.12.0).
+ *
+ * Never leaves the browse root: the segments were validated against traversal
+ * and the root is the resolved BROWSE_DIR or the md.php directory - the same
+ * root the viewer browses.
+ *
+ * @param array<string, mixed> $ini      Base .md.ini values.
+ * @param array<int, string>   $segments Validated segments below the root.
+ * @return array{0: string, 1: string}   Absolute directory and client label.
+ */
+function dirInRoot(array $ini, array $segments): array
+{
+    [$root, $label] = writeRoot($ini);
+    $suffix         = $segments === [] ? '' : implode('/', $segments) . '/';
+    $dir            = rtrim($root, '/\\') . ($segments === [] ? '' : '/' . implode('/', $segments));
+
+    if (!is_dir($dir) && !@mkdir($dir, 0755, true)) {
+        jsonError(500, 'Could not create ' . $label . $suffix . ' directory. Check permissions.');
+    }
+    if (!is_writable($dir)) {
+        jsonError(500, 'Directory ' . $label . $suffix . ' is not writable. Check permissions.');
+    }
+
+    // A symlink inside the root must not redirect the write outside it.
+    $realDir  = realpath($dir);
+    $realRoot = realpath($root);
+    if ($realDir === false || $realRoot === false || !insideRoot($realDir, $realRoot)) {
+        jsonError(400, 'Invalid dir parameter.');
+    }
+
+    return [$dir, $label . $suffix];
+}
 function backupRoot(): string
 {
     return docRoot() . '/md.backup';
@@ -2154,7 +2484,15 @@ function doUploadMd(): never
     // ── 0. Check server-side disable flag from .md.ini ───────────────────────
     $iniPath = dirname(localPath('md.php')) . '/.md.ini';
     $ini     = is_file($iniPath) ? (@parse_ini_file($iniPath, false, INI_SCANNER_TYPED) ?: []) : [];
-    if ((bool)($ini['DISABLE_UPLOAD'] ?? true)) {
+
+    // v3.12.0 - per-directory settings. The optional "dir" parameter names a
+    // directory below the browse root; traversal is answered with 400 before
+    // anything is read, and the .md.ini chain of that directory decides the
+    // flag below (the browse root governs when the parameter is absent).
+    $segments = requestDirSegments();
+    $flags    = effectiveFlags($ini, writeRoot($ini)[0], $segments ?? []);
+
+    if ($flags['DISABLE_UPLOAD']) {
         jsonError(403, 'File upload is disabled by server configuration (DISABLE_UPLOAD=true in .md.ini).');
     }
 
@@ -2215,7 +2553,12 @@ function doUploadMd(): never
     }
 
     // ── 4. Ensure destination directory exists ──────────────────────────────
-    [$uploadsDir, $uploadsLabel] = destinationDir($ini);
+    if ($segments === null) {
+        // No "dir" parameter: the classic destination, byte for byte.
+        [$uploadsDir, $uploadsLabel] = destinationDir($ini);
+    } else {
+        [$uploadsDir, $uploadsLabel] = dirInRoot($ini, $segments);
+    }
 
     // ── 5. Destination path ───────────────────────────────────────────────────
     $dest = $uploadsDir . '/' . $name;
@@ -2241,7 +2584,12 @@ function doSaveClipboard(): never
     // ── 0. Check server-side disable flag ────────────────────────────────────
     $iniPath = dirname(localPath('md.php')) . '/.md.ini';
     $ini     = is_file($iniPath) ? (@parse_ini_file($iniPath, false, INI_SCANNER_TYPED) ?: []) : [];
-    if ((bool)($ini['DISABLE_SAVE_CLIPBOARD_TO_FILE'] ?? true)) {
+
+    // v3.12.0 - per-directory settings, see doUploadMd().
+    $segments = requestDirSegments();
+    $flags    = effectiveFlags($ini, writeRoot($ini)[0], $segments ?? []);
+
+    if ($flags['DISABLE_SAVE_CLIPBOARD_TO_FILE']) {
         jsonError(403, 'Save to File is disabled by server configuration (DISABLE_SAVE_CLIPBOARD_TO_FILE=true in .md.ini).');
     }
 
@@ -2277,7 +2625,12 @@ function doSaveClipboard(): never
     $name = preg_replace('/\.md$/i', '.md', $rawName);
 
     // ── 3. Ensure destination directory exists ───────────────────────────────
-    [$uploadsDir, $uploadsLabel] = destinationDir($ini);
+    if ($segments === null) {
+        // No "dir" parameter: the classic destination, byte for byte.
+        [$uploadsDir, $uploadsLabel] = destinationDir($ini);
+    } else {
+        [$uploadsDir, $uploadsLabel] = dirInRoot($ini, $segments);
+    }
 
     $dest = $uploadsDir . '/' . $name;
 

@@ -1,13 +1,29 @@
 <?php
 /**
  * Markdown Viewer
- * Version: 2.11.0
+ * Version: 2.12.0
  * Author: Mikhail Deynekin
  * Site: https://Deynekin.com
  * Email: Mikhail@Deynekin.com
  *
- * Changelog v2.11.0:
- * - DOCS: The .md.ini key reference and the generated template now state that
+ * Changelog v2.12.0:
+ * - FEATURE: Per-directory .md.ini. A directory inside the browse root may
+ *   carry its own .md.ini; the settings that apply to a document are the base
+ *   file next to md.php with every .md.ini found from the browse root down to
+ *   the document's directory applied on top of it (a deeper file wins).
+ * - FEATURE: Only DISABLE_UPLOAD, DISABLE_CLIPBOARD and
+ *   DISABLE_SAVE_CLIPBOARD_TO_FILE are read from a directory file. BROWSE_DIR,
+ *   API_KEY, ALLOW_UPDATE, ALLOW_RESTORE and ALLOW_CREATE_INDEX_PHP_LINK stay
+ *   installation-level: they are ignored there and reported to the error log.
+ * - FEATURE: The interface flags and the new MDV_CONFIG.currentDir value follow
+ *   the directory being shown, so a subdirectory can allow or forbid upload and
+ *   clipboard saving on its own.
+ * - SAFETY: A directory file is only read when its realpath() is inside
+ *   realpath(BROWSE_DIR); a path that climbs out with ".." is refused. Values
+ *   are parsed as strictly as in the base file and an unusable one is skipped
+ *   with a log entry.
+ *
+ * Changelog v2.11.0: * - DOCS: The .md.ini key reference and the generated template now state that
  *   "Upload .md" and "Save to File" write into BROWSE_DIR when it is configured,
  *   and fall back to uploads.md/ next to md.php when it is not. The matching
  *   updater.php v3.10.0 change makes that behaviour real; viewer logic is
@@ -243,8 +259,18 @@ declare(strict_types=1);
 //                                     relative to DOCUMENT_ROOT and values
 //                                     relative to the md.php directory are
 //                                     supported; the first readable one wins.
-(static function () {
-    $iniPath = __DIR__ . '/.md.ini';
+//
+// Per-directory .md.ini (v2.12.0):
+//   Any directory inside the browse root may carry its own .md.ini. The
+//   settings of the directory being shown are the base file above with every
+//   .md.ini found from the browse root down to that directory applied on top;
+//   a deeper file wins over a shallower one. Only DISABLE_UPLOAD,
+//   DISABLE_CLIPBOARD and DISABLE_SAVE_CLIPBOARD_TO_FILE are read there -
+//   BROWSE_DIR, API_KEY, ALLOW_UPDATE, ALLOW_RESTORE and
+//   ALLOW_CREATE_INDEX_PHP_LINK stay installation-level and are reported to the
+//   error log when present in a directory file. A directory outside
+//   realpath(browse root) is never read.
+(static function () {    $iniPath = __DIR__ . '/.md.ini';
 
     // Create default .md.ini if absent
     if (!is_file($iniPath)) {
@@ -329,10 +355,10 @@ INI;
         }
     }
 
-    // DISABLE_* flags — simple bool constants
-    define('DISABLE_UPLOAD',    (bool)($ini['DISABLE_UPLOAD']    ?? true));
-    define('DISABLE_CLIPBOARD', (bool)($ini['DISABLE_CLIPBOARD'] ?? false));
-    define('DISABLE_SAVE_CLIPBOARD_TO_FILE', (bool)($ini['DISABLE_SAVE_CLIPBOARD_TO_FILE'] ?? true));
+    // The DISABLE_* flags became per-directory in v2.12.0: the base values
+    // are kept here and the effective constants are defined below, once the
+    // directory being shown is known. See mdvEffectiveFlags().
+    $GLOBALS['_MDV_BASE_INI'] = $ini;
     define('ALLOW_UPDATE',      (bool)($ini['ALLOW_UPDATE']      ?? false));
     define('ALLOW_RESTORE',              (bool)($ini['ALLOW_RESTORE']              ?? false));
     define('ALLOW_CREATE_INDEX_PHP_LINK',(bool)($ini['ALLOW_CREATE_INDEX_PHP_LINK'] ?? true));
@@ -441,6 +467,35 @@ $baseName = pathinfo(__FILE__, PATHINFO_FILENAME);
 $defaultMarkdownFile = $baseDir . '/' . $baseName . '.md';
 
 // ============================================================
+// SETTINGS: effective .md.ini values for the displayed directory (v2.12.0)
+// ============================================================
+// The directory shown by this request - the directory of ?file=... in viewer
+// mode, the browse root otherwise - may carry its own .md.ini. Only the three
+// DISABLE_* keys are honoured there; installation-level keys are ignored and
+// reported. A deeper file shadows the ones above it, the base file first.
+const MDV_PER_DIR_KEYS = ['DISABLE_UPLOAD', 'DISABLE_CLIPBOARD', 'DISABLE_SAVE_CLIPBOARD_TO_FILE'];
+
+const MDV_INSTALL_KEYS = ['BROWSE_DIR', 'API_KEY', 'ALLOW_UPDATE', 'ALLOW_RESTORE', 'ALLOW_CREATE_INDEX_PHP_LINK'];
+
+const MDV_FLAG_DEFAULTS = [
+    'DISABLE_UPLOAD'                 => true,
+    'DISABLE_CLIPBOARD'              => false,
+    'DISABLE_SAVE_CLIPBOARD_TO_FILE' => true,
+];
+
+$mdvBaseIni  = is_array($GLOBALS['_MDV_BASE_INI'] ?? null) ? $GLOBALS['_MDV_BASE_INI'] : [];
+$mdvRelDir   = mdvRequestedDir($baseDir);
+$mdvSegments = mdvDirSegments($mdvRelDir);
+if ($mdvSegments === null) {
+    $mdvSegments = [];  // validateRequestedFile() already refuses this - stay defensive
+    $mdvRelDir   = '';
+}
+$mdvFlags = mdvEffectiveFlags($mdvBaseIni, $baseDir, $mdvSegments);
+define('DISABLE_UPLOAD',    $mdvFlags['DISABLE_UPLOAD']);
+define('DISABLE_CLIPBOARD', $mdvFlags['DISABLE_CLIPBOARD']);
+define('DISABLE_SAVE_CLIPBOARD_TO_FILE', $mdvFlags['DISABLE_SAVE_CLIPBOARD_TO_FILE']);
+
+// ============================================================
 // SECURITY: Multi-layer file validation
 // ============================================================
 
@@ -531,6 +586,241 @@ function validateRequestedFile(string $file, string $baseDir): ?string
     }
     
     return $realPath;
+}
+
+// ============================================================
+// Per-directory .md.ini (v2.12.0)
+// ============================================================
+//
+// The .md.ini next to md.php holds the installation-level settings. Any
+// directory inside the browse root may add its own .md.ini: the effective
+// settings of a directory are the base file with every .md.ini found from the
+// browse root down to that directory applied on top, so a deeper file wins over
+// a shallower one.
+//
+// Only DISABLE_UPLOAD, DISABLE_CLIPBOARD and DISABLE_SAVE_CLIPBOARD_TO_FILE are
+// honoured per directory. BROWSE_DIR, API_KEY, ALLOW_UPDATE, ALLOW_RESTORE and
+// ALLOW_CREATE_INDEX_PHP_LINK stay installation-level: they are ignored in a
+// directory file and reported to the error log.
+//
+// A value is parsed with the same strictness as the base file (trimmed,
+// optional paired quotes stripped, a value containing a null byte, a newline, a
+// carriage return or more than 255 bytes discarded). An unreadable file or an
+// unusable value is skipped with a log entry - never a fatal error.
+//
+// Security: a directory is only read when its realpath() is still inside
+// realpath(browse root); a path that climbs out with ".." is refused before
+// anything is opened, exactly like ?file=.
+
+/** True when $path is $root itself or lives below it (both realpath'd). */
+function mdvInsideRoot(string $path, string $root): bool
+{
+    if ($path === $root) {
+        return true;
+    }
+    return str_starts_with($path, rtrim($root, '/\\') . DIRECTORY_SEPARATOR);
+}
+
+/**
+ * Split a client-supplied relative directory into path segments.
+ * Returns [] for the browse root itself, null when the value must be refused.
+ * Mirrors validateRequestedFile(): no absolute path, no traversal, no null byte
+ * or control character, a length and depth limit and a strict whitelist.
+ *
+ * @return array<int, string>|null
+ */
+function mdvDirSegments(string $dir): ?array
+{
+    $dir = trim($dir);
+    if ($dir === '') {
+        return [];
+    }
+    if (strlen($dir) > MAX_FILE_PARAM_LENGTH || str_contains($dir, "\0")) {
+        return null;
+    }
+    if (preg_match('/[\x00-\x1F\x7F]/', $dir) === 1) {
+        return null;
+    }
+    $decoded = urldecode($dir);
+    if (preg_match('/[\x00-\x1F\x7F]/', $decoded) === 1) {
+        return null;
+    }
+    if (str_starts_with($decoded, '/') || str_starts_with($decoded, '\\')
+        || str_starts_with($decoded, '//') || preg_match('/^[A-Za-z]:/', $decoded) === 1) {
+        return null;
+    }
+    $normalized = str_replace(['\\', '//'], '/', $decoded);
+    if (preg_match('#(?:^|/)\.\.(?:/|$)|\.\.$#', $normalized) === 1) {
+        return null;
+    }
+    if (substr_count($normalized, '/') > MAX_SCAN_DEPTH) {
+        return null;
+    }
+    $normalized = trim($normalized, '/');
+    if ($normalized === '' || $normalized === '.') {
+        return [];
+    }
+    if (preg_match('#^[A-Za-z0-9._\-/]+$#', $normalized) !== 1) {
+        return null;
+    }
+    $segments = [];
+    foreach (explode('/', $normalized) as $segment) {
+        if ($segment === '' || $segment === '.') {
+            continue;
+        }
+        $segments[] = $segment;
+    }
+    return $segments;
+}
+
+/**
+ * Read one directory's .md.ini and return the per-directory keys it sets.
+ * Never throws: a missing, unreadable or broken file yields an empty array.
+ * Installation-level keys found here are ignored and reported.
+ *
+ * @return array<string, bool>
+ */
+function mdvReadDirIni(string $dir): array
+{
+    $path = rtrim($dir, '/\\') . '/.md.ini';
+    if (!is_file($path)) {
+        return [];
+    }
+    if (!is_readable($path)) {
+        error_log('[MarkdownViewer] .md.ini in ' . $dir . ' is not readable; ignored.');
+        return [];
+    }
+    $raw = @parse_ini_file($path, false, INI_SCANNER_TYPED);
+    if (!is_array($raw)) {
+        error_log('[MarkdownViewer] .md.ini in ' . $dir . ' could not be parsed; ignored.');
+        return [];
+    }
+    foreach (MDV_INSTALL_KEYS as $key) {
+        if (array_key_exists($key, $raw)) {
+            error_log('[MarkdownViewer] .md.ini key ' . $key . ' in ' . $dir
+                . ' ignored: installation-level setting.');
+        }
+    }
+
+    $applied = [];
+    foreach (MDV_PER_DIR_KEYS as $key) {
+        if (!array_key_exists($key, $raw)) {
+            continue;
+        }
+        $value = $raw[$key];
+        if (is_bool($value)) {
+            $applied[$key] = $value;
+            continue;
+        }
+        if (!is_string($value) && !is_int($value) && !is_float($value)) {
+            error_log('[MarkdownViewer] .md.ini key ' . $key . ' in ' . $dir . ' ignored: invalid value.');
+            continue;
+        }
+        $text = trim((string) $value);
+        if (strlen($text) >= 2) {
+            $first = $text[0];
+            $last  = $text[strlen($text) - 1];
+            if (($first === '"' && $last === '"') || ($first === "'" && $last === "'")) {
+                $text = trim(substr($text, 1, -1));
+            }
+        }
+        if ($text === '' || strlen($text) > 255
+            || str_contains($text, "\0") || str_contains($text, "\n") || str_contains($text, "\r")) {
+            error_log('[MarkdownViewer] .md.ini key ' . $key . ' in ' . $dir . ' ignored: invalid value.');
+            continue;
+        }
+        $applied[$key] = (bool) $text;
+    }
+
+    return $applied;
+}
+
+/**
+ * Effective DISABLE_* flags for a directory inside the browse root (v2.12.0).
+ *
+ * The base .md.ini is read first, then every .md.ini found from the browse root
+ * down to the target directory; each one shadows the previous. The directory
+ * that holds the base file is skipped, because its file is already applied. A
+ * directory whose realpath() escapes realpath($root) is skipped with a note,
+ * and its file is never read.
+ *
+ * @param array<string, mixed> $baseIni  Base .md.ini values.
+ * @param string               $root     Browse root directory.
+ * @param array<int, string>   $segments Validated segments below the root.
+ * @return array<string, bool>
+ */
+function mdvEffectiveFlags(array $baseIni, string $root, array $segments): array
+{
+    $flags = [];
+    foreach (MDV_FLAG_DEFAULTS as $key => $default) {
+        $flags[$key] = (bool) ($baseIni[$key] ?? $default);
+    }
+
+    $realRoot = realpath($root);
+    if ($realRoot === false) {
+        return $flags;
+    }
+
+    $realBaseDir = realpath(__DIR__);
+    $chain       = [$realRoot];
+
+    // Collect the chain: the browse root itself, then every existing directory
+    // below it down to the requested one. The root's own file is part of the
+    // chain - it governs the file-browser view and every directory that does
+    // not override it.
+    $current = rtrim($realRoot, '/\\');
+
+    foreach ($segments as $segment) {
+        $current = $current . DIRECTORY_SEPARATOR . $segment;
+        if (!is_dir($current)) {
+            break;
+        }
+        $real = realpath($current);
+        if ($real === false) {
+            break;
+        }
+        if (!mdvInsideRoot($real, $realRoot)) {
+            error_log('[MarkdownViewer] .md.ini in ' . $real . ' ignored: outside the browse root.');
+            break;
+        }
+        $chain[] = $real;
+    }
+
+    // Apply them in order, the deepest last, so it wins. The directory that
+    // holds the base file is skipped - its file is already applied.
+    foreach ($chain as $real) {
+        if ($realBaseDir !== false && $real === $realBaseDir) {
+            continue;
+        }
+        $flags = array_merge($flags, mdvReadDirIni($real));
+    }
+
+    return $flags;
+}
+
+/**
+ * Directory, relative to the browse root, whose settings govern this request
+ * (v2.12.0): the directory of ?file=... when a document is shown, the browse
+ * root itself otherwise. Returns '' for the root, also when the parameter is
+ * missing or refused.
+ */
+function mdvRequestedDir(string $baseDir): string
+{
+    $file = $_GET['file'] ?? null;
+    if (!is_string($file) || $file === '') {
+        return '';
+    }
+    $validated = validateRequestedFile($file, $baseDir);
+    if ($validated === null) {
+        return '';
+    }
+    $realBase = realpath($baseDir);
+    if ($realBase === false) {
+        return '';
+    }
+    $relative = ltrim(str_replace('\\', '/', substr($validated, strlen($realBase))), '/');
+    $dir      = dirname($relative);
+    return ($dir === '.' || $dir === '/' || $dir === '') ? '' : trim($dir, '/');
 }
 
 /**
@@ -3191,6 +3481,7 @@ render_page:
             'disableUpload'              => DISABLE_UPLOAD,
             'disableClipboard'           => DISABLE_CLIPBOARD,
             'disableSaveClipboardToFile' => DISABLE_SAVE_CLIPBOARD_TO_FILE,
+            'currentDir'                 => $mdvRelDir,
             'allowUpdate'                => ALLOW_UPDATE,
             'allowRestore'               => ALLOW_RESTORE,
             'allowCreateIndexPhpLink'    => ALLOW_CREATE_INDEX_PHP_LINK,

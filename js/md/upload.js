@@ -1,8 +1,13 @@
 /**
  * MD.Viewer — File Browser Upload & Clipboard Preview
- * Version: 2.8.1
+ * Version: 2.9.0
  * Auto-extracted from md.php inline <script> block.
- * Requires window.MDV_CONFIG (disableUpload, disableClipboard) and ((window.MDV_CONFIG || {}).updaterUrl || 'updater.php').
+ * Requires window.MDV_CONFIG (disableUpload, disableClipboard, currentDir) and ((window.MDV_CONFIG || {}).updaterUrl || 'updater.php').
+ *
+ * v2.9.0: the upload and save requests carry MDV_CONFIG.currentDir as "dir"
+ *         when it is a non-empty string, so the .md.ini of the directory being
+ *         viewed decides the flags and receives the file (updater.php v3.12.0).
+ *         An unknown directory keeps the previous request shape.
  */
 'use strict';
 
@@ -81,6 +86,10 @@
 
                     const fd = new FormData();
                     fd.append('md_file', file, file.name);
+                    // v2.9.0: write into the directory being viewed when it is known.
+                    if (typeof cfg.currentDir === 'string' && cfg.currentDir !== '') {
+                        fd.append('dir', cfg.currentDir);
+                    }
 
                     fetch(((window.MDV_CONFIG || {}).updaterUrl || 'updater.php') + '?action=upload_md', { method: 'POST', body: fd })
                         .then(function (r) { return r.json(); })
@@ -199,6 +208,10 @@
                 const fd = new FormData();
                 fd.append('content',  mdText);
                 fd.append('filename', name);
+                // v2.9.0: same directory rule as the upload above.
+                if (typeof cfg.currentDir === 'string' && cfg.currentDir !== '') {
+                    fd.append('dir', cfg.currentDir);
+                }
 
                 fetch(updaterUrl + '?action=save_clipboard', { method: 'POST', body: fd })
                     .then(function (r) { return r.json(); })

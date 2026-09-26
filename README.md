@@ -211,6 +211,50 @@ API_KEY = mdv_0123456789abcdef0123456789abcdef0123456789abcdef
 
 **All keys are auto-appended** (with their default values) to existing `.md.ini` files on next load — upgrading never requires manual `.md.ini` edits.
 
+### Per-directory `.md.ini` (v2.12.0 / v3.12.0)
+
+The `.md.ini` next to `md.php` keeps its role as the installation-level file
+(`BROWSE_DIR`, `API_KEY`, `ALLOW_*`, and the defaults for the `DISABLE_*` flags).
+On top of it, **any directory inside the browse root may carry its own
+`.md.ini`**. The settings that apply to a document are the base file with every
+`.md.ini` found on the way from the browse root down to the document's directory
+applied over it - a deeper file always wins over a shallower one:
+
+```text
+ext/mdviewer/.md.ini     base file: installation-level keys, API key
+share/.md.ini            applies to everything below share/
+share/sub/.md.ini        applies to share/sub/ and below, and wins
+```
+
+Only these three keys are honoured in a directory file:
+
+| Key | Default | Effect in that directory |
+|---|---|---|
+| `DISABLE_UPLOAD` | `true` | Whether **Upload .md** is allowed and where the upload lands |
+| `DISABLE_CLIPBOARD` | `false` | Whether the Clipboard Preview button is active |
+| `DISABLE_SAVE_CLIPBOARD_TO_FILE` | `true` | Whether **Save to File** is allowed and where the file lands |
+
+Rules:
+
+- The keys `BROWSE_DIR`, `API_KEY`, `ALLOW_UPDATE`, `ALLOW_RESTORE` and
+  `ALLOW_CREATE_INDEX_PHP_LINK` are installation-level. They are ignored in a
+  directory file, and a note is written to the PHP error log.
+- Values are parsed as strictly as in the base file (trimmed, optional paired
+  quotes stripped, a value containing a null byte, a newline or more than 255
+  bytes discarded). An unreadable file or an unusable value is skipped with an
+  error-log entry - it never breaks the page and never falls back to a
+  privileged default.
+- A directory `.md.ini` is only read when its real path is inside the browse
+  root, so a path that tries to climb out with `..` is refused.
+- In viewer mode (`?file=sub/doc.md`) the document's directory governs; in file
+  browser mode the browse root governs.
+- **Upload .md** and **Save to File** write into the directory being viewed. The
+  request carries it in the `dir` parameter (relative to the browse root); a
+  `dir` value with traversal segments, an absolute path or a null byte is
+  answered with `400`, and a directory cannot be left in any other way either.
+- Directory `.md.ini` files are optional. Without them behaviour is exactly as
+  before.
+
 ---
 
 ## Usage modes
@@ -278,7 +322,7 @@ Every toggle in the **Features** section of the Settings panel shows a detailed 
 
 ### File upload
 
-If `DISABLE_UPLOAD = false` in `.md.ini`, the file browser shows an **Upload .md** button. Uploaded files are saved into `BROWSE_DIR`, or into `uploads.md/` next to `md.php` when that key is unset. Upload protection is three-layered:
+If `DISABLE_UPLOAD = false` in `.md.ini`, the file browser shows an **Upload .md** button. Uploaded files are saved into `BROWSE_DIR`, or into `uploads.md/` next to `md.php` when that key is unset. With per-directory settings the file lands in the directory being viewed instead, and that directory's own `.md.ini` decides whether the action is allowed. Upload protection is three-layered:
 
 1. UI button hidden/disabled when `DISABLE_UPLOAD = true`.
 2. JS click handler early-returns if `MDV_CONFIG.disableUpload` is true.
@@ -286,7 +330,7 @@ If `DISABLE_UPLOAD = false` in `.md.ini`, the file browser shows an **Upload .md
 
 ### Clipboard preview and Save to File
 
-Paste Markdown text and render it instantly without saving a file. If `DISABLE_SAVE_CLIPBOARD_TO_FILE = false`, a Save to File bar appears with filename input, Save button, and inline status feedback. Source text is stored in `sessionStorage` when preview opens.
+Paste Markdown text and render it instantly without saving a file. If `DISABLE_SAVE_CLIPBOARD_TO_FILE = false`, a Save to File bar appears with filename input, Save button, and inline status feedback. Source text is stored in `sessionStorage` when preview opens. The file is written into the directory being viewed, and a per-directory `.md.ini` can disable or re-enable saving there.
 
 ### Settings panel
 
@@ -469,6 +513,7 @@ All security-sensitive actions are protected at **three independent levels**: se
 Additional protections:
 
 - **`.md.ini`** is never served to the browser — it is read server-side only.
+- **Per-directory `.md.ini`** files are read only from directories inside the browse root, and only the `DISABLE_*` keys are taken from them; installation-level keys are ignored and logged.
 - **Path traversal** is prevented in all file-serving, upload, and save operations.
 - **Upload / Save to File** validate filenames server-side (`.md` extension only, no slashes, no null bytes).
 - **CORS guard** in `updater.php` rejects cross-origin requests.
