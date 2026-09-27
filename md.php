@@ -1,11 +1,16 @@
 <?php
 /**
  * Markdown Viewer
- * Version: 2.12.0
+  * Version: 2.13.0
  * Author: Mikhail Deynekin
  * Site: https://Deynekin.com
  * Email: Mikhail@Deynekin.com
  *
+ v2.13.0: a GET whose path carries a doubled slash is redirected once to the
+          clean path. A page opened at //extensions/... keeps it, and every
+          relative link built from it inherits the doubled slash - which is what
+          turned a document link into a protocol-relative URL whose host was the
+          first path segment. POST is left alone.
  * Changelog v2.12.0:
  * - FEATURE: Per-directory .md.ini. A directory inside the browse root may
  *   carry its own .md.ini; the settings that apply to a document are the base
@@ -237,6 +242,20 @@
  */
 
 declare(strict_types=1);
+
+// v2.13.0 - normalise a doubled slash in the request path before anything else.
+// Only GET: the clipboard preview POSTs to this file and a redirect would drop the
+// body. The query string travels inside REQUEST_URI, so nothing is lost.
+if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET') {
+    $requestUri = (string)($_SERVER['REQUEST_URI'] ?? '');
+    if ($requestUri !== '' && $requestUri[0] === '/') {
+        $cleanUri = preg_replace('#/{2,}#', '/', $requestUri);
+        if (is_string($cleanUri) && $cleanUri !== $requestUri) {
+            header('Location: ' . $cleanUri, true, 301);
+            exit;
+        }
+    }
+}
 
 
 
