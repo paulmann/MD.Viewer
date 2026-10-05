@@ -1,6 +1,6 @@
 <!--
  * MD.Viewer — Documentation
- * Version: 2.11.0
+ * Version: 2.11.1
 -->
 
 # MD.Viewer
@@ -9,7 +9,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://github.com/paulmann/MD.Viewer/blob/main/LICENSE)
 [![PHP](https://img.shields.io/badge/PHP-8.3%2B-777BB4?logo=php&logoColor=white)](https://php.net)
-[![md.php](https://img.shields.io/badge/md.php-v2.15.0-success)](https://github.com/paulmann/MD.Viewer)
+[![md.php](https://img.shields.io/badge/md.php-v2.15.1-success)](https://github.com/paulmann/MD.Viewer)
 [![updater.php](https://img.shields.io/badge/updater.php-v3.9.0-4f46e5)](https://github.com/paulmann/MD.Viewer)
 
 ---
@@ -498,16 +498,16 @@ own credential for the JSON actions.
 All files managed by the updater (checked, downloaded, backed up):
 
 ```
-md.php                    v2.15.0
+md.php                    v2.15.1
 updater.php               v3.9.0
-js/md/md.js               v2.5.3
-js/md/settings.js         v2.10.0
+js/md/md.js               v2.6.0
+js/md/settings.js         v2.10.1
 js/md/tooltips.js         v2.4.5
 js/md/upload.js           v2.8.0
 css/md/md.css             v2.2.2
 css/md/settings.css       v2.8.1
 css/md/tooltips.css       v2.4.5
-README.md                 v2.11.0
+README.md                 v2.11.1
 LICENSE                   v1.0.0
 ```
 

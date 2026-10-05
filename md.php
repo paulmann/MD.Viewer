@@ -1,10 +1,12 @@
 <?php
 /**
  * Markdown Viewer
-  * Version: 2.15.0
+  * Version: 2.15.1
  * Author: Mikhail Deynekin
  * Site: https://Deynekin.com
  * Email: Mikhail@Deynekin.com
+ *
+ v2.15.1: the copy control carries the same .copy-btn class as the code and quote controls, so the one delegated handler in js/md/md.js serves it too; it reads data-copy-source when the control has no rendered block to copy. No second handler anywhere.
  *
  v2.15.0: a copy control for the document being read.
  * - FEATURE: FEATURE_COPY_BUTTON (default on) shows a button that puts the
@@ -3650,7 +3652,7 @@ render_page:
                 <?php if ($mdvCopyInside): ?>
                 <button
                     type="button"
-                    id="btn-copy-md"                    class="inline-flex min-h-11 min-w-11 items-center justify-center rounded-full border border-slate-200 bg-white/80 px-3 py-2 text-sm font-medium text-slate-700 shadow-soft transition-colors hover:bg-white hover:text-slate-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed dark:border-slate-700 dark:bg-slate-900/80 dark:text-slate-200 dark:hover:bg-slate-900 dark:hover:text-white dark:focus-visible:ring-offset-slate-950"
+                    id="btn-copy-md"                    class="copy-btn inline-flex min-h-11 min-w-11 items-center justify-center rounded-full border border-slate-200 bg-white/80 px-3 py-2 text-sm font-medium text-slate-700 shadow-soft transition-colors hover:bg-white hover:text-slate-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed dark:border-slate-700 dark:bg-slate-900/80 dark:text-slate-200 dark:hover:bg-slate-900 dark:hover:text-white dark:focus-visible:ring-offset-slate-950"
                     data-copy-source="?file=<?= e(rawurlencode($mdvCopyRelative)) ?>&amp;download=1"
                     aria-label="Copy the Markdown source of this file to the clipboard"
                     title="Copy .md source"

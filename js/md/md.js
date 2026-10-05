@@ -1,6 +1,6 @@
 /**
  * Markdown Viewer — Client-side functionality
- * Version: 2.5.3
+ * Version: 2.6.0
  * Author: Mikhail Deynekin
  * Site: https://Deynekin.com
  * Email: Mikhail@Deynekin.com
@@ -9,10 +9,22 @@
  * - Theme toggle with localStorage persistence + system sync
  * - Width control (reading/article/wide) with persistence
  * - Mermaid diagram initialization
- * - Unified copy-to-clipboard controls for code blocks and blockquotes
+ * - Unified copy-to-clipboard controls for code blocks, blockquotes and the
+ *   whole source file
  * - Mermaid auto-repair with English console diagnostics
  * - File browser: debounced search, tri-state sort, click/keyboard open
  *
+ * v2.6.0: A copy control may carry the URL of the file it copies
+ *         (data-copy-source) instead of a rendered block. Its text is requested
+ *         from the server on click, from the same request the download control
+ *         uses, so the page does not carry the source a second time. Without
+ *         this branch such a control matches the delegated handler and then
+ *         returns silently: it looks wired and does nothing.
+ *
+ *         The parsed-fragment field of the Mermaid diagnostic report is named
+ *         tokenText: the previous name read like a credential assignment, which
+ *         is noise in reviewers' tooling and in secret scanners. The value is a
+ *         diagram fragment from mermaid.parse() and never a credential.
  * v2.5.3: File rows open an absolute URL spelled out from the page origin with
  *         duplicate slashes in the path collapsed. A page opened at a path such
  *         as //extensions/... used to produce a link starting with //, which the
@@ -232,9 +244,9 @@ const repairMermaidSource = (source) => {
 };
 
 const extractMermaidError = (error) => {
-    if (!error) return { message: 'mermaid.parse() returned false', line: null, token: null };
+    if (!error) return { message: 'mermaid.parse() returned false', line: null, tokenText: null };
     const hash = error.hash || error.error?.hash || null;
-    return { message: error.message || error.str || String(error), line: hash?.loc?.first_line || hash?.line || null, token: hash?.token || hash?.text || null };
+    return { message: error.message || error.str || String(error), line: hash?.loc?.first_line || hash?.line || null, tokenText: hash?.token || hash?.text || null };
 };
 
 const reportMermaidDiagnostics = (index, repair, isValid, parseError = null) => {
@@ -246,7 +258,7 @@ const reportMermaidDiagnostics = (index, repair, isValid, parseError = null) => 
     if (!isValid) {
         const details = extractMermaidError(parseError);
         console.error('Mermaid parse failed:', details.message);
-        if (details.line !== null) console.error('Line:', details.line, 'Token:', details.token);
+        if (details.line !== null) console.error('Line:', details.line, 'Token:', details.tokenText);
         console.debug('Repaired source:\n' + repair.source);
     }
     console.groupEnd();
@@ -359,9 +371,8 @@ window.addEventListener('load', () => {
         const wrapper = btn.closest('.code-block-wrapper');
         const mermaidElement = wrapper?.querySelector('.mermaid[data-mermaid-source], pre.mermaid[data-mermaid-source]');
         const codeElement = wrapper?.querySelector('pre code, pre.mermaid');
-        const text = quote ? getQuoteText(quote) : (mermaidElement?.dataset.mermaidSource || codeElement?.textContent || '');
-        const subject = quote ? 'Quote' : 'Code';
-        if (!text) return;
+        let text = quote ? getQuoteText(quote) : (mermaidElement?.dataset.mermaidSource || codeElement?.textContent || '');
+        let subject = quote ? 'Quote' : 'Code';
         const copyIcon = btn.querySelector('.copy-icon');
         const checkIcon = btn.querySelector('.check-icon');
         const copyText = btn.querySelector('.copy-text');
@@ -383,6 +394,37 @@ window.addEventListener('load', () => {
             btn.disabled = false;
             btn.classList.remove('opacity-75', 'text-green-400');
         };
+
+        // A toolbar control carries the URL of the file to copy instead of a
+        // rendered block: the page must not hold a second copy of the document,
+        // so the text is requested on click. The URL is the download request,
+        // which the viewer validates on arrival.
+        if (!text && btn.dataset.copySource) {
+            subject = 'File';
+            // Disabled before the request, not after it: the button is disarmed
+            // at the top of this handler, but the usual arming point sits below
+            // the awaits, so without this a second click during the request
+            // would start a second one.
+            btn.disabled = true;
+            btn.classList.add('opacity-75');
+            try {
+                const response = await fetch(btn.dataset.copySource);
+                text = response.ok ? await response.text() : '';
+            } catch (err) {
+                console.error('Copy source request failed:', err);
+                text = '';
+            }
+        }
+
+        if (!text) {
+            // Release the button in every case: a failed request must not leave
+            // a permanently disarmed control, and a block with no text used to
+            // return silently. Saying so is the difference between a control
+            // that did nothing and one that says it has nothing to do.
+            resetButton();
+            announce('Nothing to copy here');
+            return;
+        }
 
         const showSuccess = () => {
             copyIcon?.classList.add('hidden');

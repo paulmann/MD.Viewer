@@ -1,8 +1,13 @@
 /**
  * MD.Viewer — Settings Panel Engine
- * Version: 2.10.0
+ * Version: 2.10.1
  * Auto-extracted from md.php inline <script> block.
  * Requires window.MDV_CONFIG to be set before this script loads.
+ *
+ * v2.10.1: The toolbar copy control is left to the delegated .copy-btn listener
+ *          in js/md/md.js, so no copy logic lives here. This file keeps only its
+ *          panel entry, so the toggle stays in the panel and the copy logic has
+ *          one home.
  *
  * v2.10.0: The copy control for the document being read joins the panel. It is
  *          an interface gate like the two download toggles, and it is
@@ -473,91 +478,11 @@
         if (hDec) hDec.addEventListener('click', () => applyFS(currentFS - FS_STEP));
         if (hInc) hInc.addEventListener('click', () => applyFS(currentFS + FS_STEP));
 
-        // Copy the source of the document being read (v2.10.0).
-        //
-        // This control deliberately does NOT carry the .copy-btn class: the
-        // delegated handler in js/md/md.js matches that class and derives its
-        // text from a rendered blockquote or code block, so a toolbar button
-        // carrying it would be matched, find no text and return silently. It
-        // would look wired and do nothing.
-        //
-        // The text is fetched on click from data-copy-source, which is the same
-        // validated request the download control uses; the page therefore does
-        // not carry a second copy of the document. The element is wired by id,
-        // so it stays independent of the toolbar visibility preferences above.
-        const copyMdBtn = document.getElementById('btn-copy-md');
-        if (copyMdBtn) {
-            const copyMdIcon  = copyMdBtn.querySelector('.copy-icon');
-            const copyMdCheck = copyMdBtn.querySelector('.check-icon');
-            const copyMdStatus = document.getElementById('copy-status');
-
-            const announceCopy = (message) => {
-                if (copyMdStatus) {
-                    copyMdStatus.textContent = message;
-                    window.setTimeout(() => { copyMdStatus.textContent = ''; }, 3000);
-                }
-            };
-
-            const fallbackCopyText = (text) => {
-                const textarea = document.createElement('textarea');
-                textarea.value = text;
-                textarea.style.cssText = 'position:fixed;left:-9999px;top:-9999px;opacity:0';
-                textarea.setAttribute('readonly', '');
-                document.body.appendChild(textarea);
-                textarea.select();
-                textarea.setSelectionRange(0, textarea.value.length);
-                let ok = false;
-                try {
-                    ok = document.execCommand('copy');
-                } finally {
-                    document.body.removeChild(textarea);
-                }
-                if (!ok) {
-                    throw new Error('execCommand copy failed');
-                }
-            };
-
-            copyMdBtn.addEventListener('click', async () => {
-                if (copyMdBtn.disabled) return;
-                copyMdBtn.disabled = true;
-                copyMdBtn.classList.add('opacity-75');
-
-                const restoreIcon = () => {
-                    copyMdIcon?.classList.remove('hidden');
-                    copyMdCheck?.classList.add('hidden');
-                };
-
-                try {
-                    const response = await fetch(copyMdBtn.dataset.copySource);
-                    if (!response.ok) {
-                        throw new Error('source request answered ' + response.status);
-                    }
-                    const text = await response.text();
-                    if (!text) {
-                        throw new Error('source is empty');
-                    }
-                    if (navigator.clipboard && window.isSecureContext) {
-                        await navigator.clipboard.writeText(text);
-                    } else {
-                        fallbackCopyText(text);
-                    }
-                    copyMdIcon?.classList.add('hidden');
-                    copyMdCheck?.classList.remove('hidden');
-                    announceCopy('File copied to clipboard');
-                    window.setTimeout(() => {
-                        restoreIcon();
-                        copyMdBtn.disabled = false;
-                        copyMdBtn.classList.remove('opacity-75');
-                    }, 2000);
-                } catch (err) {
-                    console.error('Copy source to clipboard failed:', err);
-                    restoreIcon();
-                    copyMdBtn.disabled = false;
-                    copyMdBtn.classList.remove('opacity-75');
-                    announceCopy('Failed to copy the file. Select and copy manually.');
-                }
-            });
-        }
+        // The toolbar copy control (#btn-copy-md) is NOT wired here: like the
+        // blockquote and code-block controls it is handled by the delegated
+        // .copy-btn listener in js/md/md.js (v2.6.0), which reads its
+        // data-copy-source when the control carries no rendered block. Wiring it
+        // in two places would copy twice.
 
         // Panel font-size
         document.getElementById('sp-fs-decrease')?.addEventListener('click', () => applyFS(currentFS - FS_STEP));
