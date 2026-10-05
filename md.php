@@ -1,10 +1,21 @@
 <?php
 /**
  * Markdown Viewer
-  * Version: 2.14.0
+  * Version: 2.15.0
  * Author: Mikhail Deynekin
  * Site: https://Deynekin.com
  * Email: Mikhail@Deynekin.com
+ *
+ v2.15.0: a copy control for the document being read.
+ * - FEATURE: FEATURE_COPY_BUTTON (default on) shows a button that puts the
+ *   source .md into the clipboard, so a reader can paste the document rather
+ *   than save it. It sits to the left of the download control.
+ * - SAFETY: the button asks for the very request the download control uses
+ *   (?file=...&download=1), which validateRequestedFile() has already been
+ *   deciding for every other read. The page therefore does not carry a second
+ *   copy of the document, and the readable set is unchanged.
+ * - NOTE: like the two download toggles this is an interface gate rather than
+ *   access control, and it is read-only: nothing here writes to disk.
  *
  v2.14.0: two download toggles, and the read path they need.
  * - FEATURE: FEATURE_DOWNLOAD_ICON (default on) shows a download control on
@@ -381,6 +392,7 @@ INI;
         'FEATURE_TASK_LISTS', 'FEATURE_FOOTNOTES', 'FEATURE_SUBSUP', 'FEATURE_EMOJI',
         'SPLIT_TITLE_BY_COLON', 'GLOSSARY_TOOLTIPS', 'PARAGRAPH_BREAK_STYLE',
         'COOKIE_ACCEPT', 'FEATURE_DOWNLOAD_ICON', 'FEATURE_DOWNLOAD_BUTTON',
+        'FEATURE_COPY_BUTTON',
     ];
     foreach ($featureKeys as $k) {
         if (array_key_exists($k, $ini)) {
@@ -492,6 +504,9 @@ define('GLOSSARY_TOOLTIPS',    feat('GLOSSARY_TOOLTIPS',    true));
 // let the reader take the source with them.
 define('FEATURE_DOWNLOAD_ICON',   feat('FEATURE_DOWNLOAD_ICON',   true));
 define('FEATURE_DOWNLOAD_BUTTON', feat('FEATURE_DOWNLOAD_BUTTON', true));
+// Copy toggle (v2.15.0) - interface gate for the copy control beside the
+// download control. Read-only: it fetches the same validated request.
+define('FEATURE_COPY_BUTTON',     feat('FEATURE_COPY_BUTTON',     true));
 
 define('COOKIE_ACCEPT',        false);  // Master switch — managed only via JS/cookie
 
@@ -3586,6 +3601,7 @@ render_page:
             'glossaryTooltips'  => GLOSSARY_TOOLTIPS,
             'featureDownloadIcon'   => FEATURE_DOWNLOAD_ICON,
             'featureDownloadButton' => FEATURE_DOWNLOAD_BUTTON,
+            'featureCopyButton'     => FEATURE_COPY_BUTTON,
             'paragraphBreak'    => PARAGRAPH_BREAK_STYLE,
             'disableUpload'              => DISABLE_UPLOAD,
             'disableClipboard'           => DISABLE_CLIPBOARD,
@@ -3620,6 +3636,62 @@ render_page:
             aria-label="Document controls"
         >
             <?php if ($mode === 'viewer'): ?>
+                <?php if (FEATURE_COPY_BUTTON && $currentFilePath !== null):
+                    // The copy control sits leftmost in the toolbar, so it stays
+                    // left of the download control. It carries the URL of the
+                    // same validated request the download control uses, in
+                    // data-copy-source: the source is not embedded in the page a
+                    // second time, and the browser script asks for it on click.
+                    $mdvCopyRelative = ltrim(str_replace('\\', '/',
+                        substr($currentFilePath, strlen(realpath($baseDir) ?: $baseDir))), '/');
+                    $mdvCopyInside = ($mdvCopyRelative !== '' && mdvInsideRoot($currentFilePath, $baseDir)
+                        && str_ends_with(mb_strtolower($mdvCopyRelative), '.md'));
+                ?>
+                <?php if ($mdvCopyInside): ?>
+                <button
+                    type="button"
+                    id="btn-copy-md"                    class="inline-flex min-h-11 min-w-11 items-center justify-center rounded-full border border-slate-200 bg-white/80 px-3 py-2 text-sm font-medium text-slate-700 shadow-soft transition-colors hover:bg-white hover:text-slate-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed dark:border-slate-700 dark:bg-slate-900/80 dark:text-slate-200 dark:hover:bg-slate-900 dark:hover:text-white dark:focus-visible:ring-offset-slate-950"
+                    data-copy-source="?file=<?= e(rawurlencode($mdvCopyRelative)) ?>&amp;download=1"
+                    aria-label="Copy the Markdown source of this file to the clipboard"
+                    title="Copy .md source"
+                >
+                    <svg
+                        class="copy-icon"
+                        xmlns="http://www.w3.org/2000/svg"
+                        width="18"
+                        height="18"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        aria-hidden="true"
+                        focusable="false"
+                    >
+                        <path d="M8 16H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v2"></path>
+                        <rect x="10" y="10" width="10" height="10" rx="2"></rect>
+                    </svg>
+                    <svg
+                        class="check-icon hidden text-green-500"
+                        xmlns="http://www.w3.org/2000/svg"
+                        width="18"
+                        height="18"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        aria-hidden="true"
+                        focusable="false"
+                    >
+                        <path d="M5 13l4 4L19 7"></path>
+                    </svg>
+                </button>
+                <?php endif; ?>
+                <?php endif; ?>
+
                 <?php if (FEATURE_DOWNLOAD_BUTTON && $currentFilePath !== null):
                     // The download control sits leftmost in the toolbar, so it
                     // stays left of the width and font (scale) controls. The
