@@ -1,8 +1,13 @@
 /**
  * MD.Viewer — Settings Panel Engine
- * Version: 2.8.8
+ * Version: 2.9.0
  * Auto-extracted from md.php inline <script> block.
  * Requires window.MDV_CONFIG to be set before this script loads.
+ *
+ * v2.9.0: Two download toggles in the panel: File List: Show Download Icon and
+ *         File: Show Download Button. Both default on, both are interface gates
+ *         rather than access control, and both are read from the viewer's
+ *         configuration object like every other toggle here.
  *
  * v2.8.8: Relative updater URL fallback, so the panel works from a
  *         subdirectory install.
@@ -287,6 +292,10 @@
               tip: 'When the first H1 heading contains a colon (e.g. "Project: Overview"), splits it into a large primary title and a smaller subtitle for a cleaner hero-style header. Does not affect headings without a colon.' },
             { key: 'GLOSSARY_TOOLTIPS',    label: 'Glossary Tooltips',
               tip: 'Activates hover tooltips for terms defined in a Glossary table in the document. Hovering a highlighted term shows its definition and extra columns from the table. Includes touch support and a 2-second grace period so you can move the mouse onto the tooltip itself.' },
+            { key: 'FEATURE_DOWNLOAD_ICON',   label: 'File List: Show Download Icon',
+              tip: 'Shows a download icon on every row of the Markdown file browser, so the source .md can be saved instead of opened. The icon links to the same file the row opens and the server validates that path again before sending it. Interface only — the file is readable by anyone the viewer already allows to read it.' },
+            { key: 'FEATURE_DOWNLOAD_BUTTON', label: 'File: Show Download Button',
+              tip: 'Adds a download button to the document toolbar, to the left of the width and font controls, so the file being read can be saved as it stands on the server. Not shown in clipboard preview, which has no file behind it. Interface only — see the icon setting above.' },
         ];
 
         // Map MDV_CONFIG keys to FEATURES keys
@@ -305,6 +314,8 @@
             FEATURE_EMOJI:        CFG.featureEmoji,
             SPLIT_TITLE_BY_COLON: CFG.splitTitleByColon,
             GLOSSARY_TOOLTIPS:    CFG.glossaryTooltips,
+            FEATURE_DOWNLOAD_ICON:   CFG.featureDownloadIcon,
+            FEATURE_DOWNLOAD_BUTTON: CFG.featureDownloadButton,
         };
 
         let pendingReload = false;

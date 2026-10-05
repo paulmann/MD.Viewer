@@ -1,6 +1,6 @@
 <!--
  * MD.Viewer — Documentation
- * Version: 2.9.6
+ * Version: 2.10.0
 -->
 
 # MD.Viewer
@@ -9,7 +9,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://github.com/paulmann/MD.Viewer/blob/main/LICENSE)
 [![PHP](https://img.shields.io/badge/PHP-8.3%2B-777BB4?logo=php&logoColor=white)](https://php.net)
-[![md.php](https://img.shields.io/badge/md.php-v2.9.4-success)](https://github.com/paulmann/MD.Viewer)
+[![md.php](https://img.shields.io/badge/md.php-v2.14.0-success)](https://github.com/paulmann/MD.Viewer)
 [![updater.php](https://img.shields.io/badge/updater.php-v3.9.0-4f46e5)](https://github.com/paulmann/MD.Viewer)
 
 ---
@@ -196,7 +196,7 @@ ALLOW_CREATE_INDEX_PHP_LINK = true
 
 ; Machine API key used by external clients (a control panel, an installer)
 ; Generated automatically on first run. Send it as ?api_key=<value>.
-API_KEY = mdv_0123456789abcdef0123456789abcdef0123456789abcdef
+API_KEY = mdv_your_generated_key_here
 ```
 
 | Key | Default | Effect |
@@ -298,6 +298,8 @@ The file browser includes a **Clipboard Preview** button. Paste any Markdown tex
 - Optional automatic heading numbering.
 - Title splitting by colon for cleaner hero titles.
 - Searchable file browser mode.
+- Downloading the source `.md` of the document being read, and of every file in the
+  browser (both toggles default on).
 
 ### Code, diagrams, and rich content
 
@@ -328,8 +330,28 @@ If `DISABLE_UPLOAD = false` in `.md.ini`, the file browser shows an **Upload .md
 2. JS click handler early-returns if `MDV_CONFIG.disableUpload` is true.
 3. PHP `updater.php`: reads `.md.ini` independently, returns `403` if disabled.
 
-### Clipboard preview and Save to File
+### Downloading the source `.md`
 
+Two optional controls hand the reader the file itself instead of the rendered page.
+Both default to on, both are PHP-side feature toggles (see the Settings panel and the
+`.md.ini` key table), and both are **interface gates rather than access control**: a
+request for the same file stays answerable either way, because the viewer has no
+authentication and never had.
+
+| Toggle | Where it appears | Default |
+|---|---|---|
+| `FEATURE_DOWNLOAD_ICON` | A download icon on every row of the file browser | on |
+| `FEATURE_DOWNLOAD_BUTTON` | A download button in the document toolbar, left of the width and font controls | on |
+
+Both lead to the same request - `md.php?file=<relative path>&download=1` - and that
+request is validated by exactly the same function as the viewer page, so a path refused
+for display is refused here too. The response carries the file's bytes as
+`application/octet-stream` with `X-Content-Type-Options: nosniff` and
+`Content-Disposition: attachment`: a `.md` is text, and announcing it as text under a
+filename chosen by the document's own author is how it would become a script in the
+browser's eyes. The clipboard preview has no file behind it and therefore no button.
+
+### Clipboard preview and Save to File
 Paste Markdown text and render it instantly without saving a file. If `DISABLE_SAVE_CLIPBOARD_TO_FILE = false`, a Save to File bar appears with filename input, Save button, and inline status feedback. Source text is stored in `sessionStorage` when preview opens. The file is written into the directory being viewed, and a per-directory `.md.ini` can disable or re-enable saving there.
 
 ### Settings panel
@@ -473,16 +495,16 @@ own credential for the JSON actions.
 All files managed by the updater (checked, downloaded, backed up):
 
 ```
-md.php                    v2.9.4
+md.php                    v2.14.0
 updater.php               v3.9.0
-js/md/md.js               v2.5.2
-js/md/settings.js         v2.8.7
+js/md/md.js               v2.5.3
+js/md/settings.js         v2.9.0
 js/md/tooltips.js         v2.4.5
 js/md/upload.js           v2.8.0
 css/md/md.css             v2.2.2
 css/md/settings.css       v2.8.1
 css/md/tooltips.css       v2.4.5
-README.md                 v2.9.6
+README.md                 v2.10.0
 LICENSE                   v1.0.0
 ```
 

@@ -1,10 +1,26 @@
 <?php
 /**
  * Markdown Viewer
-  * Version: 2.13.0
+  * Version: 2.14.0
  * Author: Mikhail Deynekin
  * Site: https://Deynekin.com
  * Email: Mikhail@Deynekin.com
+ *
+ v2.14.0: two download toggles, and the read path they need.
+ * - FEATURE: FEATURE_DOWNLOAD_ICON (default on) shows a download control on
+ *   every row of the file browser; FEATURE_DOWNLOAD_BUTTON (default on) shows
+ *   one in the document toolbar, to the left of the width and font controls.
+ * - FEATURE: a GET carrying download=1 next to a validated ?file= answers with
+ *   the bytes of that same file, as an attachment, instead of the viewer page.
+ *   The request is validated by validateRequestedFile() unchanged, so the
+ *   readable set does not widen by a single path. The type is announced as
+ *   application/octet-stream with nosniff: a .md is text, and sending it as one
+ *   under a filename chosen by the file's own author is how it would become a
+ *   script in the browser's eyes.
+ * - NOTE: both toggles are interface gates, not access control. Requesting
+ *   ?file=...&download=1 by hand still answers for any file the validator
+ *   already allows; forbidding the read outright would need a new
+ *   installation-level key.
  *
  v2.13.0: a GET whose path carries a doubled slash is redirected once to the
           clean path. A page opened at //extensions/... keeps it, and every
@@ -364,7 +380,7 @@ INI;
         'CYPHER_PATTERNS', 'UNIVERSAL_PATTERNS', 'FEATURE_IMAGES', 'FEATURE_REF_LINKS',
         'FEATURE_TASK_LISTS', 'FEATURE_FOOTNOTES', 'FEATURE_SUBSUP', 'FEATURE_EMOJI',
         'SPLIT_TITLE_BY_COLON', 'GLOSSARY_TOOLTIPS', 'PARAGRAPH_BREAK_STYLE',
-        'COOKIE_ACCEPT',
+        'COOKIE_ACCEPT', 'FEATURE_DOWNLOAD_ICON', 'FEATURE_DOWNLOAD_BUTTON',
     ];
     foreach ($featureKeys as $k) {
         if (array_key_exists($k, $ini)) {
@@ -471,6 +487,11 @@ define('FEATURE_SUBSUP',       feat('FEATURE_SUBSUP',       true));
 define('FEATURE_EMOJI',        feat('FEATURE_EMOJI',        true));
 define('SPLIT_TITLE_BY_COLON', feat('SPLIT_TITLE_BY_COLON', true));
 define('GLOSSARY_TOOLTIPS',    feat('GLOSSARY_TOOLTIPS',    true));
+// Download toggles (v2.14.0) - interface gates for the two download entry
+// points. Default on: a viewer whose whole purpose is reading .md files should
+// let the reader take the source with them.
+define('FEATURE_DOWNLOAD_ICON',   feat('FEATURE_DOWNLOAD_ICON',   true));
+define('FEATURE_DOWNLOAD_BUTTON', feat('FEATURE_DOWNLOAD_BUTTON', true));
 
 define('COOKIE_ACCEPT',        false);  // Master switch — managed only via JS/cookie
 
@@ -484,6 +505,51 @@ const MAX_FILES_SCAN = 10000;
 $baseDir = BROWSE_DIR !== '' ? BROWSE_DIR : __DIR__;
 $baseName = pathinfo(__FILE__, PATHINFO_FILENAME);
 $defaultMarkdownFile = $baseDir . '/' . $baseName . '.md';
+
+// ── Raw download (v2.14.0) ───────────────────────────────────────────────────
+// A GET carrying download=1 next to ?file= answers with the bytes of that file
+// as an attachment instead of the viewer page. It is the same request the viewer
+// already validates: validateRequestedFile() runs unchanged, so a path refused
+// for display is refused here too and the readable set does not widen by a
+// single file. GET only - this response has a body.
+if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET'
+    && ($_GET['download'] ?? null) === '1') {
+    $downloadParam = $_GET['file'] ?? null;
+    $downloadPath  = is_string($downloadParam)
+        ? validateRequestedFile($downloadParam, $baseDir)
+        : null;
+    if ($downloadPath === null) {
+        http_response_code(404);
+        header('Content-Type: text/plain; charset=utf-8');
+        header('Cache-Control: no-store');
+        exit('File not found.');
+    }
+
+    $downloadName = basename($downloadPath);
+    // The body is the file itself and the filename may come from the file's own
+    // author, so the response is announced as an opaque attachment and never as
+    // text: a .md that happens to contain HTML or SVG must not be typed and
+    // rendered by the browser. The ASCII fallback is scrubbed of the two
+    // characters that would escape the quoted parameter; the UTF-8 parameter
+    // carries the name as it really is.
+    $downloadAscii = str_replace(['"', '\\'], '_',
+        (string) preg_replace('/[^\x20-\x7E]/', '_', $downloadName));
+    if (trim($downloadAscii, '_') === '') {
+        $downloadAscii = 'document.md';
+    }
+
+    header('Content-Type: application/octet-stream');
+    header('X-Content-Type-Options: nosniff');
+    header('Content-Disposition: attachment; filename="' . $downloadAscii
+        . '"; filename*=UTF-8\'\'' . rawurlencode($downloadName));
+    header('Cache-Control: no-store');
+    $downloadSize = filesize($downloadPath);
+    if (is_int($downloadSize)) {
+        header('Content-Length: ' . $downloadSize);
+    }
+    readfile($downloadPath);
+    exit;
+}
 
 // ============================================================
 // SETTINGS: effective .md.ini values for the displayed directory (v2.12.0)
@@ -1131,6 +1197,11 @@ function renderFilesTable(array $files, ?string $errorMessage = null): string
         $html .= '<th data-sort="created" class="sortable px-5 py-3 text-xs font-semibold uppercase tracking-[0.15em] text-slate-600 dark:text-slate-300 cursor-pointer select-none hover:bg-slate-100 dark:hover:bg-slate-900 transition">Created <span class="sort-ind ml-1 text-slate-400"></span></th>';
         $html .= '<th data-sort="modified" class="sortable px-5 py-3 text-xs font-semibold uppercase tracking-[0.15em] text-slate-600 dark:text-slate-300 cursor-pointer select-none hover:bg-slate-100 dark:hover:bg-slate-900 transition">Modified <span class="sort-ind ml-1 text-slate-400"></span></th>';
         $html .= '<th data-sort="size" class="sortable px-5 py-3 text-xs font-semibold uppercase tracking-[0.15em] text-slate-600 dark:text-slate-300 cursor-pointer select-none hover:bg-slate-100 dark:hover:bg-slate-900 transition text-right">Size <span class="sort-ind ml-1 text-slate-400"></span></th>';
+        // Download column (v2.14.0). Not marked sortable: the sort handler is
+        // bound to th.sortable, and a control has no order of its own.
+        if (FEATURE_DOWNLOAD_ICON) {
+            $html .= '<th class="px-5 py-3 text-right"><span class="sr-only">Download</span></th>';
+        }
         $html .= '</tr>';
         $html .= '</thead>';
         $html .= '<tbody class="divide-y divide-slate-200/80 dark:divide-slate-800">';
@@ -1142,6 +1213,23 @@ function renderFilesTable(array $files, ?string $errorMessage = null): string
             $html .= '<td class="px-5 py-3 text-slate-600 dark:text-slate-400 tabular-nums">' . formatDateTime($f['created']) . '</td>';
             $html .= '<td class="px-5 py-3 text-slate-600 dark:text-slate-400 tabular-nums">' . formatDateTime($f['modified']) . '</td>';
             $html .= '<td class="px-5 py-3 text-slate-600 dark:text-slate-400 tabular-nums text-right">' . formatFileSize($f['size']) . '</td>';
+            if (FEATURE_DOWNLOAD_ICON) {
+                // The path handed to the row is the same relative path the row
+                // opens, and the download branch validates it again on arrival.
+                $downloadHref = '?file=' . rawurlencode($f['path']) . '&download=1';
+                $html .= '<td class="px-5 py-3 text-right">';
+                $html .= '<a class="file-download-link inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white"';
+                $html .= ' href="' . e($downloadHref) . '"';
+                $html .= ' download="' . e($f['file']) . '"';
+                // The row is a click target of its own, so the anchor must keep
+                // the click to itself or the file would be saved and opened.
+                $html .= ' onclick="event.stopPropagation()"';
+                $html .= ' aria-label="Download ' . e($f['file']) . '"';
+                $html .= ' title="Download .md">';
+                $html .= '<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>';
+                $html .= '</a>';
+                $html .= '</td>';
+            }
             $html .= '</tr>';
         }
         
@@ -3496,6 +3584,8 @@ render_page:
             'featureEmoji'      => FEATURE_EMOJI,
             'splitTitleByColon' => SPLIT_TITLE_BY_COLON,
             'glossaryTooltips'  => GLOSSARY_TOOLTIPS,
+            'featureDownloadIcon'   => FEATURE_DOWNLOAD_ICON,
+            'featureDownloadButton' => FEATURE_DOWNLOAD_BUTTON,
             'paragraphBreak'    => PARAGRAPH_BREAK_STYLE,
             'disableUpload'              => DISABLE_UPLOAD,
             'disableClipboard'           => DISABLE_CLIPBOARD,
@@ -3530,6 +3620,49 @@ render_page:
             aria-label="Document controls"
         >
             <?php if ($mode === 'viewer'): ?>
+                <?php if (FEATURE_DOWNLOAD_BUTTON && $currentFilePath !== null):
+                    // The download control sits leftmost in the toolbar, so it
+                    // stays left of the width and font (scale) controls. The
+                    // relative path is derived from the file that is actually
+                    // being read; the download branch validates it again. The
+                    // clipboard preview has no file behind it, so it gets no
+                    // button.
+                    $mdvRelative = ltrim(str_replace('\\', '/',
+                        substr($currentFilePath, strlen(realpath($baseDir) ?: $baseDir))), '/');
+                    $mdvInside = ($mdvRelative !== '' && mdvInsideRoot($currentFilePath, $baseDir)
+                        && str_ends_with(mb_strtolower($mdvRelative), '.md'));
+                ?>
+                <?php if ($mdvInside): ?>
+                <a
+                    id="btn-download-md"
+                    class="inline-flex min-h-11 min-w-11 items-center justify-center rounded-full border border-slate-200 bg-white/80 px-3 py-2 text-sm font-medium text-slate-700 shadow-soft transition-colors hover:bg-white hover:text-slate-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 dark:border-slate-700 dark:bg-slate-900/80 dark:text-slate-200 dark:hover:bg-slate-900 dark:hover:text-white dark:focus-visible:ring-offset-slate-950"
+                    href="?file=<?= e(rawurlencode($mdvRelative)) ?>&amp;download=1"
+                    download="<?= e(basename($currentFilePath)) ?>"
+                    aria-label="Download this Markdown file"
+                    title="Download .md"
+                >
+                    <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        class="h-[18px] w-[18px]"
+                        width="18"
+                        height="18"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        aria-hidden="true"
+                        focusable="false"
+                    >
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                        <polyline points="7 10 12 15 17 10"></polyline>
+                        <line x1="12" y1="15" x2="12" y2="3"></line>
+                    </svg>
+                </a>
+                <?php endif; ?>
+                <?php endif; ?>
+
                 <!-- Document width switcher -->
                 <div
                     id="width-switcher"
