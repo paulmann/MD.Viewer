@@ -1,7 +1,7 @@
 <?php
 /**
  * Markdown Viewer — Self-Updater
- * Version: 3.12.0
+ * Version: 3.13.0
  * Author: Mikhail Deynekin
  * Site: https://Deynekin.com
  * Email: Mikhail@Deynekin.com
@@ -776,7 +776,13 @@ function dirSegments(string $dir): ?array
     if ($normalized === '' || $normalized === '.') {
         return [];
     }
-    if (preg_match('#^[A-Za-z0-9._\-/]+$#', $normalized) !== 1) {
+    // v3.13.0: the whitelist follows md.php 2.16.0. It was ASCII-only, so a
+    // Cyrillic directory was refused here while the viewer could read it, and
+    // the DISABLE_* flags of that directory were silently skipped. Same
+    // character set as validateRequestedFile() Layer 7: the path characters,
+    // the space, and Unicode letters with their combining marks. Traversal,
+    // separator, absolute-path, control-character and depth checks stay.
+    if (preg_match('#^[A-Za-z0-9._\-/ \p{L}\p{M}]+$#u', $normalized) !== 1) {
         return null;
     }
     $segments = [];

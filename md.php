@@ -1,10 +1,29 @@
 <?php
 /**
  * Markdown Viewer
-  * Version: 2.15.1
+  * Version: 2.16.0
  * Author: Mikhail Deynekin
  * Site: https://Deynekin.com
  * Email: Mikhail@Deynekin.com
+ *
+ v2.16.0: two reader-visible defects, both found by serving the viewer rather
+ * than by reading it.
+ *
+ * - FIX: a document whose inline code contains "<" not followed by "-" (shapes
+ *   such as --basetemp=<path> or <T>) never finished rendering. The arrow branch
+ *   of parseUniversalPattern() entered on that character without advancing the
+ *   index, so the loop ran until the 30 s PHP limit and the request answered
+ *   HTTP 500 with an empty body. No attacker is needed: any document that is
+ *   expected to contain angle brackets triggered it.
+ * - FIX: Layer 7 of validateRequestedFile() accepted ASCII only, so a file whose
+ *   name or directory carried non-Latin letters, or a space, was refused with
+ *   "Access denied or file not found" and status 200. Cyrillic names were 17 of
+ *   the 556 paths under one browsed tree - documents that the listing offered
+ *   and the viewer then refused. The same rule stands in mdvDirSegments() and in
+ *   the updater's dirSegments(); all three were widened together because it is
+ *   one rule in three places. Containment, traversal, separator, control
+ *   character and extension checks are unchanged, and the mask still cannot
+ *   admit the configuration file, which is not a .md name.
  *
  v2.15.1: the copy control carries the same .copy-btn class as the code and quote controls, so the one delegated handler in js/md/md.js serves it too; it reads data-copy-source when the control has no rendered block to copy. No second handler anywhere.
  *
@@ -642,8 +661,18 @@ function validateRequestedFile(string $file, string $baseDir): ?string
         return null;
     }
     
-    // Layer 7: Strict character whitelist (only safe path characters)
-    if (!preg_match('#^[A-Za-z0-9._\-/]+$#', $normalized)) {
+    // Layer 7: Strict character whitelist (whitelisted path characters only)
+    //
+    // v2.16.0: the whitelist was ASCII-only, so a Latin letter set refused a file
+    // whose name or directory carried Cyrillic letters or a space, and the
+    // request answered "Access denied or file not found" with status 200 while
+    // the file sat inside the browse root. The set is now the path characters
+    // [A-Za-z0-9._-/], the space, and Unicode letters with their combining marks.
+    // \p{L} and \p{M} are whole Unicode categories, so this is not "allow
+    // everything"; it is not widened again without a measured reason. Everything
+    // else keeps being refused before realpath(): NUL, control characters,
+    // separators, "..", an absolute path and the extension checks are untouched.
+    if (!preg_match('#^[A-Za-z0-9._\-/ \p{L}\p{M}]+$#u', $normalized)) {
         return null;
     }
     
@@ -762,7 +791,11 @@ function mdvDirSegments(string $dir): ?array
     if ($normalized === '' || $normalized === '.') {
         return [];
     }
-    if (preg_match('#^[A-Za-z0-9._\-/]+$#', $normalized) !== 1) {
+    // v2.16.0: the same widened whitelist as validateRequestedFile() Layer 7.
+    // The per-directory configuration chain must agree with the path validator,
+    // or a Cyrillic directory would be readable while its .md.ini stayed
+    // unreachable and its DISABLE_* flags were silently skipped.
+    if (preg_match('#^[A-Za-z0-9._\-/ \p{L}\p{M}]+$#u', $normalized) !== 1) {
         return null;
     }
     $segments = [];
@@ -1746,6 +1779,11 @@ function parseUniversalPattern(string $pattern): ?array
 
     while ($i < $len) {
         $char = $pattern[$i];
+        // v2.16.0: every path through this loop must consume at least one byte.
+        // The arrow branch below enters on '-', '<' and '>'; a '<' that is not
+        // followed by '-' (--basetemp=<path>, <T>) left $i untouched, so the loop
+        // never ended and the request died at the 30 s PHP limit with HTTP 500.
+        $prevIndex = $i;
         if ($char === '(') {
             $closePos = strpos($pattern, ')', $i);
             if ($closePos === false) break;
@@ -1793,6 +1831,13 @@ function parseUniversalPattern(string $pattern): ?array
                 };
                 $elements[] = ['type' => 'rel', 'label' => $relLabel, 'direction' => $direction, 'wrapper' => 'arrow'];
                 $hasRel = true;
+            }
+            // v2.16.0: the arrow branch can reach here having consumed nothing -
+            // a '<' or '>' with no following '-' to pair with. Stop instead of
+            // looping without progress; the caller then falls back to a plain
+            // <code> span, which is what such a span actually is.
+            if ($i === $prevIndex) {
+                break;
             }
             continue;
         }

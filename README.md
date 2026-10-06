@@ -1,6 +1,6 @@
 <!--
  * MD.Viewer — Documentation
- * Version: 2.11.1
+ * Version: 2.11.2
 -->
 
 # MD.Viewer
@@ -9,8 +9,8 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://github.com/paulmann/MD.Viewer/blob/main/LICENSE)
 [![PHP](https://img.shields.io/badge/PHP-8.3%2B-777BB4?logo=php&logoColor=white)](https://php.net)
-[![md.php](https://img.shields.io/badge/md.php-v2.15.1-success)](https://github.com/paulmann/MD.Viewer)
-[![updater.php](https://img.shields.io/badge/updater.php-v3.9.0-4f46e5)](https://github.com/paulmann/MD.Viewer)
+[![md.php](https://img.shields.io/badge/md.php-v2.16.0-success)](https://github.com/paulmann/MD.Viewer)
+[![updater.php](https://img.shields.io/badge/updater.php-v3.13.0-4f46e5)](https://github.com/paulmann/MD.Viewer)
 
 ---
 
@@ -141,8 +141,8 @@ server {
 
 ```text
 MD.Viewer/
-├── md.php                     # Main viewer / browser script       v2.9.4
-├── updater.php                # Self-updater, backup, upload        v3.9.0
+├── md.php                     # Main viewer / browser script       v2.16.0
+├── updater.php                # Self-updater, backup, upload        v3.13.0
 ├── .md.ini                    # Server-side config (auto-created)
 ├── md.md                      # Default Markdown file for md.php
 ├── uploads.md/                # Created automatically for uploaded/saved files
@@ -157,12 +157,12 @@ MD.Viewer/
 │       └── tooltips.css       # v2.4.5
 ├── js/
 │   └── md/
-│       ├── md.js              # v2.5.2
-│       ├── settings.js        # v2.8.7
+│       ├── md.js              # v2.6.0
+│       ├── settings.js        # v2.10.1
 │       ├── tooltips.js        # v2.4.5
-│       └── upload.js          # v2.8.0
+│       └── upload.js          # v2.9.1
 ├── LICENSE                    # v1.0.0
-└── README.md                  # v2.9.6
+└── README.md                  # v2.11.2
 ```
 
 Key naming rule: `md.php` looks for `md.md`, `docs.php` looks for `docs.md`. Multiple independent viewer instances can share one directory tree without extra routing.
@@ -472,7 +472,7 @@ Response envelope:
 {
   "ok": true,
   "action": "install",
-  "version": "2.9.4",
+  "version": "2.16.0",
   "steps":     [{"step": "install:css/md/md.css", "status": "ok", "ms": 143, "detail": "2.2.2 → 2.2.2"}],
   "files":     [{"path": "css/md/md.css", "status": "current", "version": "2.2.2"}],
   "conflicts": [{"path": "css/md/settings.css", "status": "same_name_elsewhere",
@@ -498,16 +498,16 @@ own credential for the JSON actions.
 All files managed by the updater (checked, downloaded, backed up):
 
 ```
-md.php                    v2.15.1
-updater.php               v3.9.0
+md.php                    v2.16.0
+updater.php               v3.13.0
 js/md/md.js               v2.6.0
 js/md/settings.js         v2.10.1
 js/md/tooltips.js         v2.4.5
-js/md/upload.js           v2.8.0
+js/md/upload.js           v2.9.1
 css/md/md.css             v2.2.2
 css/md/settings.css       v2.8.1
 css/md/tooltips.css       v2.4.5
-README.md                 v2.11.1
+README.md                 v2.11.2
 LICENSE                   v1.0.0
 ```
 
