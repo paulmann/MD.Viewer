@@ -1,8 +1,18 @@
 /**
  * MD.Viewer — Settings Panel Engine
- * Version: 2.10.1
+ * Version: 2.11.0
  * Auto-extracted from md.php inline <script> block.
  * Requires window.MDV_CONFIG to be set before this script loads.
+ *
+ * v2.11.0: A File Browser Sort section chooses the field and the direction the
+ *          browser table is ordered by on load. The panel owns the choice and
+ *          the table owns the order: the two scripts share no state, so the
+ *          value travels through storage under mdv_sort / mdv_sort-dir
+ *          (mirrored in js/md/md.js) and, for the page already open, through one
+ *          mdv:sort event, so a change lands without a reload. The section is
+ *          hidden on a rendered document, where there is no table to order.
+ *          Hard-locking stays where it belongs: the shipped default lives in
+ *          md.php and is rendered onto the table.
  *
  * v2.10.1: The toolbar copy control is left to the delegated .copy-btn listener
  *          in js/md/md.js, so no copy logic lives here. This file keeps only its
@@ -391,6 +401,50 @@
             });
         });
 
+        // ── Default file sort ─────────────────────────────────────────────────
+        // The order of the browser table is owned by js/md/md.js: the two
+        // scripts share no state, so the choice travels through storage under
+        // these two key names (mirrored in that file) and, for the page that is
+        // open right now, through one mdv:sort event. No reload is needed, and
+        // the table is not re-sorted from here - a second owner of the order
+        // would be a second source of truth.
+        const SORT_KEYS = ['file', 'dir', 'created', 'modified', 'size'];
+        const SORT_DIRECTIONS = ['asc', 'desc'];
+        const SORT_DEFAULT = { key: 'modified', direction: 'desc' };
+
+        const elSortSection = document.getElementById('sp-sort-section');
+        const elSortKey     = document.getElementById('sp-sort-key');
+        const elSortDir     = document.getElementById('sp-sort-dir');
+
+        // The section orders the browser table, which exists only in browser
+        // mode; on a rendered document it would be a control with nothing to act on.
+        if (elSortSection && !document.getElementById('files-table')) {
+            elSortSection.style.display = 'none';
+        }
+
+        if (elSortKey && elSortDir) {
+            const storedSortKey = load(PREFIX + 'sort', SORT_DEFAULT.key);
+            const storedSortDir = load(PREFIX + 'sort-dir', SORT_DEFAULT.direction);
+
+            elSortKey.value = SORT_KEYS.includes(storedSortKey) ? storedSortKey : SORT_DEFAULT.key;
+            elSortDir.value = SORT_DIRECTIONS.includes(storedSortDir) ? storedSortDir : SORT_DEFAULT.direction;
+
+            const publishSort = function () {
+                const key = SORT_KEYS.includes(elSortKey.value) ? elSortKey.value : SORT_DEFAULT.key;
+                const direction = SORT_DIRECTIONS.includes(elSortDir.value)
+                    ? elSortDir.value
+                    : SORT_DEFAULT.direction;
+                store(PREFIX + 'sort', key);
+                store(PREFIX + 'sort-dir', direction);
+                document.dispatchEvent(new CustomEvent('mdv:sort', {
+                    detail: { key: key, direction: direction },
+                }));
+            };
+
+            elSortKey.addEventListener('change', publishSort);
+            elSortDir.addEventListener('change', publishSort);
+        }
+
         // Apply and Reload button
         document.getElementById('sp-apply-reload')?.addEventListener('click', function () {
             doReload();
@@ -455,6 +509,12 @@
                     store(PREFIX + 'lineHeight',  currentLH);
                     store(PREFIX + 'width',       currentWidth);
                     store(PREFIX + 'cookieAccept', '1');
+                    // The default sort is stored on change only; if the reader
+                    // never touched it, there is nothing to carry over.
+                    if (elSortKey && elSortDir) {
+                        store(PREFIX + 'sort',     elSortKey.value);
+                        store(PREFIX + 'sort-dir', elSortDir.value);
+                    }
                     FEATURES.forEach(function (f) {
                         const v = sessionStorage.getItem(FEAT + f.key);
                         if (v !== null) store(FEAT + f.key, v);
@@ -464,7 +524,8 @@
                     sessionStorage.setItem(PREFIX + 'cookieAccept', '0');
                     // Wipe all mdv_ cookies
                     [PREFIX + 'fontSize', PREFIX + 'lineHeight', PREFIX + 'width',
-                     PREFIX + 'cookieAccept', FEAT + 'PARAGRAPH_BREAK_STYLE',
+                     PREFIX + 'cookieAccept', PREFIX + 'sort', PREFIX + 'sort-dir',
+                     FEAT + 'PARAGRAPH_BREAK_STYLE',
                      ...FEATURES.map(f => FEAT + f.key)
                     ].forEach(clearCookie);
                 }

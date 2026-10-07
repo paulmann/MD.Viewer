@@ -1193,6 +1193,120 @@ function Test-SecretHygiene {
         -Ok ($problems.Count -eq 0) -Examined $examined -Details $problems -Warning:($problems.Count -gt 0)
 }
 
+function Test-SortDefaultMirror {
+    <#
+    .SYNOPSIS
+        The default file sort is one value in five places, and they agree.
+
+    .DESCRIPTION
+        The browser table is ordered by a value that passes through five
+        representations, and every hand-off is silent when it breaks:
+
+          * the column list rendered as th[data-sort] in the viewer;
+          * the option list of the panel select, which must offer exactly those
+            columns;
+          * SORT_KEYS, the guard in js/md/md.js;
+          * SORT_KEYS, the guard in js/md/settings.js;
+          * the storage key names mdv_sort / mdv_sort-dir and the mdv:sort event,
+            which are the only channel between the two scripts - they share no
+            state, so a rename on one side leaves a panel that stores a value
+            nobody reads, with no error anywhere.
+
+        The direction list is pinned separately: a sort field without a matching
+        direction is a select that fills half a preference.
+    #>
+    $problems = [System.Collections.Generic.List[string]]::new()
+    $examined = 0
+
+    $mdPath = Join-Path $script:ProjectRoot 'md.php'
+    $mdJsPath = Join-Path $script:ProjectRoot 'js\md\md.js'
+    $setJsPath = Join-Path $script:ProjectRoot 'js\md\settings.js'
+    foreach ($path in @($mdPath, $mdJsPath, $setJsPath)) {
+        if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
+            return New-CheckResult -Name 'the default file sort agrees across its mirrors' `
+                -Ok $false -Examined 0 -Details @("could not read $(Split-Path -Leaf $path)")
+        }
+    }
+
+    $md = Get-ProjectText -Path $mdPath
+    $mdJs = Get-ProjectText -Path $mdJsPath
+    $setJs = Get-ProjectText -Path $setJsPath
+
+    $thPattern = '<th data-sort="([a-z]+)"'
+    $optionPattern = '(?s)<select id="sp-sort-key".*?</select>'
+    $sortKeysPattern = 'const SORT_KEYS = \[(.*?)\];'
+    $sortDirsPattern = 'const SORT_DIRECTIONS = \[(.*?)\];'
+    foreach ($pattern in @($thPattern, $optionPattern, $sortKeysPattern, $sortDirsPattern)) {
+        Assert-RegexLiteral -Pattern $pattern -What 'default sort mirror'
+    }
+
+    $columns = [regex]::Matches($md, $thPattern) |
+        ForEach-Object { $_.Groups[1].Value } | Select-Object -Unique | Sort-Object
+    if ($columns.Count -eq 0) {
+        return New-CheckResult -Name 'the default file sort agrees across its mirrors' `
+            -Ok $false -Examined 0 -Details @('the table declares no sortable column')
+    }
+
+    $selectBlock = [regex]::Match($md, $optionPattern)
+    if (-not $selectBlock.Success) {
+        return New-CheckResult -Name 'the default file sort agrees across its mirrors' `
+            -Ok $false -Examined 0 -Details @('the panel offers no default-sort field select')
+    }
+    $options = [regex]::Matches($selectBlock.Value, '<option value="([a-z]+)"') |
+        ForEach-Object { $_.Groups[1].Value } | Select-Object -Unique | Sort-Object
+
+    $examined++
+    if (($columns -join ',') -ne ($options -join ',')) {
+        $problems.Add('the panel field list is not the table column list: columns [' + ($columns -join ',') + '] vs options [' + ($options -join ',') + ']')
+    }
+
+    foreach ($pair in @(@{ File = 'js/md/md.js'; Text = $mdJs }, @{ File = 'js/md/settings.js'; Text = $setJs })) {
+        $examined++
+        $keys = [regex]::Match($pair.Text, $sortKeysPattern)
+        if (-not $keys.Success) {
+            $problems.Add("$($pair.File): SORT_KEYS was not found")
+            continue
+        }
+        $guarded = [regex]::Matches($keys.Groups[1].Value, "'([a-z]+)'") |
+            ForEach-Object { $_.Groups[1].Value } | Select-Object -Unique | Sort-Object
+        if (($guarded -join ',') -ne ($columns -join ',')) {
+            $problems.Add("$($pair.File): SORT_KEYS is [$($guarded -join ',')], the table offers [$($columns -join ',')]")
+        }
+
+        $examined++
+        $dirs = [regex]::Match($pair.Text, $sortDirsPattern)
+        if (-not $dirs.Success) {
+            $problems.Add("$($pair.File): SORT_DIRECTIONS was not found")
+            continue
+        }
+        $directionList = [regex]::Matches($dirs.Groups[1].Value, "'([a-z]+)'") |
+            ForEach-Object { $_.Groups[1].Value } | Select-Object -Unique | Sort-Object
+        if (($directionList -join ',') -ne 'asc,desc') {
+            $problems.Add("$($pair.File): SORT_DIRECTIONS is [$($directionList -join ',')], expected [asc,desc]")
+        }
+    }
+
+    # The storage keys and the event name are the interface between the two
+    # scripts; each name must appear on both sides or the setting is split in two.
+    foreach ($name in @('mdv_sort', 'mdv_sort-dir')) {
+        $examined++
+        $bare = $name -replace '^mdv_', ''
+        $inReader = $mdJs.Contains("'$name'") -or $mdJs.Contains("PREFIX + '$bare'") -or $mdJs.Contains("'$bare'")
+        $inPanel = $setJs.Contains("'$name'") -or $setJs.Contains("PREFIX + '$bare'")
+        if (-not ($inReader -and $inPanel)) {
+            $problems.Add("the storage key $name is not read and written by both scripts (reader=$inReader, panel=$inPanel)")
+        }
+    }
+
+    $examined++
+    if (-not ($mdJs.Contains("'mdv:sort'") -and $setJs.Contains("'mdv:sort'"))) {
+        $problems.Add('the mdv:sort event name does not appear in both scripts')
+    }
+
+    return New-CheckResult -Name 'the default file sort agrees across its mirrors' `
+        -Ok ($problems.Count -eq 0) -Examined $examined -Details $problems
+}
+
 # ------------------------------------------------------------------- runner
 
 $script:CheckFunctions = @(
@@ -1210,6 +1324,7 @@ $script:CheckFunctions = @(
     'Test-ScaffoldMarkers'
     'Test-DocumentationVersions'
     'Test-SecretHygiene'
+    'Test-SortDefaultMirror'
 )
 
 Write-Host 'project doctrine check'

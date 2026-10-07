@@ -253,39 +253,100 @@ $mutations = @(
             # the tracked-files block writes the full path (js/md/md.js) while the
             # layout diagram writes the leaf (md.js), and the old mutation knew
             # only the leaf, so it aborted the whole harness instead of mutating.
-            $pairs = @(
-                @{ File = 'md.php';            Key = 'md.php';          Now = '2.16.0' }
-                @{ File = 'updater.php';       Key = 'updater.php';     Now = '3.13.0' }
-                @{ File = 'js/md/md.js';       Key = 'js/md/md.js';     Now = '2.6.0' }
-                @{ File = 'js/md/settings.js'; Key = 'js/md/settings.js'; Now = '2.10.1' }
-                @{ File = 'js/md/upload.js';   Key = 'js/md/upload.js'; Now = '2.9.1' }
-            )
-            $path = Join-Path $root 'README.md'
-            $text = [System.IO.File]::ReadAllText($path)
-            foreach ($pair in $pairs) {
-                $keyEsc = [regex]::Escape($pair.Key)
-                # The tracked-files block: name, then anything, then vX.
-                $claim = [regex]::Match($text, "^$keyEsc[^\r\n]*?v(\d[\w.\-]*)", 'Multiline')
-                if ($claim.Success) {
-                    $was = [regex]::Escape($claim.Groups[1].Value)
-                    $text = [regex]::Replace($text, "($keyEsc[^\r\n]*?)v$was", "`$1v$($pair.Now)")
+            #
+            # The version each claim is corrected TO is read from the file's own
+            # marker rather than pinned here. A hard-coded list went stale twice:
+            # once when a component was versioned again (the harness then aborted),
+            # and once when the checker's subject list grew past the list below, so
+            # the mutation repaired some rows and left the rest drifting, which the
+            # harness reported as a miss. Reading the marker makes the mutation
+            # correct for whatever the tree currently versions.
+            $readmePath = Join-Path $root 'README.md'
+            $markerPattern = '\*\s+Version:\s*(\d[\w.\-]+)'
+            $rowPattern = '(?m)^([A-Za-z0-9_./]+\.(?:php|js|css|md))\s+v(\d[\w.\-]+)\s*$'
+            $badgePattern = 'badge/([A-Za-z0-9_.]+)-v(\d[\w.\-]+)-'
+
+            # The mutation creates the drift it then repairs. Repairing drift
+            # that merely happened to be present made the case pass for the wrong
+            # reason: once the README was brought into line, the old body matched
+            # nothing, changed nothing, and the rule still reported PASS - a green
+            # check that verified nothing. Writing a wrong version first means the
+            # repair has something to do in every tree state.
+            Edit-Text -Path $readmePath `
+                -Pattern '(?m)^(md\.php\s+)v[\d.\-]+' -Replacement '${1}v0.0.1'
+
+            # One correction per pass, then rescan: a replacement shifts every
+            # later match offset, so the scan is re-run against the new text.
+            for ($pass = 0; $pass -lt 20; $pass++) {
+                $text = [System.IO.File]::ReadAllText($readmePath)
+                $fixed = $false
+
+                foreach ($pattern in @($rowPattern, $badgePattern)) {
+                    foreach ($claim in [regex]::Matches($text, $pattern)) {
+                        $file = $claim.Groups[1].Value
+                        $claimed = $claim.Groups[2].Value
+                        $target = Join-Path $root ($file -replace '/', '\')
+                        if (-not (Test-Path -LiteralPath $target -PathType Leaf)) {
+                            throw "README names a file that is not in the package: $file"
+                        }
+                        $head = [System.IO.File]::ReadAllText($target)
+                        $marker = [regex]::Match($head, $markerPattern)
+                        if (-not $marker.Success) {
+                            throw "no version marker to correct against: $file"
+                        }
+                        if ($marker.Groups[1].Value -eq $claimed) { continue }
+                        # Replace this one claim only, at the offset the match
+                        # reports, so an identical version elsewhere is untouched.
+                        # The concatenation stays on one line on purpose: a
+                        # continuation line beginning with '+' is not part of the
+                        # expression in PowerShell, so it silently truncated the
+                        # text and the harness reported a PASS it had not earned.
+                        $corrected = $claim.Value.Replace('v' + $claimed, 'v' + $marker.Groups[1].Value)
+                        $text = $text.Substring(0, $claim.Index) + $corrected + $text.Substring($claim.Index + $claim.Length)
+                        $fixed = $true
+                        break
+                    }
+                    if ($fixed) { break }
                 }
-                # The badge, whose payload is the full path.
-                $badge = [regex]::Match($text, 'badge/' + [regex]::Escape($pair.File) + '-v(\d[\w.\-]*)')
-                if ($badge.Success) {
-                    $text = $text.Replace($badge.Value, 'badge/' + $pair.File + '-v' + $pair.Now)
-                }
-                # The layout diagram, which carries the leaf name after a '#'.
-                $leaf = [regex]::Escape(($pair.File -split '/')[-1])
-                $diag = [regex]::Match($text, "^\S*$leaf\s+#+\s*v(\d[\w.\-]*)", 'Multiline')
-                if ($diag.Success) {
-                    $text = $text.Replace($diag.Value, $diag.Value.Replace('v' + $diag.Groups[1].Value, 'v' + $pair.Now))
-                }
-                if (-not ($claim.Success -or $badge.Success -or $diag.Success)) {
-                    throw "README states no version for $($pair.File)"
-                }
+
+                if (-not $fixed) { break }
+                [System.IO.File]::WriteAllText($readmePath, $text)
             }
-            [System.IO.File]::WriteAllText($path, $text)
+
+            # The repair must have reached every claim; otherwise the rule would
+            # be reported green on a tree that is still drifting.
+            $final = [System.IO.File]::ReadAllText($readmePath)
+            $still = [regex]::Match($final, '(?m)^md\.php\s+v([\d.]+)')
+            if (-not $still.Success -or $still.Groups[1].Value -eq '0.0.1') {
+                throw 'the repair did not correct the drift it introduced'
+            }
+        }
+    }
+    @{
+        Name  = 'a sort option the table does not offer'
+        Check = 'default file sort'
+        Want  = 'FAIL'
+        Apply = {
+            param($root)
+            # The panel offers a field the table cannot order by. The panel would
+            # store it, the reader would refuse it as unknown, and the setting
+            # would do nothing - with no error on either side.
+            Edit-Text -Path (Join-Path $root 'md.php') `
+                -Pattern '(<option value="size">Size</option>)' `
+                -Replacement "`$1`n                        <option value=`"author`">Author</option>"
+        }
+    }
+    @{
+        Name  = 'the storage key is renamed on one side only'
+        Check = 'default file sort'
+        Want  = 'FAIL'
+        Apply = {
+            param($root)
+            # The two scripts share no state, so the key name IS the interface.
+            # Renaming it in the reader alone leaves the panel writing a value
+            # nobody reads: both files still parse, both look wired.
+            Edit-Text -Path (Join-Path $root 'js/md/md.js') `
+                -Pattern "readSortPref\('mdv_sort'\)" -Replacement "readSortPref('mdv_sortkey')"
         }
     }
 )

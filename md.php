@@ -1,10 +1,19 @@
 <?php
 /**
  * Markdown Viewer
-  * Version: 2.16.0
+  * Version: 2.17.0
  * Author: Mikhail Deynekin
  * Site: https://Deynekin.com
  * Email: Mikhail@Deynekin.com
+ *
+ v2.17.0: the file browser table has a default order, and the settings panel
+ * chooses it. The shipped default is Modified, newest first - authored once as
+ * SORT_DEFAULT_KEY / SORT_DEFAULT_DIR and rendered onto the table as
+ * data-sort-default / data-sort-dir-default, so the table carries the value it
+ * is ordered by instead of a second copy of it. The reader's override is a
+ * browser preference, not a server key: it never leaves the browser, so it is
+ * not an .md.ini key and cannot be a per-directory one. Clicking a column
+ * header still cycles the order by hand, unchanged.
  *
  v2.16.0: two reader-visible defects, both found by serving the viewer rather
  * than by reading it.
@@ -537,6 +546,15 @@ define('PARAGRAPH_BREAK_STYLE', feat('PARAGRAPH_BREAK_STYLE', 'double-br'));
 const MAX_FILE_PARAM_LENGTH = 255;
 const MAX_SCAN_DEPTH = 3;
 const MAX_FILES_SCAN = 10000;
+
+// Default order of the file browser table (v2.17.0). Authored here once and
+// rendered onto the table as data-sort-default / data-sort-dir-default, so the
+// table carries the value it is ordered by rather than a copy of it; the reader
+// may override it from the settings panel, which stores the choice in the
+// browser. Modified newest-first is the shipped default: the document a reader
+// is looking for is almost always the one that was written last.
+const SORT_DEFAULT_KEY = 'modified';
+const SORT_DEFAULT_DIR = 'desc';
 
 $baseDir = BROWSE_DIR !== '' ? BROWSE_DIR : __DIR__;
 $baseName = pathinfo(__FILE__, PATHINFO_FILENAME);
@@ -1239,7 +1257,7 @@ function renderFilesTable(array $files, ?string $errorMessage = null): string
         $html .= '</div>';
     } else {
         $html .= '<div class="overflow-x-auto">';
-        $html .= '<table id="files-table" class="min-w-full border-collapse text-left text-sm">';
+        $html .= '<table id="files-table" data-sort-default="' . e(SORT_DEFAULT_KEY) . '" data-sort-dir-default="' . e(SORT_DEFAULT_DIR) . '" class="min-w-full border-collapse text-left text-sm">';
         $html .= '<thead class="bg-slate-50 dark:bg-slate-950/40">';
         $html .= '<tr class="border-b border-slate-200 dark:border-slate-800">';
         $html .= '<th data-sort="file" class="sortable px-5 py-3 text-xs font-semibold uppercase tracking-[0.15em] text-slate-600 dark:text-slate-300 cursor-pointer select-none hover:bg-slate-100 dark:hover:bg-slate-900 transition">File <span class="sort-ind ml-1 text-slate-400"></span></th>';
@@ -4242,6 +4260,50 @@ render_page:
                         </small>
                     </span>
                 </label>
+            </section>
+
+            <!-- Default file sort -->
+            <section
+                id="sp-sort-section"
+                class="settings-section"
+                aria-labelledby="settings-sort-title"
+            >
+                <h3
+                    id="settings-sort-title"
+                    class="settings-section-title"
+                >
+                    File Browser Sort
+                </h3>
+
+                <div class="settings-select-row">
+                    <label for="sp-sort-key" class="settings-select-label">
+                        Default field
+                    </label>
+
+                    <select id="sp-sort-key" class="settings-select">
+                        <option value="file">File</option>
+                        <option value="dir">Dir</option>
+                        <option value="created">Created</option>
+                        <option value="modified">Modified</option>
+                        <option value="size">Size</option>
+                    </select>
+                </div>
+
+                <div class="settings-select-row">
+                    <label for="sp-sort-dir" class="settings-select-label">
+                        Default direction
+                    </label>
+
+                    <select id="sp-sort-dir" class="settings-select">
+                        <option value="asc">Ascending</option>
+                        <option value="desc">Descending</option>
+                    </select>
+                </div>
+
+                <p class="settings-select-hint">
+                    Applied when the file list loads. Clicking a column header
+                    still sorts by hand for the current page.
+                </p>
             </section>
 
             <!-- Server-side feature toggles -->

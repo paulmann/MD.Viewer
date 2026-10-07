@@ -1,6 +1,6 @@
 /**
  * Markdown Viewer — Client-side functionality
- * Version: 2.6.1
+ * Version: 2.7.0
  * Author: Mikhail Deynekin
  * Site: https://Deynekin.com
  * Email: Mikhail@Deynekin.com
@@ -13,8 +13,19 @@
  *   whole source file
  * - Mermaid auto-repair with English console diagnostics
  * - File browser: debounced search, tri-state sort with date columns opening
- *   newest-first, click/keyboard open
+ *   newest-first, panel-chosen default sort, click/keyboard open
  *
+ * v2.7.0: The table is sorted on load by the default chosen in the settings
+ *         panel, and the panel can re-apply that choice without a reload. The
+ *         default itself (Modified, newest first) lives in md.php, which renders
+ *         it onto the table as data-sort-default / data-sort-dir-default, so the
+ *         table carries the value it is ordered by rather than a copy of it.
+ *         sessionStorage then cookie, read with the same two key names the panel
+ *         writes (mdv_sort, mdv_sort-dir) - the scripts share no state, so those
+ *         names are the whole interface between them and are mirrored in
+ *         js/md/settings.js. An unknown or absent value changes nothing: the
+ *         server's order stands, and a click still cycles first-direction ->
+ *         opposite -> off as before.
  * v2.6.1: The Created and Modified columns of the file browser open
  *         newest-first on the first click. They used to open oldest-first like
  *         every other column, so the one order a date column exists to give
@@ -538,6 +549,29 @@ window.addEventListener('load', () => {
     // give. File, Dir and Size keep the ascending default.
     const FIRST_DIRECTION = { created: 'desc', modified: 'desc' };
 
+    const SORT_KEYS = ['file', 'dir', 'created', 'modified', 'size'];
+    const SORT_DIRECTIONS = ['asc', 'desc'];
+
+    const applySort = (key, direction) => {
+        headers.forEach((th) => {
+            th.classList.remove('asc', 'desc');
+            if (th.dataset.sort === key && direction) {
+                th.classList.add(direction);
+            }
+        });
+
+        currentSort = { key: direction ? key : null, direction };
+
+        if (!direction) {
+            reorder([...rows].sort((a, b) =>
+                (a.dataset.path || '').localeCompare(b.dataset.path || '')
+            ));
+            return;
+        }
+
+        reorder([...rows].sort((a, b) => compareRows(a, b, key, direction)));
+    };
+
     const sortTable = (key) => {
         const first = FIRST_DIRECTION[key] ?? 'asc';
         let newDirection;
@@ -549,23 +583,7 @@ window.addEventListener('load', () => {
             newDirection = null;
         }
 
-        headers.forEach((th) => {
-            th.classList.remove('asc', 'desc');
-            if (th.dataset.sort === key && newDirection) {
-                th.classList.add(newDirection);
-            }
-        });
-
-        currentSort = { key: newDirection ? key : null, direction: newDirection };
-
-        if (!newDirection) {
-            reorder([...rows].sort((a, b) =>
-                (a.dataset.path || '').localeCompare(b.dataset.path || '')
-            ));
-            return;
-        }
-
-        reorder([...rows].sort((a, b) => compareRows(a, b, key, newDirection)));
+        applySort(key, newDirection);
     };
 
     headers.forEach((th) => {
@@ -575,6 +593,50 @@ window.addEventListener('load', () => {
                 sortTable(key);
             }
         });
+    });
+
+    // ── Default sort, chosen in the settings panel ────────────────────────────
+    // The panel stores mdv_sort / mdv_sort-dir through its own storage helper
+    // (store/load in js/md/settings.js): the two scripts share no state, so the
+    // stored value is the only channel between them and these two key names are
+    // mirrored there. sessionStorage first, cookie second, exactly as that
+    // helper reads it, so a preference that survives only as a cookie still
+    // reaches the table in a fresh browser session.
+    const readSortPref = (key) => {
+        const sessionValue = sessionStorage.getItem(key);
+        if (sessionValue !== null) {
+            return sessionValue;
+        }
+        const pattern = new RegExp(
+            '(?:^|;)\\s*' + key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '=([^;]*)'
+        );
+        const match = document.cookie.match(pattern);
+        return match ? decodeURIComponent(match[1]) : null;
+    };
+
+    // A stored preference wins; otherwise the shipped default, authored once in
+    // md.php and rendered onto the table it orders. An absent attribute (a
+    // viewer paired with an older table) leaves the server's own order alone.
+    const storedSortKey = readSortPref('mdv_sort');
+    const storedSortDir = readSortPref('mdv_sort-dir');
+    const initialSortKey = SORT_KEYS.includes(storedSortKey)
+        ? storedSortKey
+        : filesTable.dataset.sortDefault;
+    const initialSortDir = SORT_DIRECTIONS.includes(storedSortDir)
+        ? storedSortDir
+        : filesTable.dataset.sortDirDefault;
+
+    if (SORT_KEYS.includes(initialSortKey) && SORT_DIRECTIONS.includes(initialSortDir)) {
+        applySort(initialSortKey, initialSortDir);
+    }
+
+    // The panel announces a change instead of reloading the page; the table is
+    // the only owner of the order, so it is applied here and nowhere else.
+    document.addEventListener('mdv:sort', (event) => {
+        const { key, direction } = event.detail || {};
+        if (SORT_KEYS.includes(key) && SORT_DIRECTIONS.includes(direction)) {
+            applySort(key, direction);
+        }
     });
 
     tbody.addEventListener('click', (e) => {
