@@ -1,6 +1,6 @@
 /**
  * Markdown Viewer — Client-side functionality
- * Version: 2.6.0
+ * Version: 2.6.1
  * Author: Mikhail Deynekin
  * Site: https://Deynekin.com
  * Email: Mikhail@Deynekin.com
@@ -12,8 +12,15 @@
  * - Unified copy-to-clipboard controls for code blocks, blockquotes and the
  *   whole source file
  * - Mermaid auto-repair with English console diagnostics
- * - File browser: debounced search, tri-state sort, click/keyboard open
+ * - File browser: debounced search, tri-state sort with date columns opening
+ *   newest-first, click/keyboard open
  *
+ * v2.6.1: The Created and Modified columns of the file browser open
+ *         newest-first on the first click. They used to open oldest-first like
+ *         every other column, so the one order a date column exists to give
+ *         cost a second click. File, Dir and Size are unchanged, and each
+ *         column still cycles first-direction -> opposite -> off; the direction
+ *         off returns to is still the original path order.
  * v2.6.0: A copy control may carry the URL of the file it copies
  *         (data-copy-source) instead of a rendered block. Its text is requested
  *         from the server on click, from the same request the download control
@@ -525,12 +532,19 @@ window.addEventListener('load', () => {
         tbody.appendChild(fragment);
     };
 
+    // Direction a column selects on its first click. A date column (Created,
+    // Modified) opens newest-first: ascending would put the newest document
+    // last and make the reader click twice for the order the column exists to
+    // give. File, Dir and Size keep the ascending default.
+    const FIRST_DIRECTION = { created: 'desc', modified: 'desc' };
+
     const sortTable = (key) => {
+        const first = FIRST_DIRECTION[key] ?? 'asc';
         let newDirection;
         if (currentSort.key !== key) {
-            newDirection = 'asc';
-        } else if (currentSort.direction === 'asc') {
-            newDirection = 'desc';
+            newDirection = first;
+        } else if (currentSort.direction === first) {
+            newDirection = first === 'asc' ? 'desc' : 'asc';
         } else {
             newDirection = null;
         }
