@@ -1,10 +1,26 @@
 <?php
 /**
  * Markdown Viewer
-  * Version: 2.17.0
+  * Version: 2.18.0
  * Author: Mikhail Deynekin
  * Site: https://Deynekin.com
  * Email: Mikhail@Deynekin.com
+ *
+ v2.18.0: a dash is not a hyphen.
+ *
+ * - FIX: Layer 7 of the whitelist carried the ASCII hyphen but no Unicode dash,
+ *   so a name written with an em dash - "Промт v2 — мастер-отчёт.md" - was
+ *   refused with "Access denied or file not found" and status 200 while the file
+ *   browser was listing that same file in the same page. Observed on an
+ *   installation: the row was in the table and the row could not be opened.
+ *   2 of 4186 .md names on one machine were refused for this character alone.
+ * - The set adds \p{Pd}, the Unicode "dash punctuation" category: 26 members,
+ *   every one of them a dash, and no ASCII the path cares about - '%', '?',
+ *   '*', ':', '"', '\\' and '/' are all \p{Po}, not \p{Pd}. This is still a
+ *   whitelist: NUL, control characters, the separators, "..", an absolute path
+ *   and the extension check run before realpath() exactly as before.
+ * - The same rule stands in mdvDirSegments() and in the updater's dirSegments();
+ *   all three moved together, as in v2.16.0.
  *
  v2.17.0: the file browser table has a default order, and the settings panel
  * chooses it. The shipped default is Modified, newest first - authored once as
@@ -690,7 +706,11 @@ function validateRequestedFile(string $file, string $baseDir): ?string
     // everything"; it is not widened again without a measured reason. Everything
     // else keeps being refused before realpath(): NUL, control characters,
     // separators, "..", an absolute path and the extension checks are untouched.
-    if (!preg_match('#^[A-Za-z0-9._\-/ \p{L}\p{M}]+$#u', $normalized)) {
+    //
+    // v2.18.0: \p{Pd} joins the set. A name written with an em dash (U+2014) was
+    // listed by the browser and refused when opened - a hyphen is ASCII, a dash
+    // is not. \p{Pd} is 26 dashes and brings no ASCII the path cares about.
+    if (!preg_match('#^[A-Za-z0-9._\-/ \p{L}\p{M}\p{Pd}]+$#u', $normalized)) {
         return null;
     }
     
@@ -810,10 +830,11 @@ function mdvDirSegments(string $dir): ?array
         return [];
     }
     // v2.16.0: the same widened whitelist as validateRequestedFile() Layer 7.
+    // v2.18.0: \p{Pd} added there too - keep the three copies byte-identical.
     // The per-directory configuration chain must agree with the path validator,
     // or a Cyrillic directory would be readable while its .md.ini stayed
     // unreachable and its DISABLE_* flags were silently skipped.
-    if (preg_match('#^[A-Za-z0-9._\-/ \p{L}\p{M}]+$#u', $normalized) !== 1) {
+    if (preg_match('#^[A-Za-z0-9._\-/ \p{L}\p{M}\p{Pd}]+$#u', $normalized) !== 1) {
         return null;
     }
     $segments = [];

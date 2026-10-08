@@ -21,8 +21,11 @@
     Case 2 (refuse): a document whose name or path carries non-ASCII letters (or
                      a space). The Layer 7 whitelist was ASCII-only, so the
                      request was refused with HTTP 200 and the error text.
+    Case 3 (refuse): a document whose name carries an em dash (U+2014). The ASCII
+                     hyphen was allowed, a dash was not, so the file browser
+                     listed the row and the row could not be opened.
 
-    Three negative cases are part of the probe: widening the whitelist must not
+    Four negative cases are part of the probe: widening the whitelist must not
     turn into "everything is allowed".
 
     Exit code 0 = every case behaves; 1 = at least one case still misbehaves.
@@ -80,6 +83,14 @@ foreach ($f in @($cyrFile, $spaceFile)) {
     Set-Content -LiteralPath $f -Encoding utf8NoBOM -Value "# Probe`n`nCyrillic content.`n"
 }
 
+# Case 3 fixture: an em dash (U+2014) in the name. The hyphen is ASCII and was
+# always allowed; a dash is not a hyphen, and this name was listed by the browser
+# and refused when opened. Built from the code point so the fixture does not
+# depend on the encoding of this file.
+$emName = 'Промт v2 ' + [char]0x2014 + ' мастер-отчёт по 5 конфигура.md'
+$emFile = Join-Path $doc $emName
+Set-Content -LiteralPath $emFile -Encoding utf8NoBOM -Value "# Probe`n`nEm dash content.`n"
+
 # A name that must STAY refused: it carries a character the whitelist has never
 # allowed.
 $percentFile = Join-Path $doc 'bad name %.md'
@@ -122,6 +133,8 @@ try {
         -Url ($base + '?file=' + [uri]::EscapeDataString('hang.md'))
     Test-Case -Label 'cyrillic file name' -MaxMs 10000 -ExpectDenied $false `
         -Url ($base + '?file=' + [uri]::EscapeDataString('SagaAI/отчёт-2026.md'))
+    Test-Case -Label 'em dash in the name' -MaxMs 10000 -ExpectDenied $false `
+        -Url ($base + '?file=' + [uri]::EscapeDataString($emName))
     Test-Case -Label 'spaces in the name' -MaxMs 10000 -ExpectDenied $false `
         -Url ($base + '?file=' + [uri]::EscapeDataString('Отчет по 17.08 - 21.08.md'))
     Test-Case -Label 'percent sign must stay refused' -MaxMs 10000 -ExpectDenied $true `

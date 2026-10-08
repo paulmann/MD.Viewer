@@ -982,10 +982,12 @@ function Test-AnchoredRegions {
     $anchors = @(
         # v2.16.0: Layer 7 widened from ASCII-only to "path characters + space +
         # Unicode letters and marks", so a Cyrillic file name or directory is now
-        # readable. The hash was updated in the same commit as the change, and the
-        # five regions this task did not touch were re-derived to confirm the
-        # recorded algorithm still reproduces them.
-        @{ File = 'md.php'; Name = 'validateRequestedFile'; Hash = '2a90acc7a9bb9421f7c6fe910bc89e363f26e9ffd72410009405755706dd499c' }
+        # readable.
+        # v2.18.0: \p{Pd} added, so a name written with an em dash is readable too.
+        # Both times the hash moved in the same commit as the change, and both
+        # times the five untowched regions were re-derived first and reproduced
+        # their recorded values, so the algorithm is confirmed rather than assumed.
+        @{ File = 'md.php'; Name = 'validateRequestedFile'; Hash = 'efd49ed6d626ea5eef477162c17dddd7ff581e064dcfad656208f5d2a2849fca' }
         @{ File = 'md.php'; Name = 'renderMarkdown'; Hash = 'bf056eb71849553e18bd29890bcdcfd0f0e12bfd9be749ca0197d5af476bc217' }
         @{ File = 'md.php'; Name = 'inlineMarkdown'; Hash = 'a48ce85095640443a65aa5042c40fa00055a44de40126bd725eb9c2f635ca5ba' }
         @{ File = 'updater.php'; Name = 'atomicWrite'; Hash = 'ad04231b756ad25873953934860c851953a4849965bf4bdd7ee6ca58a63be44b' }

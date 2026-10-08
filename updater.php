@@ -1,7 +1,7 @@
 <?php
 /**
  * Markdown Viewer — Self-Updater
- * Version: 3.13.0
+ * Version: 3.14.0
  * Author: Mikhail Deynekin
  * Site: https://Deynekin.com
  * Email: Mikhail@Deynekin.com
@@ -782,7 +782,10 @@ function dirSegments(string $dir): ?array
     // character set as validateRequestedFile() Layer 7: the path characters,
     // the space, and Unicode letters with their combining marks. Traversal,
     // separator, absolute-path, control-character and depth checks stay.
-    if (preg_match('#^[A-Za-z0-9._\-/ \p{L}\p{M}]+$#u', $normalized) !== 1) {
+    // v3.14.0: \p{Pd} joins the set, following md.php 2.18.0. A directory whose
+    // name carries an em dash was refused here while the viewer listed it, and
+    // the DISABLE_* flags of that directory were silently skipped.
+    if (preg_match('#^[A-Za-z0-9._\-/ \p{L}\p{M}\p{Pd}]+$#u', $normalized) !== 1) {
         return null;
     }
     $segments = [];
