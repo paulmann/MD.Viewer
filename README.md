@@ -550,4 +550,4 @@ Additional protections:
 
 ## License
 
-Released under the MIT License. See [LICENSE](https://github.com/paulmann/MD.Viewer/blob/main/LICENSE).
+Released under the PolyForm Noncommercial License 1.0.0. See [LICENSE](https://github.com/paulmann/MD.Viewer/blob/main/LICENSE).
