@@ -205,7 +205,7 @@ API_KEY = mdv_your_generated_key_here
 |---|---|---|
 | `DISABLE_UPLOAD` | `true` | Upload बटन छिपाता और अक्षम करता है |
 | `DISABLE_CLIPBOARD` | `false` | Clipboard Preview बटन छिपाता और अक्षम करता है |
-| `API_KEY` | auto-generated | मशीन API के लिए गोपनीय कुंजी (`?api_key=[redacted]; JSON इंस्टॉल के लिए आवश्यक |
+| `API_KEY` | auto-generated | Secret key for the machine API (`?api_key=`); required for JSON installs |
 | `DISABLE_SAVE_CLIPBOARD_TO_FILE` | `true` | क्लिपबोर्ड पूर्वावलोकन में Save to File छिपाता है |
 | `ALLOW_UPDATE` | `false` | अपडेट सिस्टम सक्षम करता है (सेटिंग्स पैनल + `?update=true`) |
 | `ALLOW_RESTORE` | `false` | Backup & Restore अनुभाग और `?restore=` URL मोड सक्षम करता है |
